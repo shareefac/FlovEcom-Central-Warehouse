@@ -18,16 +18,17 @@ final class RmFixtures
 
     /**
      * 0706703000: main party Vape and Go, serving Vape and Go, Electrofag and Hayati Vapes (no shop) from 2020, its channels and its rules
-     * (manual names nobody, WooCommerce and # Hayati, 7 digits Vape and Go).
+     * (manual names nobody, WooCommerce and # Hayati, 7 digits Vape and Go; with Electrofag: the API channel and 4 digits below its first CW
+     * order number 5457 its before CW start, DL78).
      *
      * @return array{account: int, vpg_party: int, ef_party: ?int, hayati: int}
      */
     public static function account(Db $db, int $vpg, ?int $ef = null, string $state = 'active', string $number = self::ACCOUNT): array
     {
-        $party = static fn (string $code, string $name, ?int $ch): int => (int) ($db->value('SELECT id FROM delivery_party WHERE code = ?', [$code])
-            ?? $db->insert('INSERT INTO delivery_party (code, name, channel_id) VALUES (?, ?, ?)', [$code, $name, $ch]));
+        $party = static fn (string $code, string $name, ?int $ch, ?int $first = null): int => (int) ($db->value('SELECT id FROM delivery_party WHERE code = ?', [$code])
+            ?? $db->insert('INSERT INTO delivery_party (code, name, channel_id, first_order_no) VALUES (?, ?, ?, ?)', [$code, $name, $ch, $first]));
         $p = $party('vapeandgo', 'Vape and Go', $vpg);
-        $e = $ef === null ? null : $party('electrofag', 'Electrofag', $ef);
+        $e = $ef === null ? null : $party('electrofag', 'Electrofag', $ef, 5457);
         $h = $party('hayativapes', 'Hayati Vapes', null);
         $a = $db->insert("INSERT INTO carrier_account (carrier, account_no, name, bill_format, label_source, key_name, main_party_id, state) VALUES ('royal_mail', ?, "
             . "'Royal Mail OBA', 'rm_oba_page', 'click_and_drop', 'click_and_drop_0706703000', ?, ?)", [$number, $p, $state]);
@@ -40,6 +41,9 @@ final class RmFixtures
         }
         $db->exec('INSERT INTO carrier_party_rule (account_id, priority, channel_code, ref_form, party_id) VALUES '
             . "(?, 1, 'manual', NULL, NULL), (?, 2, 'woocommerce', NULL, ?), (?, 3, NULL, 'hash_digits', ?), (?, 4, NULL, 'digits_7', ?)", [$a, $a, $h, $a, $h, $a, $p]);
+        if ($e !== null) {
+            $db->exec("INSERT INTO carrier_party_rule (account_id, priority, channel_code, ref_form, party_id, before_first) VALUES (?, 5, 'api', 'digits_4', ?, 1)", [$a, $e]);
+        }
         return ['account' => $a, 'vpg_party' => $p, 'ef_party' => $e, 'hayati' => $h];
     }
 

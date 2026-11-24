@@ -116,17 +116,22 @@ final class RoyalMailBillPageTest extends TestCase
         yield 'gross a penny off' => [static fn (): string => RmBill::page([RmBill::line('2026-11-09', 'TPL', 1, 254, '1', null, 'T', 306)],
             ['net' => 254, 'vat' => 51, 'gross' => 305]), 'gross add up'];
         yield 'VAT not gross - net' => [static fn (): string => RmBill::page($w, ['vat' => $t['vat'] + 1, 'gross' => $t['gross']]), 'VAT is not its total'];
-        yield 'unknown product' => [static fn (): string => RmBill::page([RmBill::line('2026-11-09', 'XY9', 1, 100, '1')]), 'product XY9 is one CW does not know'];
+        // the coordinator, 24 Nov 2026 (D1): the code and its line named, nothing stored, and the bill sent to the CW team
+        yield 'unknown product' => [static fn (): string => RmBill::page([RmBill::line('2026-11-09', 'TPL', 1, 254, '1'), RmBill::line('2026-11-09', 'XY9', 1, 100, '1')]),
+            'Royal Mail bill not read: line 2 of the bill (9 Nov 2026) has product XY9, which CW does not know. Send this bill to the CW team: the product must be '
+            . 'added to CW before this bill can be read. Nothing was saved.'];
         // the Codex check r2: a 3-letter word may be a name (LOW 16: named only with a digit); an amount on the description line of the page's
         // text (MEDIUM 5); a zero-rated row with VAT offset by another (LOW 18); the top block naming two invoice numbers (r1 MEDIUM 13 PARTLY)
-        yield 'a 3-letter product' => [static fn (): string => RmBill::page([RmBill::line('2026-11-09', 'ADA', 1, 100, '1')]), 'its product is one CW does not know'];
+        yield 'a 3-letter product' => [static fn (): string => RmBill::page([RmBill::line('2026-11-09', 'ADA', 1, 100, '1')]),
+            'line 1 of the bill (9 Nov 2026) has a product CW does not know. Send this bill to the CW team'];
         yield 'an amount on the description line' => [static fn (): string => str_replace('A DESCRIPTION OF THE PRODUCT', 'A DESCRIPTION GBP 5.00',
             RmBill::spaced([RmBill::line('2026-11-09', 'TPL', 1, 254, '943')])), 'row 1: an amount where the description is'];
         yield 'zero-rated rows with VAT that cancels' => [static fn (): string => RmBill::page([RmBill::line('2026-11-09', 'TSS', 1, 1000, '', null, 'Z', 1001),
             RmBill::line('2026-11-09', 'TSS', 1, 1000, '', null, 'Z', 999)]), 'row 1: a zero-rated line with VAT'];
         yield 'two invoice numbers in the top block' => [static fn (): string => str_replace('<body>', '<body><style>.x { display: none }</style><p class="x">Invoice: 9070009999</p>',
             RmBill::page($w)), 'the bill shows two different invoice numbers'];
-        yield 'unknown product, a name shape' => [static fn (): string => RmBill::page([RmBill::line('2026-11-09', 'SMITHJ', 1, 100, '1')]), 'its product is one CW does not know'];
+        yield 'unknown product, a name shape' => [static fn (): string => RmBill::page([RmBill::line('2026-11-09', 'SMITHJ', 1, 100, '1')]),
+            'line 1 of the bill (9 Nov 2026) has a product CW does not know. Send this bill to the CW team: the product must be added to CW before this bill can be read.'];
         yield 'quantity not whole' => [static fn (): string => str_replace('>5.000<', '>5.500<', RmBill::page($w)), 'row 1: its Quantity is not a whole number'];
         yield 'not pounds' => [static fn (): string => str_replace('Total Price Net:</td><td>GBP', 'Total Price Net:</td><td>EUR', RmBill::page($w)), 'net total'];
         yield 'no line table' => [static fn (): string => str_replace('Product Number', 'Product', RmBill::page($w)), 'cannot find the table'];

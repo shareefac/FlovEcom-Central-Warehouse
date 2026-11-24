@@ -111,6 +111,21 @@ final class RoyalMailScreensTest extends KernelUiTestCase
         self::assertSame(422, $no->status);
         self::assertStringContainsString(Words::DELIVERY['rm_no_account'], $no->text());
         $r = $this->upload($job, ['carrier' => 'royal_mail', 'account' => (string) $acct], $path);
+        // checked first (the coordinator, 24 Nov 2026, D3; the plan's section 6 step 3; DL79): what CW read and where its money would go,
+        // nothing stored yet; then Store
+        self::assertSame(200, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_invoice'), 'nothing stored by the check');
+        self::assertStringContainsString(Words::say('DELIVERY', 'rm_check_title', '9070000001'), $r->text());
+        self::assertSame([[Words::DELIVERY['account'], '0706703000'], [Words::DELIVERY['rm_bill_date'], '16 Nov 2026'], [Words::DELIVERY['days'], '8 Nov 2026 - 9 Nov 2026'],
+            [Words::DELIVERY['rm_check_ties'], Words::DELIVERY['rm_yes']], [Words::DELIVERY['rm_rows_title'], '2'], [Words::DELIVERY['net'], '£6.13'],
+            [Words::DELIVERY['vat'], '£1.23'], [Words::DELIVERY['gross'], '£7.36']], self::rows($r, 'delivery-rm-check-facts'));
+        $check = self::rows($r, 'delivery-rm-check');
+        self::assertSame([Words::say('DELIVERY', 'rm_group_order', 'Vape and Go'), Words::say('DELIVERY', 'rm_group_shop', 'Vape and Go'),
+            Words::say('DELIVERY', 'rm_group_day_line', 'Vape and Go')], array_column(array_slice($check, 0, 3), 0));
+        self::assertSame(['£5.08', '£3.59', '-£2.54', '£6.13'], array_column($check, 1), 'the same split the bill\'s page shows once stored');
+        self::assertStringNotContainsString('SESSION-', $r->body, 'a hidden input of the saved page is never shown');
+        self::assertTrue($r->hasForm('/ui/profit/delivery/store'));
+        $r = $job->post('/ui/profit/delivery/store', $r->form('/ui/profit/delivery/store'));
         self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
         $id = (int) self::$db->value("SELECT id FROM carrier_invoice WHERE status = 'live'");
         $page = $fin->get("/ui/profit/delivery/{$id}");
@@ -137,6 +152,12 @@ final class RoyalMailScreensTest extends KernelUiTestCase
         $form = $job->get("/ui/profit/delivery/{$id}")->form("/ui/profit/delivery/{$id}/replace");
         $text = RmBill::text([RmBill::line('2026-11-09', 'TPL', 3, 762, '943'), RmBill::line('2026-11-08', 'RW4', 1, 105, 'Rectification Week 45')], ['invoice' => '9070000001']);
         $rep = $job->postMultipart("/ui/profit/delivery/{$id}/replace", ['text' => $text] + $form, []);
+        self::assertSame(200, $rep->status, $rep->describe() . ' ' . implode(' | ', self::$log));
+        self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM carrier_invoice'), 'nothing stored by the check');
+        self::assertStringContainsString(Words::say('DELIVERY', 'rm_check_replaces', '9070000001', \CW\Ui\Html::when((string) self::$db->value('SELECT uploaded_at FROM '
+            . 'carrier_invoice WHERE id = ?', [$id]))), $rep->text());
+        self::assertSame(['£5.08', '£3.59', '£8.67'], array_column(self::rows($rep, 'delivery-rm-check'), 1));
+        $rep = $job->post('/ui/profit/delivery/store', $rep->form('/ui/profit/delivery/store'));
         self::assertSame(303, $rep->status, $rep->describe() . ' ' . implode(' | ', self::$log));
         $new = (int) self::$db->value("SELECT id FROM carrier_invoice WHERE status = 'live'");
         self::assertNotSame($id, $new);
@@ -148,5 +169,47 @@ final class RoyalMailScreensTest extends KernelUiTestCase
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_allocation WHERE ended_at IS NULL'));
         self::assertSame(0, \CW\Profit\DeliveryBills::orderCost(self::$db, $ch, '100'));
         self::assertSame([], RoyalMailBills::drift(self::$db, $acct));
+    }
+
+    /**
+     * The coordinator, 24 Nov 2026 (D3; DL79): Store takes the bill the check READ (kept in CW, never the file), only for who checked it, once,
+     * within its time; the Delivery bills job only, with the form's token; each check and each store in the audit.
+     */
+    public function testStoreTakesTheCheckedBillOnceAndOnlyForWhoCheckedIt(): void
+    {
+        [, $acct] = $this->shop();
+        $job = $this->signIn($this->uiUser('delivery_bills'));
+        $other = $this->signIn($this->uiUser('delivery_bills'));
+        $fin = $this->signIn($this->uiUser('finance'));
+        $path = $this->dir . '/bill.html';
+        file_put_contents($path, RmBill::page([RmBill::line('2026-11-09', 'TPL', 2, 508, '943')], ['invoice' => '9070000002']));
+        $form = $this->upload($job, ['carrier' => 'royal_mail', 'account' => (string) $acct], $path)->form('/ui/profit/delivery/store');
+        $kept = (string) self::$db->value('SELECT bill FROM carrier_bill_check');
+        foreach (['SESSION-', 'Made Up Street', 'A DESCRIPTION OF THE PRODUCT', '<td'] as $never) {
+            self::assertStringNotContainsString($never, $kept, 'the bill as read, never the file');
+        }
+        self::assertSame(hash('sha256', (string) file_get_contents($path)), (string) self::$db->value('SELECT file_sha256 FROM carrier_bill_check'));
+        $gone = static fn (UiResponse $r): bool => $r->status === 409 && str_contains($r->text(), Words::say('DELIVERY', 'rm_check_gone', (string) RoyalMailBills::CHECK_MINUTES));
+        self::assertSame(403, $fin->post('/ui/profit/delivery/store', ['csrf' => $this->token($fin)] + $form)->status, 'Finance looks only');
+        self::assertSame(403, $job->post('/ui/profit/delivery/store', ['csrf' => ''] + $form)->status, 'the form\'s token');
+        self::assertTrue($gone($other->post('/ui/profit/delivery/store', ['csrf' => $this->token($other)] + $form)), 'another person\'s check');
+        self::assertTrue($gone($job->post('/ui/profit/delivery/store', ['bill_sha256' => str_repeat('0', 64)] + $form)), 'another reading');
+        self::assertTrue($gone($job->post('/ui/profit/delivery/store', ['check' => str_repeat('0', 64)] + $form)), 'another token');
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_invoice'));
+        // out of time: refused; checked again: stored, once
+        self::$db->exec('UPDATE carrier_bill_check SET created_at = created_at - INTERVAL 2 HOUR, expires_at = created_at + INTERVAL 20 MINUTE');
+        self::assertTrue($gone($job->post('/ui/profit/delivery/store', $form)), 'out of time');
+        $form = $this->upload($job, ['carrier' => 'royal_mail', 'account' => (string) $acct], $path)->form('/ui/profit/delivery/store');
+        self::assertSame(303, $job->post('/ui/profit/delivery/store', $form)->status);
+        self::assertTrue($gone($job->post('/ui/profit/delivery/store', $form)), 'once');
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM carrier_invoice WHERE status = 'live'"));
+        self::assertSame(2, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'delivery_bill.check'"));
+        $up = json_decode((string) self::$db->value("SELECT detail FROM audit_log WHERE action = 'delivery_bill.upload'"), true);
+        self::assertSame(hash('sha256', (string) file_get_contents($path)), $up['file_sha256'] ?? null, 'the store names the file its check read');
+        // the same bill checked again: in the profit already, nothing to store
+        $same = $this->upload($job, ['carrier' => 'royal_mail', 'account' => (string) $acct], $path);
+        self::assertSame(200, $same->status, $same->describe());
+        self::assertStringContainsString(Words::DELIVERY['rm_check_same'], $same->text());
+        self::assertFalse($same->hasForm('/ui/profit/delivery/store'));
     }
 }

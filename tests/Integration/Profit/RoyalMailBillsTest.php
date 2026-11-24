@@ -394,6 +394,56 @@ final class RoyalMailBillsTest extends StockTestCase
         return ['code' => proc_close($p), 'out' => $out];
     }
 
+    public function testElectrofagsLabelsBelowItsFirstCwOrderAreItsBeforeCwStart(): void
+    {
+        // The coordinator, 24 Nov 2026 (D2; DL78): on 0706703000 a label on NO CW parcel, channel api, a reference of exactly 4 digits BELOW
+        // Electrofag's first CW order number (a setting: 5457) is Electrofag's before CW start, whatever its day (an order of 16 Nov sent on 17 Nov
+        // is still before); at or above it, another shape or another channel: held as before; on a CW parcel: its order (tracking first).
+        $day = '2026-11-12'; // after both shops' CW start (28 Oct): the reference decides, not the day
+        self::order($this->ef, '2002', '5450', '2026-11-12T09:00:00Z', ['JV000000110GB' => $day . 'T10:00:00Z']);
+        self::rm()->importLabels(self::system(), $this->acct['account'], [
+            RmFixtures::label('JV000000101GB', 'TPL48HV', $day, '5456'),
+            RmFixtures::label('JV000000102GB', 'TPL48HV', $day, '0999'),
+            RmFixtures::label('JV000000103GB', 'TPL48HV', $day, '5457'),
+            RmFixtures::label('JV000000104GB', 'TPL48HV', $day, '5456', ['channel_code' => 'manual']),
+            RmFixtures::label('JV000000105GB', 'TPL48HV', $day, '545'),
+            RmFixtures::label('JV000000106GB', 'TPL48HV', $day, '5400', ['channel_code' => 'woocommerce']),
+            RmFixtures::label('JV000000110GB', 'TPL48HV', $day, '5450'),
+        ], 'report');
+        $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 7, 7 * 254, '943')], ['invoice' => '9070000001']))['invoice_id'];
+        $label = static fn (string $t): array => array_map('strval', (array) self::$db->one('SELECT a.dest, COALESCE(a.channel_id, a.party_id, a.held_reason) AS who '
+            . 'FROM carrier_allocation a JOIN carrier_label l ON l.id = a.label_id WHERE l.tracking_no = ? AND a.ended_at IS NULL', [$t]));
+        $want = ['JV000000101GB' => ['before_start', (string) $this->ef], 'JV000000102GB' => ['before_start', (string) $this->ef],
+            'JV000000103GB' => ['held', 'shop_unknown'], 'JV000000104GB' => ['held', 'shop_unknown'], 'JV000000105GB' => ['held', 'shop_unknown'],
+            'JV000000106GB' => ['party', (string) $this->acct['hayati']], 'JV000000110GB' => ['order', (string) $this->ef]];
+        foreach ($want as $t => $w) {
+            self::assertSame(['dest' => $w[0], 'who' => $w[1]], $label($t), $t);
+        }
+        self::assertSame(["before_start|{$this->ef}|" => 508, 'held||shop_unknown' => 762, "order|{$this->ef}|" => 254, "party|{$this->acct['hayati']}|" => 254], self::where($id));
+        $this->assertRebuilds();
+
+        // the setting through the account tool (audited, under the bills' lock): 5458 makes the label of 5457 Electrofag's before CW start too,
+        // by the next re-plan; a party with no shop, or a number that is not one, is refused
+        $set = self::script('carrier_account', '--party=electrofag', '--first-order=5458');
+        self::assertSame(0, $set['code'], $set['out']);
+        self::assertStringContainsString('electrofag: first CW order number 5458 (was 5457)', $set['out']);
+        self::assertSame(['first_order_no' => [5457, 5458]], json_decode((string) self::$db->value("SELECT detail FROM audit_log WHERE action = 'delivery_party.set'"), true));
+        self::assertSame(1, self::script('carrier_account', '--party=hayativapes', '--first-order=10')['code'], 'a party with no shop in CW');
+        self::assertSame(2, self::script('carrier_account', '--party=electrofag', '--first-order=12ab')['code']);
+        self::assertSame(2, self::script('carrier_account', '--party=electrofag', '--first-order=0')['code']);
+        self::assertSame('5458', (string) self::$db->value("SELECT first_order_no FROM delivery_party WHERE code = 'electrofag'"));
+        self::rm()->replan(self::system(), $this->acct['account']);
+        self::assertSame(['dest' => 'before_start', 'who' => (string) $this->ef], $label('JV000000103GB'));
+        self::assertSame(["before_start|{$this->ef}|" => 762, 'held||shop_unknown' => 508, "order|{$this->ef}|" => 254, "party|{$this->acct['hayati']}|" => 254], self::where($id));
+        $this->assertRebuilds();
+
+        // no number set: the rule never fits (held, as before the rule)
+        self::$db->exec('UPDATE delivery_party SET first_order_no = NULL WHERE id = ?', [(int) $this->acct['ef_party']]);
+        self::rm()->replan(self::system(), $this->acct['account']);
+        self::assertSame(['held||shop_unknown' => 1270, "order|{$this->ef}|" => 254, "party|{$this->acct['hayati']}|" => 254], self::where($id));
+        $this->assertRebuilds();
+    }
+
     public function testTheServerToolsCheckStoreAndPrintNoLine(): void
     {
         $dir = sys_get_temp_dir() . '/cw_rm_tool_' . bin2hex(random_bytes(4));

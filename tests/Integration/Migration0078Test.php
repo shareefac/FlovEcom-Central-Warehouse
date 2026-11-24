@@ -38,7 +38,7 @@ final class Migration0078Test extends IntegrationTestCase
             'nothing deleted, changed or dropped (only the CHECK the link replaces)');
         foreach ($statements as $st) {
             self::assertMatchesRegularExpression('/^(CREATE TABLE IF NOT EXISTS (carrier|delivery_party|carrier_account|carrier_account_party|carrier_channel|carrier_party_rule|'
-                . 'carrier_product|carrier_band|carrier_label|carrier_label_pull|carrier_bill_row|carrier_allocation) |INSERT INTO (carrier|delivery_party|carrier_account|'
+                . 'carrier_product|carrier_band|carrier_label|carrier_label_pull|carrier_bill_row|carrier_allocation|carrier_bill_check) |INSERT INTO (carrier|delivery_party|carrier_account|'
                 . 'carrier_account_party|carrier_channel|carrier_party_rule|carrier_product|carrier_band) |SET @cw_0078_carrier = |(PREPARE|EXECUTE|DEALLOCATE PREPARE) '
                 . 'cw_0078_carrier)/', $st);
         }
@@ -51,6 +51,7 @@ final class Migration0078Test extends IntegrationTestCase
         self::assertSame(['Select', 'Insert'], Grants::desired('carrier_bill_row'), 'a bill row as printed: never changed');
         self::assertSame(['Select', 'Insert'], Grants::desired('carrier_allocation'));
         self::assertSame(['ended_at'], Grants::UPDATE_COLUMNS['carrier_allocation'], 'an allocation is only ended');
+        self::assertSame(['Select', 'Insert', 'Update', 'Delete'], Grants::desired('carrier_bill_check'), 'a check is taken once, and gone a day after it expires (DL79)');
 
         $files = array_map('basename', glob(dirname(__DIR__, 2) . '/migrations/*.sql') ?: []);
         sort($files, SORT_STRING);
@@ -74,7 +75,7 @@ final class Migration0078Test extends IntegrationTestCase
         $new = array_values(array_diff($db->column('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()'), $tables));
         sort($new);
         self::assertSame(['carrier', 'carrier_account', 'carrier_account_party', 'carrier_allocation', 'carrier_band', 'carrier_bill_row', 'carrier_channel', 'carrier_label',
-            'carrier_label_pull', 'carrier_party_rule', 'carrier_product', 'delivery_party'], $new);
+            'carrier_label_pull', 'carrier_party_rule', 'carrier_product', 'delivery_party', 'carrier_bill_check'], $new);
         self::assertSame($before, [$db->all('SELECT * FROM carrier_invoice'), $db->all('SELECT * FROM carrier_invoice_line'), $db->all('SELECT * FROM profit_day')],
             'the DPD bill, its line and the day summary as they were');
         $constraints = static fn (): array => array_map('strval', $db->column("SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() "
@@ -86,8 +87,9 @@ final class Migration0078Test extends IntegrationTestCase
 
         // the seeds
         self::assertSame([['dpd', 'DPD', 'per_parcel'], ['royal_mail', 'Royal Mail', 'pooled']], self::rows($db, 'SELECT code, name, family FROM carrier ORDER BY code'));
-        self::assertSame([['electrofag', (string) $ef], ['hayativapes', null], ['vapeandgo', (string) $vpg], ['vapebig', (string) $vb]],
-            self::rows($db, 'SELECT code, channel_id FROM delivery_party ORDER BY code'));
+        // Electrofag's first CW order number, a setting (the coordinator, 24 Nov 2026, D2; DL78): 5457, never worked out from data
+        self::assertSame([['electrofag', (string) $ef, '5457'], ['hayativapes', null, null], ['vapeandgo', (string) $vpg, null], ['vapebig', (string) $vb, null]],
+            self::rows($db, 'SELECT code, channel_id, first_order_no FROM delivery_party ORDER BY code'));
         self::assertSame([
             ['dpd', '3012002', 'dpd_csv', 'connector', null, 'vapeandgo', 'active'],
             ['royal_mail', '0706703000', 'rm_oba_page', 'click_and_drop', 'click_and_drop_0706703000', 'vapeandgo', 'active'],
@@ -98,9 +100,10 @@ final class Migration0078Test extends IntegrationTestCase
             self::rows($db, 'SELECT a.account_no, p.code FROM carrier_account_party ap JOIN carrier_account a ON a.id = ap.account_id JOIN delivery_party p ON p.id = ap.party_id '
                 . 'ORDER BY a.account_no, p.code'));
         self::assertSame([['api'], ['manual'], ['woocommerce']], self::rows($db, 'SELECT code FROM carrier_channel ORDER BY code'));
-        self::assertSame([['0706703000', '1', 'manual', null, null], ['0706703000', '2', 'woocommerce', null, 'hayativapes'], ['0706703000', '3', null, 'hash_digits', 'hayativapes'],
-            ['0706703000', '4', null, 'digits_7', 'vapeandgo'], ['vapebig-pending', '1', null, 'digits_5', 'vapebig']],
-            self::rows($db, 'SELECT a.account_no, r.priority, r.channel_code, r.ref_form, p.code FROM carrier_party_rule r JOIN carrier_account a ON a.id = r.account_id '
+        self::assertSame([['0706703000', '1', 'manual', null, null, '0'], ['0706703000', '2', 'woocommerce', null, 'hayativapes', '0'],
+            ['0706703000', '3', null, 'hash_digits', 'hayativapes', '0'], ['0706703000', '4', null, 'digits_7', 'vapeandgo', '0'],
+            ['0706703000', '5', 'api', 'digits_4', 'electrofag', '1'], ['vapebig-pending', '1', null, 'digits_5', 'vapebig', '0']],
+            self::rows($db, 'SELECT a.account_no, r.priority, r.channel_code, r.ref_form, p.code, r.before_first FROM carrier_party_rule r JOIN carrier_account a ON a.id = r.account_id '
                 . 'LEFT JOIN delivery_party p ON p.id = r.party_id ORDER BY a.account_no, r.priority'));
         self::assertSame([['RW4', 'surcharge', null], ['RX1', 'wrong_weight', null], ['RXA', 'wrong_weight', null], ['SD1', 'band', 'SD1'], ['TPL', 'flat', 'TPL48HV'],
             ['TPM', 'flat', 'TPM24HV'], ['TRN', 'flat', 'TRN24'], ['TSS', 'return', null]],
@@ -123,6 +126,25 @@ final class Migration0078Test extends IntegrationTestCase
             [$acct])));
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $db->exec("INSERT INTO carrier_channel (account_id, code, name) VALUES (?, 'other', 'x')", [$acct])),
             '"other" is what a label keeps for a channel the account does not know');
+        // a before-start rule names a party and a number of digits (DL78); a first order number is a shop's
+        $efParty = (int) $db->value("SELECT id FROM delivery_party WHERE code = 'electrofag'");
+        foreach ([[null, $efParty, 1], ['hash_digits', $efParty, 1], ['digits_4', null, 1], ['digits_4', $efParty, 2]] as [$form, $party, $flag]) {
+            self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $db->exec('INSERT INTO carrier_party_rule (account_id, priority, channel_code, ref_form, party_id, '
+                . "before_first) VALUES (?, 9, 'api', ?, ?, ?)", [$acct, $form, $party, $flag])), json_encode([$form, $party, $flag], JSON_THROW_ON_ERROR));
+        }
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $db->exec("INSERT INTO delivery_party (code, name, first_order_no) VALUES ('noshop', 'No shop', 10)")),
+            'a first CW order number is a shop\'s');
+        // a bill checked on the screen keeps the bill as read and the sha256s, never the file (DL79)
+        $user = $db->insert("INSERT INTO staff_user (username, display_name, password_hash) VALUES ('m78', 'M 78', 'x')");
+        $check = static fn (array $over = []): int => $db->insert('INSERT INTO carrier_bill_check (token_sha256, staff_user_id, account_id, file_sha256, bill_sha256, bill, '
+            . 'created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', array_values(array_replace(['t' => str_repeat('c', 64), 'u' => $user, 'a' => $acct,
+                'f' => str_repeat('d', 64), 'b' => str_repeat('e', 64), 'j' => '{"rows": []}', 'c' => '2026-11-24 10:00:00', 'x' => '2026-11-24 10:20:00'], $over)));
+        $check();
+        foreach ([['t' => str_repeat('C', 64)], ['t' => str_repeat('f', 64), 'j' => 'not json'], ['t' => str_repeat('a', 64), 'x' => '2026-11-24 09:00:00'],
+            ['t' => str_repeat('b', 64), 'f' => 'x']] as $bad) {
+            self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $check($bad)), json_encode($bad, JSON_THROW_ON_ERROR));
+        }
+        self::assertSame(1062, self::err(static fn () => $check()), 'a token is one check\'s');
 
         // The Codex check r1, MEDIUM 14: Vape Big's account renumbered (bin/carrier_account.php), then every statement again: no second account.
         $db->exec("UPDATE carrier_account SET account_no = '0706799999' WHERE account_no = 'vapebig-pending'");
