@@ -47,20 +47,20 @@ final class ExpensesOwnerAnswersTest extends MappingTestCase
         $s->add($job, $this->form());
         $c = $s->add($job, $this->form(['credit' => true, 'invoice_no' => 'CN-0042', 'net' => '10.42', 'vat' => '2.08', 'invoice_date' => '2026-11-20']));
         self::assertSame([-1042, -208, -1250], array_map('intval', array_values(self::$db->one('SELECT net_pence, vat_pence, total_pence FROM expense WHERE id = ?', [$c['id']]))));
-        self::assertSame(['net' => 6420 - 1042, 'vat' => 1284 - 208, 'total' => 7704 - 1250, 'count' => 2],
+        self::assertSame(['net' => 6420 - 1042, 'vat' => 1284 - 208, 'total' => 7704 - 1250, 'count' => 2, 'credits' => 1],
             (new ExpenseViews(self::$db))->expensesBy('2026-11-01', '2026-11-30', null)[$this->vpg]);
         // Typed as printed, without a minus: a minus typed is refused; a credit of nothing too.
         self::refused(422, 'bad_net', fn () => $s->add($job, $this->form(['credit' => true, 'invoice_no' => 'CN-1', 'net' => '-10.42'])));
         self::refused(422, 'bad_net', fn () => $s->add($job, $this->form(['credit' => true, 'invoice_no' => 'CN-2', 'net' => '0'])));
         // Guarded as an invoice: the same credit note twice asks; an invoice of the same number is not a credit note twice.
         self::refused(409, 'same_invoice', fn () => $s->add($job, $this->form(['credit' => true, 'invoice_no' => 'CN-0042', 'net' => '10.42', 'vat' => '2.08'])));
-        $s->add($job, $this->form(['invoice_no' => 'CN-0042', 'net' => '5.00', 'vat' => '1.00']));
+        $inv = $s->add($job, $this->form(['invoice_no' => 'CN-0042', 'net' => '5.00', 'vat' => '1.00']));
         // A change keeps it a credit note (or makes an invoice one), with its history; the state says minus.
         $s->change($job, $c['id'], 1, $this->form(['credit' => true, 'invoice_no' => 'CN-0042', 'net' => '10.50', 'vat' => '2.10', 'invoice_date' => '2026-11-20',
             'new_supplier' => false]));
         self::assertSame(-1050, (int) self::$db->value('SELECT net_pence FROM expense WHERE id = ?', [$c['id']]));
         $s->change($job, $c['id'], 2, $this->form(['credit' => false, 'invoice_no' => 'CN-0042', 'net' => '10.50', 'vat' => '2.10', 'invoice_date' => '2026-11-20',
-            'new_supplier' => false]), null, true);
+            'new_supplier' => false]), null, (string) $inv['id']);
         self::assertSame(1050, (int) self::$db->value('SELECT net_pence FROM expense WHERE id = ?', [$c['id']]));
         self::assertSame(['add', 'change', 'change'], self::$db->column("SELECT action FROM expense_history WHERE subject = 'expense' AND subject_id = ? ORDER BY version", [$c['id']]));
         self::assertSame([], ExpenseInvariants::check(self::$db));
