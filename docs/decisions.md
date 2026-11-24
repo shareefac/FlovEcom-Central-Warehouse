@@ -20169,7 +20169,7 @@ goes on the line's order like the others; a file without the column (the weeks b
 (a column CW did not know, with amounts in it). Tested with a synthetic file only. (DPD account 3012002 stays Vape and Go's only: the
 owner, 23 Nov 2026, Electrofag does not use DPD.)
 
-## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL85; migration 0078)
+## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL86; migration 0078)
 
 <!-- ---- Shipping plan v3 phase 1 (0078): DL43-DL70. ---- -->
 The plan: `cw_work/delivery_cost_20261123/SHIPPING_PLAN_v3.md` (its money rules and the owner's decisions Q1-Q8 of 23 Nov 2026 are the spec);
@@ -20680,6 +20680,85 @@ matching label naming a sales order of a priced group and a manifest of a waitin
 own guarded writes (DL83's due days), like DL84 3's import windows: until that write commits (or, busy, the next plan) the priced group's
 money stands. Closing it means withdrawing in the import's own transaction, under the order guards of every group it touches (a weekly
 import touches thousands of orders: one guarded write too big for the 3-second hold).
+
+**DL86. NO HOLD: NO MONEY WAITS BECAUSE THE EVIDENCE DISAGREES (the owner, 24 Nov 2026, CW chat, after GBP examples; the lead's design, round 11).**
+The owner's words: about 11:05 UK "your 1% rule is fine. but still why we keeping it on hold ?"; about 11:15 UK "yes no hold", to "Remove the
+hold: every day goes through, odd amounts on 'not on an order', and a red 'needs a look' above 1%". The examples he was shown: on 2 Nov one
+Vape and Go parcel missing from the report held the whole day, £3,173; now all ~1,250 orders get their cost, the missing parcel's £2.54 goes
+on Vape and Go's "not on an order" line and is on a "needs a look" list. On 3 Nov, 653 labels and 656 billed: the 653 orders get £2.54 each,
+the 3 extra (£7.51) go on "not on an order". It replaces DL84 3 (a) and (b), DL84 4's group waits and DL84 5, and what DL85 built on them.
+1. THE ONLY WAITS LEFT: (a) a day covered by no uploaded "Manifested Orders" report (`not_covered`: it clears by itself when staff upload the
+   report run for it); (b) an account switched off (`account_off`, DL80: Vape Big's until its first bill ties). A key (a day x product, a
+   Special Delivery manifest, a wrong-weight sales order, a row on its own) waits whole while a day of it waits: its rows' service days and,
+   for a manifest or a sales order, its labels' manifest days (a label always comes with its report's cover: in the app those are covered).
+   On or before the main shop's CW start a day never waits (DL84 6). The health alert's `rm_days_waiting` counts (a) only.
+2. TRACKED (TPL, TPM, TRN): the day book of DL56 per account x service day x product. Every label of a covered day takes the day's price:
+   on its order when the CW parcel passes checks a-e (plan section 2), else its party's bucket (Hayati Vapes, Electrofag before start, not on
+   an order, held "shop not known") as built. BILLED MORE than labels (the units of every live bill of the day x product above the labels
+   priced): the rest of every row of the day (after its labels' prices; a later bill's row whole) goes to the account's MAIN shop's "not on
+   an order" (Vape and Go for 0706703000; before CW start on or before its start), never split with the other shops: the bill's page shows it
+   as the day's one line "N billed, no label found". BILLED FEWER (or as many): the day's line "N labels not charged" split by the label
+   holders' shares as built (DL56), and a later bill's row of that day takes back from it (as built). So, 3 Nov: 653 labels at £2.54, the 3
+   extra (£7.51, the rest of the day) on Vape and Go's "not on an order".
+3. A CW ROYAL MAIL PARCEL OF A COVERED DAY IN NO REPORT (a manual Royal Mail parcel too: carrier manual, or none with the manual flag, and a
+   Royal Mail tracking number; the Codex check r10 #10): NO HOLD. It is on the "needs a look" list (parcel, day, shop, "not in a Click & Drop
+   report"); it gets no cost; the unit Royal Mail billed for it lands in the day's billed-more line (2). A later report import that has it
+   gives it the day's price from that day's line (the import's due day, planned in one guarded write).
+4. A LABEL WITH NO SERVICE, A SERVICE CW DOES NOT MAP (to a Tracked or Special Delivery product), OR ANOTHER SERVICE THAN ITS CW PARCEL'S: NO
+   HOLD. It is on the "needs a look" list (label, day, the report's service, CW's service) and gets no price (left out of the day book and of
+   its manifest); a unit billed for it falls into its product's billed-more line (2).
+5. SPECIAL DELIVERY (SD1) IS PRICED BY MANIFEST NUMBER (plan 5.3), never by day x product: the rows naming "CLICK AND DROP M####" (or a row
+   whose sales order is on that manifest's labels only) against that manifest's Special Delivery labels, whatever day the bill gives (M2283:
+   labelled 7 Nov, billed 8 Nov). By declared-weight band when the band counts fit, else the manifest's average (the rows' total exact either
+   way, DL59). A manifest's row with no label in any report: the main shop's "not on an order" and the "needs a look" list; a Special
+   Delivery row CW cannot put on one manifest (no manifest printed and its sales order on no label, or on two manifests) the same.
+6. WRONG WEIGHT (RX1, RXA): plan 5.4 as built (DL60): shared over the Special Delivery labels of the row's sales order, the pence left over and
+   a sales order with no label the main shop's "not on an order" (that last one on the "needs a look" list too). The exceptions file is not
+   built (DL60). No group waits: a manifest and a sales order are each priced on their own.
+7. THE ALARM (the owner's 1%): a covered day x Tracked product, or a Special Delivery manifest, billed more than its labels by MORE THAN a
+   CW setting, `delivery.rm_billed_more_pct` (default 1.0; on Settings like every other setting: settings.manage, a reason, its versions in
+   config_change and the audit; 0078 seeds it), is a RED "needs a look": (units billed - labels) x 100 > setting x labels (no label and a
+   unit billed: red). Shown on the bill's page, on the upload's check page (the bill's days with it), on Profit > Delivery bills per account,
+   and by the health alert `rm_billed_more` (the live bills' days of the nightly's 120 days). The missing parcels (3), odd services (4) and
+   manifests with no label (5, 6) are always on the list, red only when their day or manifest is over the setting. The list is of the days
+   after the main shop's CW start (money on or before it is in no shop's profit). No other threshold (DL69's closed-day "needs a look", 5%
+   and 10 labels apart, plan 5.2, stays as it was).
+8. REMOVED (fewer moving parts): the day states `parcel_missing`, `billed_more`, `unknown_service`, `no_service`, `service_differs` and the
+   group reason `group_unknown`; `PooledPlanner::groupReasons` (manifests and sales orders joined into one group that waits whole); a waiting
+   day pulling every key of its day into the write (DL85 H5); the same day x product expansion of band rows (DL85 H5); the group closure over
+   labels and its 40-round cap (the scope now closes only over a row's own key and the manifests its live allocations' labels are on); the
+   "incomplete" days of a group crossing CW start (DL83 H6). KEPT: the cover and the account-off waits, the due days, the guarded writes, the
+   evidence read again under the guards (`verify`: the cover and the odd services of the plan's labels), sticky pins, every penny of every
+   row allocated (allocations = the row's net on store, replace, undo and nightly: DB7-DB12), the profit rebuild giving the same figures.
+9. KEPT FROM DL84 and DL85: report-only (no API pull, no key), the cover per day written in the same transaction as the labels, the whole
+   report refused for a row outside From..To, a To of today or later, From after To, more than 93 days or not a Manifested Orders report;
+   check-then-Store, undo and replace; Electrofag's before-start rule (5457, DL78); Hayati Vapes' own line; never an address or a name read
+   into anything.
+10. THE SAME REPORT AGAIN (the Codex check r10 #1): a report whose sha256 the account imported already with another From..To is refused
+   ("already loaded for <from> to <to>", nothing saved); the same file with the same From..To is "already loaded": nothing is written again.
+11. THE CODEX CHECK r10 OF f346ff6 (`cw_work/runs/rmbills_codex_r10_saved.txt`: NO GO, 11 HIGH, 4 MEDIUM), each finding under DL86:
+   (#1 H, same workbook with a wider range) STILL APPLIES: fixed by 10. (#2 H, billed_more holds one product while the others move) MOOT:
+   billed more holds nothing (2), the other products and the returns moving is right. (#3 H, a bill revisiting a failed day misses a group
+   priced by its label day) MOOT: a parcel missing from a report withdraws nothing (3); M201 is priced on its own manifest (5). (#4 H, undo or
+   replace of a quantity credit leaves an over-billed manifest priced) MOOT: each manifest is priced on its own rows and labels (5), an over-
+   billed one is averaged and red (7); a day x product's credit is in the key it is planned with. (#5 H, a conflicting service hides a group
+   member) MOOT: no group; the label gets no price and is listed (4). (#6 H, a sales-order-only row matching two manifests waits alone) MOOT:
+   no group; such a row waits only while its own day is not covered, then goes to the main shop's "not on an order" and the list (5).
+   (#7 H, a label on one manifest unlocks the fallback of an empty one) MOOT: a manifest with no label goes to the main shop's "not on an
+   order" by DL86 5, now with the list. (#8 H, the evidence read races a snapshot of another order) MOOT: the service evidence decides only
+   whether a label is priced on its order or its unit sits in the billed-more line; nothing waits or is withdrawn; a CW parcel corrected
+   after a plan is taken by the next plan of that day (the nightly's 120 days); `verify` still re-reads the plan's own labels. (#9 H, = DL85
+   H13, an import joining a priced group to a waiting one) MOOT: no groups; an import only adds labels, priced by the plan of its due days.
+   (#10 H, a manual Royal Mail parcel missing from the report) STILL APPLIES for the list: fixed by 3 (no hold, listed). (#11 H, a nightly
+   that dies before keepDue ages out) MOOT: a late parcel withdraws nothing, so no money is left standing that a later plan must take out.
+   (#12 M, a busy manifest blocks an independent one of the same day x product) STILL APPLIES: fixed by 8 (no day x product expansion of
+   band rows). (#13 M, the closure cap rejects a long chain) STILL APPLIES: fixed by 8 (no group closure, no cap). (#14 M, a due row's
+   delete error skips the later days of the chunk) STILL APPLIES: fixed (each day's delete inside its own failure boundary). (#15 M, one
+   account's error in health() hides every account's alerts) STILL APPLIES: fixed (each account checked inside its own failure boundary; a
+   check that fails is its own alert, `rm_check_failed`).
+Red first (`runs/rmbills_r11_red.log`: `RoyalMailNoHoldTest`); green `runs/rmbills_r11_green*.log`. Earlier tests changed with the rule (each
+said in the test): the holds for `parcel_missing`, `billed_more`, `unknown_service`, `no_service`, `service_differs` and `group_unknown`
+now price as DL86 2-6 say.
 
 ## A count sheet's product box: find an item by its name, as on the adjustment screen (branch `count-picker`, 23 Nov 2026; CP1-CP8; no migration)
 
