@@ -67,15 +67,16 @@ final class CarrierSettings
     /**
      * The parties the account serves: party => its shop, the day it joined CW, and the days the account serves it from.
      *
-     * @return array<int, array{code: string, name: string, channel_id: ?int, channel_from: ?string, from: list<string>}>
+     * @return array<int, array{code: string, name: string, channel_id: ?int, channel_from: ?string, first_order_no: ?int, from: list<string>}>
      */
     public static function parties(Db $db, int $accountId): array
     {
         $out = [];
-        foreach ($db->all('SELECT p.id, p.code, p.name, p.channel_id, p.channel_from, ap.from_day FROM carrier_account_party ap JOIN delivery_party p ON p.id = ap.party_id '
-            . 'WHERE ap.account_id = ? ORDER BY p.id, ap.from_day', [$accountId]) as $r) {
+        foreach ($db->all('SELECT p.id, p.code, p.name, p.channel_id, p.channel_from, p.first_order_no, ap.from_day FROM carrier_account_party ap '
+            . 'JOIN delivery_party p ON p.id = ap.party_id WHERE ap.account_id = ? ORDER BY p.id, ap.from_day', [$accountId]) as $r) {
             $out[(int) $r['id']] ??= ['code' => (string) $r['code'], 'name' => (string) $r['name'], 'channel_id' => $r['channel_id'] === null ? null : (int) $r['channel_id'],
-                'channel_from' => $r['channel_from'] === null ? null : (string) $r['channel_from'], 'from' => []];
+                'channel_from' => $r['channel_from'] === null ? null : (string) $r['channel_from'],
+                'first_order_no' => $r['first_order_no'] === null ? null : (int) $r['first_order_no'], 'from' => []];
             $out[(int) $r['id']]['from'][] = (string) $r['from_day'];
         }
         return $out;
@@ -91,21 +92,37 @@ final class CarrierSettings
         return $out;
     }
 
-    /** @return list<array{channel_code: ?string, ref_form: ?string, party_id: ?int}> the party rules, first first */
+    /** @return list<array{channel_code: ?string, ref_form: ?string, party_id: ?int, before_first: bool}> the party rules, first first */
     public static function rules(Db $db, int $accountId): array
     {
         return array_map(static fn (array $r): array => ['channel_code' => $r['channel_code'] === null ? null : (string) $r['channel_code'],
-            'ref_form' => $r['ref_form'] === null ? null : (string) $r['ref_form'], 'party_id' => $r['party_id'] === null ? null : (int) $r['party_id']],
-            $db->all('SELECT channel_code, ref_form, party_id FROM carrier_party_rule WHERE account_id = ? ORDER BY priority', [$accountId]));
+            'ref_form' => $r['ref_form'] === null ? null : (string) $r['ref_form'], 'party_id' => $r['party_id'] === null ? null : (int) $r['party_id'],
+            'before_first' => (int) $r['before_first'] === 1],
+            $db->all('SELECT channel_code, ref_form, party_id, before_first FROM carrier_party_rule WHERE account_id = ? ORDER BY priority', [$accountId]));
     }
 
     /**
      * The party a label's channel and reference name by the account's rules (the first rule that fits; DL46): null when no rule fits or the
      * rule names nobody. Never a tracking number's prefix.
      *
-     * @param list<array{channel_code: ?string, ref_form: ?string, party_id: ?int}> $rules
+     * @param list<array{channel_code: ?string, ref_form: ?string, party_id: ?int, before_first?: bool}> $rules
+     * @param array<int, array<string, mixed>> $parties parties(): a before-start rule fits only below its party's first CW order number
      */
-    public static function ruleParty(array $rules, ?string $channel, ?string $reference): ?int
+    public static function ruleParty(array $rules, ?string $channel, ?string $reference, array $parties = []): ?int
+    {
+        return self::rule($rules, $channel, $reference, $parties)['party_id'] ?? null;
+    }
+
+    /**
+     * The first rule that fits a label (DL46, DL78): its party, and whether it makes the label that party's before CW start. A before-start rule
+     * fits only a reference whose number is below its party's first CW order number (a setting, delivery_party.first_order_no; none set: it never
+     * fits), so a label at or above it goes on to the next rules (held when none fits, as before the rule).
+     *
+     * @param list<array{channel_code: ?string, ref_form: ?string, party_id: ?int, before_first?: bool}> $rules
+     * @param array<int, array<string, mixed>> $parties
+     * @return array{party_id: ?int, before_first: bool}|null
+     */
+    public static function rule(array $rules, ?string $channel, ?string $reference, array $parties = []): ?array
     {
         foreach ($rules as $r) {
             if ($r['channel_code'] !== null && $r['channel_code'] !== $channel) {
@@ -114,7 +131,14 @@ final class CarrierSettings
             if ($r['ref_form'] !== null && !self::refForm($r['ref_form'], $reference)) {
                 continue;
             }
-            return $r['party_id'];
+            $before = (bool) ($r['before_first'] ?? false);
+            if ($before) {
+                $first = $r['party_id'] === null ? null : ($parties[$r['party_id']]['first_order_no'] ?? null);
+                if ($first === null || $reference === null || preg_match('/^[0-9]{1,9}$/D', $reference) !== 1 || (int) $reference >= (int) $first) {
+                    continue;
+                }
+            }
+            return ['party_id' => $r['party_id'], 'before_first' => $before];
         }
         return null;
     }

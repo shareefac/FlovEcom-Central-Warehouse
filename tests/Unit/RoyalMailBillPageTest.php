@@ -155,7 +155,8 @@ final class RoyalMailBillPageTest extends TestCase
         yield 'an impossible bill date' => [static fn (): string => RmBill::page($w, ['date' => 'Feb 31, 2026']), 'the bill\'s date is not a day'];
         yield 'VAT on a zero-rated row' => [static fn (): string => RmBill::page([RmBill::line('2026-11-09', 'TSS', 1, 1000, '', null, 'Z', 1001)]),
             'row 1: a zero-rated line with VAT'];
-        yield 'a product that may be a name' => [static fn (): string => RmBill::page([RmBill::line('2026-11-09', 'JEAN', 1, 100, '1')]), 'its product is one CW does not know'];
+        yield 'a product that may be a name' => [static fn (): string => RmBill::page([RmBill::line('2026-11-09', 'JEAN', 1, 100, '1')]),
+            'line 1 of the bill (9 Nov 2026) has a product CW does not know. Send this bill to the CW team'];
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('refusals')]

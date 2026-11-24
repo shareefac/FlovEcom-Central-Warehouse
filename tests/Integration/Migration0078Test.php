@@ -74,8 +74,8 @@ final class Migration0078Test extends IntegrationTestCase
         self::assertSame([self::FILE], MigrationFixture::migrateRest($db, $this->dir, self::FILE));
         $new = array_values(array_diff($db->column('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()'), $tables));
         sort($new);
-        self::assertSame(['carrier', 'carrier_account', 'carrier_account_party', 'carrier_allocation', 'carrier_band', 'carrier_bill_row', 'carrier_channel', 'carrier_label',
-            'carrier_label_pull', 'carrier_party_rule', 'carrier_product', 'delivery_party', 'carrier_bill_check'], $new);
+        self::assertSame(['carrier', 'carrier_account', 'carrier_account_party', 'carrier_allocation', 'carrier_band', 'carrier_bill_check', 'carrier_bill_row', 'carrier_channel',
+            'carrier_label', 'carrier_label_pull', 'carrier_party_rule', 'carrier_product', 'delivery_party'], $new);
         self::assertSame($before, [$db->all('SELECT * FROM carrier_invoice'), $db->all('SELECT * FROM carrier_invoice_line'), $db->all('SELECT * FROM profit_day')],
             'the DPD bill, its line and the day summary as they were');
         $constraints = static fn (): array => array_map('strval', $db->column("SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() "

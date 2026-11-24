@@ -464,10 +464,12 @@ final class RoyalMailBillPage
             throw self::refuse("row {$at}: its Product Number is not a product code");
         }
         if (!in_array($product, $products, true)) {
-            // named only in a code's shape: three letters and digits with a digit (a word may be a name: the Codex checks r1 LOW 16, r2 LOW 16)
+            // the whole bill refused (DL55; the coordinator, 24 Nov 2026, D1): the line by its place and day, the code named only in a code's shape
+            // (three letters and digits with a digit: a word may be a name, the Codex checks r1 LOW 16, r2 LOW 16), and the bill sent to the team
+            $where = "line {$n} of the bill (" . (new \DateTimeImmutable(sprintf('%04d-%02d-%02d', (int) $y, (int) $mo, (int) $d)))->format('j M Y') . ')';
             throw self::refuse(preg_match('/^(?=.*[0-9])[A-Z0-9]{3}$/D', $product) === 1
-                ? "row {$at}: product {$product} is one CW does not know: tell the CW team (it must be added before this bill can be read)"
-                : "row {$at}: its product is one CW does not know: tell the CW team");
+                ? "{$where} has product {$product}, which CW does not know. Send this bill to the CW team: the product must be added to CW before this bill can be read"
+                : "{$where} has a product CW does not know. Send this bill to the CW team: the product must be added to CW before this bill can be read");
         }
         if (preg_match('/^(-?)(\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.0{1,3})?$/D', $cells[2], $q) !== 1) {
             throw self::refuse("row {$at}: its Quantity is not a whole number");

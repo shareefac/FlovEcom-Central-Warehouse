@@ -20169,7 +20169,7 @@ goes on the line's order like the others; a file without the column (the weeks b
 (a column CW did not know, with amounts in it). Tested with a synthetic file only. (DPD account 3012002 stays Vape and Go's only: the
 owner, 23 Nov 2026, Electrofag does not use DPD.)
 
-## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL76; migration 0078)
+## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL79; migration 0078)
 
 <!-- ---- Shipping plan v3 phase 1 (0078): DL43-DL70. ---- -->
 The plan: `cw_work/delivery_cost_20261123/SHIPPING_PLAN_v3.md` (its money rules and the owner's decisions Q1-Q8 of 23 Nov 2026 are the spec);
@@ -20445,6 +20445,67 @@ Electrofag's labels from 17 Nov on their orders. PROPOSED, NOT BUILT (the coordi
 digits = Electrofag" (priority after "#" and before "7 digits"): such a label on no CW parcel would then be Electrofag's "before CW start"
 (on or before Electrofag's start) or Electrofag's "not on an order", instead of held. Hayati's references never come this way (#, or the
 WooCommerce channel); a bare 4-digit reference under "Manual Order Entry" still names nobody (P0-6).
+
+**DL77. Round 4: the coordinator's decisions D1-D5 (24 Nov 2026), the known limits accepted for phase 1, and what the shops send to Click &
+Drop.** (D1) An unknown product code still refuses the whole bill (DL55); the refusal now names the line by its place and day and the code
+(when it is a code's shape, never a word), says nothing was saved, and says to send the bill to the CW team ("Royal Mail bill not read: line
+2 of the bill (9 Nov 2026) has product XY9, which CW does not know. Send this bill to the CW team: the product must be added to CW before
+this bill can be read. Nothing was saved."). (D2) DL78. (D3) DL79. (D4) ACCEPTED for phase 1 as known limits, unless a later Codex round
+rates one HIGH: DL74's r1 HIGH 3 (a parcel of another order stored with the same tracking number between the plan and its write is not seen:
+the same race DPD's DL13 accepts; the nightly re-plan and its checks see the label on the first parcel), r1 MEDIUM 5 (a label read whose plan
+died waits for the next read of it or the nightly: the nightly catches it within a day), r1 MEDIUM 7 (the loading step holds the delivery
+lock for seconds in the day; the nightly runs at 03:35 and DPD's nightly waits 10 s for it), r1 MEDIUM 10 (an order labelled more than 14
+days after Click & Drop took it is read by the report only), r1 LOW 19 (as DL72); DL75's r2 HIGH 1 PARTLY for an account read by report only
+(Vape Big's: it is off; looked at again before it is switched on), r2 MEDIUM 4 PARTLY (a plausible but wrong service code ends a wait), r2
+MEDIUM 6, 13, 20, r1 LOW 15 and new LOW 7 PARTLY (none of them money on a wrong shop). (D5, RESEARCH ONLY, nothing built; counts only, read
+only, nothing of a customer printed) Vape and Go and Electrofag (one admin code, `App/app_config/modules/shipping_royal_mail.php`
+createOrder) send Click & Drop the service code of the dispatch's shipping method (`orders_dispatch_log.odl_shipping_method` to
+`shiping_master.shipm_code`) and a weight worked out when the label is made (the sum of `product_types_and_pricing.prodt_weight` x the
+dispatch's `orders_dispatch_child` quantities, raised to `shipm_min_weight`, capped at `shipm_max_weight`); after the label they keep only
+`orders_dispatch_log.odl_tracking_no` and `odl_tracking_ref_no` (Click & Drop's order identifier). So the SERVICE CODE is kept (through the
+dispatch's method, as that method's code is now) and already reaches CW (`sale_parcel.service_code`, by the connector); the WEIGHT sent is
+kept nowhere (the packing slip works it out again from today's product weights). The week of 16-22 Nov, API channel (phase-0 extract): 6,578
+labels (Tracked 48 4,644, Tracked 24 1,847, Special Delivery 87); 6,544 (99.5%) are on a CW parcel by tracking number and every one of them
+has the same service code in CW as in Click & Drop; 34 are on no CW parcel (all Electrofag 4-digit references: 21 of 16 Nov, before its
+parcels reach CW; 13 of 17-22 Nov not yet in the extract). What it could cover: a Tracked day's labels on CW parcels could end their wait by
+CW's own service code, without the report; the labels on no CW parcel and Special Delivery (priced by declared weight per manifest, wrong
+weight by sales order: the manifest number and the sales order come with the report only) still need the weekly report. The build stays as
+it is (a day waits "for the report", never on Vape and Go) until the owner answers.
+
+**DL78. Electrofag's labels below its first CW order are its "before CW start" (the coordinator, 24 Nov 2026, D2; DL76's proposal, narrowed).**
+On 0706703000 a label on NO CW parcel, on the API channel, with a reference of exactly 4 digits BELOW Electrofag's first CW order number is
+Electrofag's before CW start (in no shop's profit), whatever the label's day (an order of 16 Nov sent on 17 Nov is still before): party rule
+5 (`api`, `digits_4`, Electrofag, `before_first` 1). The number is a per-shop SETTING, never worked out from data, so a later backfill of
+Electrofag's older orders never moves it: `delivery_party.first_order_no`, 5457 for Electrofag (its order 6521 of 17 Nov 00:27, CW's first
+Electrofag parcel; the coordinator's read of Electrofag's database: references 4767-5456 are its orders of 20 Oct - 16 Nov), set by 0078 when
+it makes the party and changed only by `bin/carrier_account.php --party=<code> --first-order=<number>` (under the bills' lock, audited
+`delivery_party.set`; a party with no shop is refused; the nightly re-plan then moves the last 120 days' labels, an older bill takes it when
+replaced). A before-start rule fits only below the number (none set: it never fits); a 4-digit label at or above it on no CW parcel goes on
+to the next rules and is held "shop not known" as before (it should be on its parcel by tracking number: held is the alarm). On a CW parcel
+the label is on its order (tracking first, checks a-e, as before). Hayati's references never come this way (WooCommerce or "#": rules 2 and
+3 come first; on the owner's labels 0 API labels carry Hayati's 2833-3103). The owner's three bills again (`runs/rmbills_realbills_r4.log`,
+the test copy, in date order; every row adds up, drift 0, the checks clean): held fell from £254.91 / £452.31 / £466.02 (102 / 160 / 163
+labels) to £3.16 (1 label, Manual Order Entry, no reference) / nothing / £6.75 (2 labels, Manual Order Entry: one with no reference, one
+with 4 digits); Electrofag's before CW start £251.75 (101 labels) / £452.31 (160) / £459.27 (161). Tests: `RoyalMailBillsTest::
+testElectrofagsLabelsBelowItsFirstCwOrderAreItsBeforeCwStart` (red `runs/rmbills_r4_red.log`), Migration0078Test (the seed, the CHECKs).
+
+**DL79. A Royal Mail bill is checked first, then stored (the plan, section 6 step 3; the coordinator, 24 Nov 2026, D3; DL75 new MEDIUM 6).**
+Upload and "Replace with a corrected file" of a Royal Mail bill no longer store at once: they read it and refuse it as the store would (the
+same reader and checks as `bin/rm_bill.php`: a bill that does not tie, an unknown product, another account, an account that is off, another
+file of a live bill, a replacement of another bill or of one no longer live), and show what CW read (account, bill date, days, that its
+lines add up to its totals, its rows, net, VAT, total), the bill it replaces, and where its money would go in the groups of its page once
+stored (on orders per shop, not on an order, the days' lines, Hayati Vapes, before CW start per shop, held per reason; a corrected file is
+planned with the bill it replaces gone, as its replace plans it), with "Store this bill". The very bill in the profit already: "nothing to
+store", no button. What the Store takes is the bill AS THE CHECK READ IT, kept server side in `carrier_bill_check` (0078): its top and rows
+(what CW stores of it anyway: the reference only in its known form, never a description, never the file: a saved page may hold names), the
+sha256 of the file or text read and the bill's fingerprint, bound to WHO checked it, single use (taken in one locked statement; a store
+refused as busy gives it back), open 20 minutes (`RoyalMailBills::CHECK_MINUTES`), rows gone a day after they expire. The Store button
+posts the check's one-time token (CW keeps only its sha256) and the fingerprint, with the form's CSRF token; the route is the Delivery
+bills job's (delivery.upload, checked again by the service); a check that is not open stores nothing ("This check is no longer open ...
+Upload the bill again"). Audit: `delivery_bill.check` (the check, the file's sha256, the bill's fingerprint), then `delivery_bill.upload` /
+`.replace` naming the check and the file's sha256. `bin/rm_bill.php` checks and stores in two runs as before (its check of another file of
+a live bill is planned as its replace). Tests: `RoyalMailScreensTest` (both flows; Finance, another person, another reading, another token,
+out of time, twice, the form's token: refused; the kept bill holds no page text).
 
 ## A count sheet's product box: find an item by its name, as on the adjustment screen (branch `count-picker`, 23 Nov 2026; CP1-CP8; no migration)
 

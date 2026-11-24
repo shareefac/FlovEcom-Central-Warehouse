@@ -649,6 +649,7 @@ final class Kernel
         $bills = new DeliveryBillsController();
         $r->add('GET', DeliveryBillsController::PATH, DeliveryBillsController::PERM_VIEW, $bills->list(...));
         $r->add('POST', DeliveryBillsController::PATH . '/upload', DeliveryBillsController::PERM_UPLOAD, $bills->upload(...));
+        $r->add('POST', DeliveryBillsController::PATH . '/store', DeliveryBillsController::PERM_UPLOAD, $bills->store(...)); // a checked Royal Mail bill (DL79)
         $r->add('POST', DeliveryBillsController::PATH . '/labels', DeliveryBillsController::PERM_UPLOAD, $bills->labels(...));
         $r->add('GET', DeliveryBillsController::PATH . '/{id}', DeliveryBillsController::PERM_VIEW, $bills->bill(...));
         $r->add('POST', DeliveryBillsController::PATH . '/{id}/replace', DeliveryBillsController::PERM_UPLOAD, $bills->replace(...));

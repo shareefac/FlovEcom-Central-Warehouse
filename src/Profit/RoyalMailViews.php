@@ -88,6 +88,42 @@ final class RoyalMailViews
     }
 
     /**
+     * Where a checked bill's money would go (the upload screen's check, DL79), in the groups and order of its page once stored (bill()):
+     * on orders per shop, a shop's "not on an order", the days' lines, a party with no shop, before CW start per shop, held per reason.
+     *
+     * @param array<string, int> $where RoyalMailBills::preview()['where']: "dest|shop|party|reason|day_line" => pence
+     * @return list<array{group: string, name: string, reason: ?string, pence: int}>
+     */
+    public function checkWhere(array $where): array
+    {
+        $shops = [];
+        foreach ($this->db->all('SELECT id, name FROM channel') as $r) {
+            $shops[(int) $r['id']] = (string) $r['name'];
+        }
+        $parties = [];
+        foreach ($this->db->all('SELECT id, name FROM delivery_party') as $r) {
+            $parties[(int) $r['id']] = (string) $r['name'];
+        }
+        $out = [];
+        foreach ($where as $k => $pence) {
+            [$dest, $ch, $party, $reason, $dayLine] = array_pad(explode('|', (string) $k), 5, '');
+            $group = match ($dest) {
+                'order' => 'order',
+                'shop' => $dayLine === 'day_line' ? 'day_line' : 'shop',
+                default => $dest,
+            };
+            $key = $group . '|' . $ch . '|' . $party . '|' . $reason;
+            $out[$key] ??= ['group' => $group, 'name' => $ch !== '' ? ($shops[(int) $ch] ?? '') : ($party !== '' ? ($parties[(int) $party] ?? '') : ''),
+                'reason' => $reason === '' ? null : $reason, 'pence' => 0];
+            $out[$key]['pence'] += (int) $pence;
+        }
+        $order = ['order' => 1, 'shop' => 2, 'day_line' => 3, 'party' => 4, 'before_start' => 5, 'held' => 6];
+        uasort($out, static fn (array $a, array $b): int => [$order[$a['group']] ?? 9, $a['name'], (string) $a['reason']] <=> [$order[$b['group']] ?? 9, $b['name'],
+            (string) $b['reason']]);
+        return array_values($out);
+    }
+
+    /**
      * The tie-out of the bill's flat days (service day x product): labels, units billed by every live bill, labels priced, the day's line, open
      * or closed, needs a look.
      *

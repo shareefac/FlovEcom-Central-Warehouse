@@ -23,6 +23,8 @@
 --  * carrier_bill_row: a pooled bill's rows as printed (day, product, quantity, net, gross, VAT code, the reference only in a known form).
 --  * carrier_allocation: where every penny of a bill row went (an order's parcel, a shop's "not on an order", a party with no shop, before
 --    CW start, held), adding up to the row's net; ended (never deleted) when it no longer counts.
+--  * carrier_bill_check: a bill checked on the upload screen, waiting for its Store (DL79): the bill AS READ (its top and rows, what CW
+--    stores of it: never the file), bound to who checked it and the file's sha256, single use, gone a day after it expires.
 -- profit_day: no new column (the allocations count in delivery_cost and delivery_other, as DPD's lines).
 --
 -- HOW IT IS APPLIED: CREATE TABLE IF NOT EXISTS (new, empty), seed rows ON DUPLICATE KEY (never changing a row that is there), and ONE ALTER of
@@ -60,18 +62,22 @@ CREATE TABLE IF NOT EXISTS delivery_party (
   name          VARCHAR(64)       NOT NULL,
   channel_id    SMALLINT UNSIGNED NULL COMMENT 'its CW shop; NULL: a party with no shop in CW (its costs on its own line, in no shop''s profit)',
   channel_from  DATE              NULL COMMENT 'a party that joined CW later: its costs go on its shop''s orders from this day; older ones stay on its own line',
+  first_order_no INT UNSIGNED     NULL COMMENT 'its shop''s first order number in CW, as its labels'' references carry it: a label on no CW parcel that a before-start party rule fits (a reference below it) is the shop''s before CW start (DL78); set here or by bin/carrier_account.php (audited), never worked out from data',
   created_at    DATETIME(6)       NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (id),
   UNIQUE KEY uq_delivery_party_code (code),
   UNIQUE KEY uq_delivery_party_channel (channel_id),
   CONSTRAINT fk_delivery_party_channel FOREIGN KEY (channel_id) REFERENCES channel (id),
   CONSTRAINT ck_delivery_party_code CHECK (REGEXP_LIKE(code, '^[a-z][a-z0-9_]{1,31}$', 'c')),
-  CONSTRAINT ck_delivery_party_from CHECK (channel_from IS NULL OR channel_id IS NOT NULL)
+  CONSTRAINT ck_delivery_party_from CHECK (channel_from IS NULL OR channel_id IS NOT NULL),
+  CONSTRAINT ck_delivery_party_first CHECK (first_order_no IS NULL OR (channel_id IS NOT NULL AND first_order_no > 0))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='who a parcel''s delivery cost belongs to (docs/decisions.md DL44): a CW shop, or a party with no shop in CW';
 
 -- One party per CW shop (its code and name), and Hayati Vapes with no shop (the owner, 23 Nov 2026, Q1). A party that is there is left as it is.
-INSERT INTO delivery_party (code, name, channel_id) SELECT c.code, LEFT(c.name, 64), c.id FROM channel c
+-- Electrofag's first order in CW: reference 5457 (its order 6521 of 17 Nov 2026 00:27, the first Electrofag parcel CW holds; the coordinator's
+-- read of Electrofag's database, 24 Nov 2026: references 4767-5456 are its orders of 20 Oct - 16 Nov); a number set later by the tool stays (DL78).
+INSERT INTO delivery_party (code, name, channel_id, first_order_no) SELECT c.code, LEFT(c.name, 64), c.id, IF(c.code = 'electrofag', 5457, NULL) FROM channel c
   WHERE REGEXP_LIKE(c.code, '^[a-z][a-z0-9_]{1,31}$', 'c') AND NOT EXISTS (SELECT 1 FROM delivery_party p WHERE p.channel_id = c.id OR p.code = c.code);
 INSERT INTO delivery_party (code, name, channel_id) VALUES ('hayativapes', 'Hayati Vapes', NULL) ON DUPLICATE KEY UPDATE code = code;
 
@@ -155,23 +161,28 @@ CREATE TABLE IF NOT EXISTS carrier_party_rule (
   channel_code  VARCHAR(16)       NULL COMMENT 'the label''s channel (carrier_channel.code); NULL: any',
   ref_form      VARCHAR(16)       NULL COMMENT 'hash_digits (# and digits) or digits_N (exactly N digits); NULL: any',
   party_id      SMALLINT UNSIGNED NULL COMMENT 'NULL: the rule names nobody (the label is held: shop not known)',
+  before_first  TINYINT(1)        NOT NULL DEFAULT 0 COMMENT '1: fits only a reference whose number is below its party''s first CW order number (delivery_party.first_order_no; none set: never fits); the label is that shop''s before CW start, whatever its day (DL78)',
   PRIMARY KEY (account_id, priority),
   KEY ix_carrier_party_rule_party (party_id),
   CONSTRAINT fk_cpr_account FOREIGN KEY (account_id) REFERENCES carrier_account (id),
   CONSTRAINT fk_cpr_party FOREIGN KEY (party_id) REFERENCES delivery_party (id),
   CONSTRAINT ck_cpr_form CHECK (ref_form IS NULL OR REGEXP_LIKE(ref_form, '^(hash_digits|digits_[1-9][0-9]?)$', 'c')),
-  CONSTRAINT ck_cpr_some CHECK (channel_code IS NOT NULL OR ref_form IS NOT NULL)
+  CONSTRAINT ck_cpr_some CHECK (channel_code IS NOT NULL OR ref_form IS NOT NULL),
+  CONSTRAINT ck_cpr_before CHECK (before_first IN (0, 1) AND (before_first = 0 OR (party_id IS NOT NULL AND ref_form IS NOT NULL AND REGEXP_LIKE(ref_form, '^digits_[1-9][0-9]?$', 'c'))))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='how a label not found in CW is given its party (docs/decisions.md DL46); never a tracking prefix';
 
 -- 0706703000 (the plan, section 2; phase 0 P0-6): "Manual Order Entry" names nobody; the WooCommerce channel and "#" + digits are Hayati
--- Vapes; 7 digits Vape and Go; a bare 4-digit reference names nobody (Hayati's 2833-3103 are also old Electrofag order numbers).
-INSERT INTO carrier_party_rule (account_id, priority, channel_code, ref_form, party_id)
-  SELECT a.id, x.priority, x.channel_code, x.ref_form, (SELECT p.id FROM delivery_party p WHERE p.code = x.party) FROM carrier_account a JOIN (
-    SELECT 1 AS priority, 'manual' AS channel_code, NULL AS ref_form, NULL AS party
-    UNION ALL SELECT 2, 'woocommerce', NULL, 'hayativapes'
-    UNION ALL SELECT 3, NULL, 'hash_digits', 'hayativapes'
-    UNION ALL SELECT 4, NULL, 'digits_7', 'vapeandgo') x
+-- Vapes; 7 digits Vape and Go; the API channel with 4 digits below Electrofag's first CW order (5457) is Electrofag's before CW start (the
+-- coordinator, 24 Nov 2026, D2; DL78); any other bare 4-digit reference names nobody (Hayati's 2833-3103 are also old Electrofag numbers:
+-- they come by WooCommerce or "#", rule 2 or 3, first).
+INSERT INTO carrier_party_rule (account_id, priority, channel_code, ref_form, party_id, before_first)
+  SELECT a.id, x.priority, x.channel_code, x.ref_form, (SELECT p.id FROM delivery_party p WHERE p.code = x.party), x.before_first FROM carrier_account a JOIN (
+    SELECT 1 AS priority, 'manual' AS channel_code, NULL AS ref_form, NULL AS party, 0 AS before_first
+    UNION ALL SELECT 2, 'woocommerce', NULL, 'hayativapes', 0
+    UNION ALL SELECT 3, NULL, 'hash_digits', 'hayativapes', 0
+    UNION ALL SELECT 4, NULL, 'digits_7', 'vapeandgo', 0
+    UNION ALL SELECT 5, 'api', 'digits_4', 'electrofag', 1) x
   WHERE a.carrier = 'royal_mail' AND a.account_no = '0706703000' AND (x.party IS NULL OR EXISTS (SELECT 1 FROM delivery_party p WHERE p.code = x.party))
   ON DUPLICATE KEY UPDATE account_id = carrier_party_rule.account_id;
 INSERT INTO carrier_party_rule (account_id, priority, channel_code, ref_form, party_id)
@@ -337,3 +348,29 @@ CREATE TABLE IF NOT EXISTS carrier_allocation (
   CONSTRAINT ck_carrier_allocation_how CHECK (REGEXP_LIKE(how, '^[a-z_]{2,16}$', 'c'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='where every penny of a pooled bill row went (docs/decisions.md DL51): a row''s live allocations add up to its net; ended, never deleted';
+
+CREATE TABLE IF NOT EXISTS carrier_bill_check (
+  id             BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+  token_sha256   CHAR(64)          NOT NULL COMMENT 'the sha256 of the one-time token the check page carries (never the token)',
+  staff_user_id  INT UNSIGNED      NOT NULL COMMENT 'who checked it: only they can store it',
+  account_id     SMALLINT UNSIGNED NOT NULL,
+  replace_id     BIGINT UNSIGNED   NULL COMMENT 'the live bill a corrected file replaces; NULL: a new bill',
+  file_sha256    CHAR(64)          NOT NULL COMMENT 'the sha256 of the file or the pasted text the check read',
+  bill_sha256    CHAR(64)          NOT NULL COMMENT 'the fingerprint of the bill as read (its carrier_invoice.file_sha256 once stored)',
+  bill           MEDIUMTEXT        NOT NULL COMMENT 'the bill as read (JSON): its top and its rows as CW stores them; never the file',
+  created_at     DATETIME(6)       NOT NULL,
+  expires_at     DATETIME(6)       NOT NULL,
+  used_at        DATETIME(6)       NULL COMMENT 'when its Store took it (once)',
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_carrier_bill_check_token (token_sha256),
+  KEY ix_carrier_bill_check_expires (expires_at),
+  KEY ix_carrier_bill_check_user (staff_user_id),
+  KEY ix_carrier_bill_check_account (account_id),
+  KEY ix_carrier_bill_check_replace (replace_id),
+  CONSTRAINT fk_carrier_bill_check_user FOREIGN KEY (staff_user_id) REFERENCES staff_user (id),
+  CONSTRAINT fk_carrier_bill_check_account FOREIGN KEY (account_id) REFERENCES carrier_account (id),
+  CONSTRAINT fk_carrier_bill_check_replace FOREIGN KEY (replace_id) REFERENCES carrier_invoice (id),
+  CONSTRAINT ck_carrier_bill_check_shapes CHECK (REGEXP_LIKE(token_sha256, '^[0-9a-f]{64}$', 'c') AND REGEXP_LIKE(file_sha256, '^[0-9a-f]{64}$', 'c')
+    AND REGEXP_LIKE(bill_sha256, '^[0-9a-f]{64}$', 'c') AND JSON_VALID(bill) AND expires_at > created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='a pooled bill checked on the upload screen, waiting for its Store (docs/decisions.md DL79): the bill as read, never the file';

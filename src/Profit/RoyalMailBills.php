@@ -15,6 +15,9 @@ use CW\Reports\ReportRefresh;
  * Royal Mail's bills and labels in CW (delivery cost, phase 1 of the shipping plan v3; docs/decisions.md DL43-DL70): ONE service for every
  * pooled carrier account (0706703000 and Vape Big's: only the settings differ; the owner, 23 Nov 2026, Q5).
  *
+ *  check()         the upload screen's first step (DL79): a bill read and refused as upload() / replace() would refuse it, where its money would
+ *                  go, and the bill AS READ kept for its Store (never the file), bound to who checked it and the file's sha256, once, CHECK_MINUTES.
+ *  storeChecked()  the screen's Store: the bill its check read, stored as upload() / replace() store it.
  *  upload()        a bill read from its saved page or pasted text (RoyalMailBillPage) and stored whole: its rows, and every penny of every row
  *                  as allocations (PooledPlanner): the days it touches planned again across every live bill of the account.
  *  replace()       a corrected file of a live bill: the old one superseded, its allocations ended, the days planned again; one write.
@@ -53,6 +56,8 @@ final class RoyalMailBills
     public const LOAD_TRIES = 5;
     /** Who "ended" a bill whose write never finished (it never counted). */
     public const NOT_STORED = 'system:not_stored';
+    /** A bill checked on the upload screen can be stored for this many minutes, by who checked it, once (DL79). */
+    public const CHECK_MINUTES = 20;
     /** The label fields a second source may fill (when empty): the first source's value stays. */
     public const FILL = ['source_id', 'reference', 'channel_code', 'service_code', 'package', 'weight_g', 'created_on', 'manifested_at', 'manifest_no', 'manifest_day',
         'sales_order'];
@@ -80,8 +85,113 @@ final class RoyalMailBills
     {
         $this->bills->authoriseWrite($caller);
         $account = self::active($this->db, $accountId);
+        return $this->uploadBill($caller, $accountId, self::read($this->db, $account, $bytes), ['file_sha256' => hash('sha256', $bytes)]);
+    }
+
+    /**
+     * The upload screen's check (DL79; the plan, section 6 step 3; the coordinator, 24 Nov 2026, D3): the bill read and refused as upload() (or,
+     * with $replaceId, replace()) would refuse it; where its money would go (preview()); and, unless it is the very bill in the profit already
+     * ("same"), the bill AS READ kept in carrier_bill_check for its Store: bound to who checked it and the sha256 of the file or text, single
+     * use, CHECK_MINUTES long. Never the file (the page may hold names; the bill as read holds what CW stores of it anyway). A person only.
+     *
+     * @return array{token: ?string, same: bool, file_sha256: string, bill_sha256: string, replace: ?array{id: int, invoice_no: string, uploaded_at: string},
+     *   preview: array<string, mixed>}
+     */
+    public function check(Caller $caller, ?int $accountId, string $bytes, ?int $replaceId = null): array
+    {
+        $this->bills->authoriseWrite($caller);
+        if ($caller->staffUserId === null) {
+            throw new CwException('forbidden', 'a bill is checked on the screen by a person (bin/rm_bill.php checks and stores in two runs)', 403);
+        }
+        $old = null;
+        if ($replaceId !== null) {
+            $old = $this->db->one('SELECT * FROM carrier_invoice WHERE id = ?', [$replaceId]) ?? throw new CwException('not_found', 'there is no such bill', 404);
+            $accountId = self::accountOf($this->db, $old);
+        }
+        $account = self::active($this->db, (int) $accountId);
         $bill = self::read($this->db, $account, $bytes);
-        return $this->bills->inLock(function () use ($caller, $accountId, $bill): array {
+        if ($old !== null) {
+            self::replaceable($old, $bill);
+            $same = $bill['sha256'] === $old['file_sha256'];
+        } else {
+            $live = $this->db->one('SELECT id, file_sha256, uploaded_at FROM carrier_invoice WHERE live_key = ?', [self::key($bill)]);
+            if ($live !== null && $live['file_sha256'] !== $bill['sha256']) {
+                throw self::alreadyUploaded($bill, $live);
+            }
+            $same = $live !== null;
+        }
+        $out = ['token' => null, 'same' => $same, 'file_sha256' => hash('sha256', $bytes), 'bill_sha256' => (string) $bill['sha256'],
+            'replace' => $old === null ? null : ['id' => (int) $old['id'], 'invoice_no' => (string) $old['invoice_no'], 'uploaded_at' => (string) $old['uploaded_at']],
+            'preview' => $this->previewOf($account, $bill, $old === null ? null : (int) $old['id'])];
+        if ($same) {
+            return $out;
+        }
+        $token = bin2hex(random_bytes(32));
+        $now = ($this->clock)();
+        $this->db->transaction(function (Db $db) use ($caller, $account, $bill, $old, $token, $now, $out): void {
+            // the checks of more than a day ago gone (none was ever the file; a stored one's bill is in carrier_bill_row)
+            $db->exec('DELETE FROM carrier_bill_check WHERE expires_at < ?', [Clock::db($now->modify('-1 day'))]);
+            $id = $db->insert('INSERT INTO carrier_bill_check (token_sha256, staff_user_id, account_id, replace_id, file_sha256, bill_sha256, bill, created_at, expires_at) '
+                . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [hash('sha256', $token), $caller->staffUserId, $account['id'], $old === null ? null : (int) $old['id'],
+                    $out['file_sha256'], $out['bill_sha256'], json_encode($bill, JSON_THROW_ON_ERROR), Clock::db($now),
+                    Clock::db($now->modify('+' . self::CHECK_MINUTES . ' minutes'))]);
+            Audit::write($db, $caller, 'delivery_bill.check', 'carrier_account', (string) $account['id'], null, ['check' => $id, 'carrier' => $account['carrier'],
+                'account' => $bill['account'], 'invoice' => $bill['invoice_no'], 'rows' => count($bill['rows']), 'net_pence' => $bill['net'],
+                'file_sha256' => $out['file_sha256'], 'sha256' => $bill['sha256']] + ($old === null ? [] : ['replaces' => (int) $old['id']]));
+        });
+        return ['token' => $token] + $out;
+    }
+
+    /**
+     * The screen's Store (DL79): the bill its check READ, by who checked it, once, while the check is open; stored as upload() / replace() store
+     * it (its audit names the check and the file's sha256). A check that is not open (stored already, out of time, another person's, another
+     * reading) stores nothing; a store refused as busy leaves the check open to press again.
+     *
+     * @return array{result: string, invoice_id: int, invoice_no: string, uploaded_at: string, rematched: int, rematch_error: ?string}
+     */
+    public function storeChecked(Caller $caller, string $token, string $billSha256): array
+    {
+        $this->bills->authoriseWrite($caller);
+        $gone = new CwException('check_gone', sprintf('This check is no longer open: it was stored already, it is more than %d minutes old, or someone else made it. '
+            . 'Nothing was saved. Upload the bill again to check it.', self::CHECK_MINUTES), 409);
+        if ($caller->staffUserId === null || preg_match('/^[0-9a-f]{64}$/D', $token) !== 1 || preg_match('/^[0-9a-f]{64}$/D', $billSha256) !== 1) {
+            throw $gone;
+        }
+        $now = Clock::db(($this->clock)());
+        $row = $this->db->transaction(function (Db $db) use ($caller, $token, $billSha256, $now, $gone): array {
+            $r = $db->one('SELECT * FROM carrier_bill_check WHERE token_sha256 = ? AND staff_user_id = ? AND bill_sha256 = ? AND used_at IS NULL AND expires_at > ? FOR UPDATE',
+                [hash('sha256', $token), $caller->staffUserId, $billSha256, $now]) ?? throw $gone;
+            $db->exec('UPDATE carrier_bill_check SET used_at = ? WHERE id = ? AND used_at IS NULL', [$now, (int) $r['id']]);
+            return $r;
+        });
+        $bill = json_decode((string) $row['bill'], true, 64, JSON_THROW_ON_ERROR);
+        $kept = is_array($bill) ? (string) ($bill['sha256'] ?? '') : '';
+        unset($bill['sha256']);
+        if ($kept !== (string) $row['bill_sha256'] || hash('sha256', json_encode($bill, JSON_THROW_ON_ERROR)) !== $kept) {
+            throw new CwException('bad_check', 'the checked bill CW kept is not the one it read: nothing was saved. Tell the CW team.', 500);
+        }
+        $bill['sha256'] = $kept;
+        $audit = ['check' => (int) $row['id'], 'file_sha256' => (string) $row['file_sha256']];
+        try {
+            return $row['replace_id'] === null ? $this->uploadBill($caller, (int) $row['account_id'], $bill, $audit)
+                : $this->replaceBill($caller, (int) $row['replace_id'], $bill, $audit);
+        } catch (CwException $e) {
+            if ($e->errorCode === 'busy') {
+                $this->db->exec('UPDATE carrier_bill_check SET used_at = NULL WHERE id = ?', [(int) $row['id']]);
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $bill RoyalMailBillPage::parse()
+     * @param array<string, mixed> $audit what the audit adds (the file's sha256, the check)
+     * @return array{result: string, invoice_id: int, invoice_no: string, uploaded_at: string, rematched: int, rematch_error: ?string}
+     */
+    private function uploadBill(Caller $caller, int $accountId, array $bill, array $audit): array
+    {
+        $this->bills->authoriseWrite($caller);
+        return $this->bills->inLock(function () use ($caller, $accountId, $bill, $audit): array {
             // the account read again now the lock is held: its number changed meanwhile, the bill is not its (the Codex check r2, r1 HIGH 4)
             $account = self::active($this->db, $accountId);
             if ($bill['account'] !== $account['account_no']) {
@@ -94,11 +204,9 @@ final class RoyalMailBills
                     return ['result' => 'same', 'invoice_id' => (int) $live['id'], 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $live['uploaded_at'],
                         'rematched' => 0, 'rematch_error' => null];
                 }
-                throw new CwException('already_uploaded', sprintf('Royal Mail bill %s was uploaded on %s and is in the profit already. To load a corrected file of it, open '
-                    . 'the bill and use "Replace with a corrected file". Nothing was saved.', $bill['invoice_no'], self::when((string) $live['uploaded_at'])), 409,
-                    ['invoice_id' => (int) $live['id']]);
+                throw self::alreadyUploaded($bill, $live);
             }
-            [$id, $at] = $this->store($caller, $account, $bill, null);
+            [$id, $at] = $this->store($caller, $account, $bill, null, $audit);
             return ['result' => 'stored', 'invoice_id' => $id, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => $at, 'rematched' => 0, 'rematch_error' => null];
         });
     }
@@ -113,24 +221,27 @@ final class RoyalMailBills
         $this->bills->authoriseWrite($caller);
         $old = $this->db->one('SELECT * FROM carrier_invoice WHERE id = ?', [$invoiceId]) ?? throw new CwException('not_found', 'there is no such bill', 404);
         $account = self::active($this->db, self::accountOf($this->db, $old));
-        $bill = self::read($this->db, $account, $bytes);
-        return $this->bills->inLock(function () use ($caller, $invoiceId, $bill): array {
-            $old = (array) $this->db->one('SELECT * FROM carrier_invoice WHERE id = ?', [$invoiceId]);
+        return $this->replaceBill($caller, $invoiceId, self::read($this->db, $account, $bytes), ['file_sha256' => hash('sha256', $bytes)]);
+    }
+
+    /**
+     * @param array<string, mixed> $bill RoyalMailBillPage::parse()
+     * @param array<string, mixed> $audit
+     * @return array{result: string, invoice_id: int, invoice_no: string, uploaded_at: string, rematched: int, rematch_error: ?string}
+     */
+    private function replaceBill(Caller $caller, int $invoiceId, array $bill, array $audit): array
+    {
+        $this->bills->authoriseWrite($caller);
+        return $this->bills->inLock(function () use ($caller, $invoiceId, $bill, $audit): array {
+            $old = $this->db->one('SELECT * FROM carrier_invoice WHERE id = ?', [$invoiceId]) ?? throw new CwException('not_found', 'there is no such bill', 404);
             // the account read again now the lock is held (the Codex check r2, r1 HIGH 4)
             $account = self::active($this->db, self::accountOf($this->db, $old));
-            if ($old['status'] !== 'live') {
-                throw new CwException('not_live', 'this bill is no longer in the profit (' . ($old['status'] === 'undone' ? 'its upload was undone' : 'a corrected file replaced it')
-                    . '): upload the file as a new bill instead. Nothing was saved.', 409);
-            }
-            if (self::key($bill) !== (string) $old['live_key']) {
-                throw new CwException('other_bill', sprintf('this file is Royal Mail bill %s of account %s, not bill %s of account %s: nothing was saved.', $bill['invoice_no'],
-                    $bill['account'], (string) $old['invoice_no'], (string) $old['account']), 422);
-            }
+            self::replaceable($old, $bill);
             if ($bill['sha256'] === $old['file_sha256']) {
                 return ['result' => 'same', 'invoice_id' => $invoiceId, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => (string) $old['uploaded_at'],
                     'rematched' => 0, 'rematch_error' => null];
             }
-            [$id, $at] = $this->store($caller, $account, $bill, $old);
+            [$id, $at] = $this->store($caller, $account, $bill, $old, $audit);
             return ['result' => 'stored', 'invoice_id' => $id, 'invoice_no' => $bill['invoice_no'], 'uploaded_at' => $at, 'rematched' => 0, 'rematch_error' => null];
         });
     }
@@ -176,9 +287,26 @@ final class RoyalMailBills
     {
         $account = CarrierSettings::account($this->db, $accountId);
         $bill = self::read($this->db, $account, $bytes);
+        // another file of a live bill: planned as its replace would plan it (the live one gone), as the screen's check of a replacement (DL79)
+        $live = $this->db->one('SELECT id, file_sha256 FROM carrier_invoice WHERE live_key = ?', [self::key($bill)]);
+        return $this->previewOf($account, $bill, $live !== null && $live['file_sha256'] !== $bill['sha256'] ? (int) $live['id'] : null);
+    }
+
+    /**
+     * @param array<string, mixed> $account
+     * @param array<string, mixed> $bill
+     * @return array<string, mixed>
+     */
+    private function previewOf(array $account, array $bill, ?int $replaces = null): array
+    {
         $ctx = self::ctx($this->db, $account);
         $rows = self::newRows($bill);
-        $s = self::scope($this->db, $account, $ctx, self::keysOf($this->db, $account, $ctx, $rows), $rows, [], null);
+        // a corrected file is planned as its replace() would plan it: the bill it replaces gone, the keys of both planned (DL79)
+        $gone = $replaces === null ? [] : [$replaces];
+        $keys = array_values(array_unique([...self::keysOf($this->db, $account, $ctx, $rows), ...($gone === [] ? [] : self::keysOf($this->db, $account, $ctx,
+            self::billRows($this->db, $gone)))]));
+        sort($keys, SORT_STRING);
+        $s = self::scope($this->db, $account, $ctx, $keys, $rows, $gone, null);
         $where = [];
         foreach ($s['desired'] as $a) {
             if ($a['invoice_id'] !== 0) {
@@ -378,17 +506,17 @@ final class RoyalMailBills
      * @param array<string, mixed> $bill
      * @return array{0: int, 1: string} the bill and when it was uploaded
      */
-    private function store(Caller $caller, array $account, array $bill, ?array $old): array
+    private function store(Caller $caller, array $account, array $bill, ?array $old, array $audit = []): array
     {
         $this->sweep();
         [$id, $at] = $this->load($caller, $account, $bill, $old);
         try {
-            $this->bills->guardedWrite(function (Db $db) use ($caller, $account, $bill, $old, $id): array {
+            $this->bills->guardedWrite(function (Db $db) use ($caller, $account, $bill, $old, $id, $audit): array {
                 $ctx = self::ctx($db, $account);
                 $gone = $old === null ? [] : [(int) $old['id']];
                 $keys = self::keysOf($db, $account, $ctx, self::billRows($db, [$id, ...$gone]));
                 $s = self::scope($db, $account, $ctx, $keys, [], $gone, $id);
-                return self::guardedPlan($s, function (Db $db) use ($caller, $account, $bill, $old, $id, $s): int {
+                return self::guardedPlan($s, function (Db $db) use ($caller, $account, $bill, $old, $id, $s, $audit): int {
                     $this->bills->authoriseWrite($caller); // again once everything is held (DL13)
                     $now = Clock::db(($this->clock)());
                     if ($old !== null) {
@@ -411,7 +539,7 @@ final class RoyalMailBills
                         'carrier' => $account['carrier'], 'account' => $bill['account'], 'invoice' => $bill['invoice_no'], 'rows' => count($bill['rows']),
                         'net_pence' => $bill['net'], 'sha256' => $bill['sha256'], 'allocations' => count(array_filter($s['desired'],
                             static fn (array $a): bool => $a['invoice_id'] === $id)), 'allocations_ended' => count($s['end']), 'allocations_added' => count($s['add'])]
-                        + ($old === null ? [] : ['replaces' => (int) $old['id']]));
+                        + ($old === null ? [] : ['replaces' => (int) $old['id']]) + $audit);
                     return $id;
                 });
             });
@@ -1152,6 +1280,35 @@ final class RoyalMailBills
                 . 'tell the CW team). Nothing was saved.', $a['account_no']), 422, ['field' => 'account']);
         }
         return $a;
+    }
+
+    /**
+     * A corrected file of this bill can replace it: the bill is live, and the file is the same bill (number and account).
+     *
+     * @param array<string, mixed> $old
+     * @param array<string, mixed> $bill
+     */
+    private static function replaceable(array $old, array $bill): void
+    {
+        if ($old['status'] !== 'live') {
+            throw new CwException('not_live', 'this bill is no longer in the profit (' . ($old['status'] === 'undone' ? 'its upload was undone' : 'a corrected file replaced it')
+                . '): upload the file as a new bill instead. Nothing was saved.', 409);
+        }
+        if (self::key($bill) !== (string) $old['live_key']) {
+            throw new CwException('other_bill', sprintf('this file is Royal Mail bill %s of account %s, not bill %s of account %s: nothing was saved.', $bill['invoice_no'],
+                $bill['account'], (string) $old['invoice_no'], (string) $old['account']), 422);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $bill
+     * @param array<string, mixed> $live
+     */
+    private static function alreadyUploaded(array $bill, array $live): CwException
+    {
+        return new CwException('already_uploaded', sprintf('Royal Mail bill %s was uploaded on %s and is in the profit already. To load a corrected file of it, open '
+            . 'the bill and use "Replace with a corrected file". Nothing was saved.', $bill['invoice_no'], self::when((string) $live['uploaded_at'])), 409,
+            ['invoice_id' => (int) $live['id']]);
     }
 
     /** @return array<string, mixed> the bill read; its printed account must be the account chosen */

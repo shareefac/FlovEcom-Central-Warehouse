@@ -12,6 +12,10 @@ declare(strict_types=1);
  *   php bin/carrier_account.php --account=<number> --switch-on | --switch-off
  *   php bin/carrier_account.php --account=<number> --add-channel=<code> --channel-name=<the channel's exact name in Click & Drop>
  *        (a new account's Click & Drop channels, before its first report is read: a report with another channel is refused, DL72)
+ *   php bin/carrier_account.php --party=<code> --first-order=<number>
+ *        (a shop's first order number in CW, as its labels' references carry it: a label below it that a before-start rule fits is the shop's
+ *        before CW start, DL78; 0078 sets Electrofag's, 5457. The nightly re-plan, or bin/match_delivery_bills.php, then plans the last
+ *        120 days again; an older bill takes the new number when it is replaced)
  *
  * Exit codes: 0 done · 1 refused (the reason printed) · 2 usage · 3 cannot run.
  */
@@ -25,15 +29,32 @@ use CW\Profit\DeliveryBills;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-exit(Cli::main('carrier_account', ['list', 'account:', 'number:', 'switch-on', 'switch-off', 'add-channel:', 'channel-name:'],
-    'usage: php bin/carrier_account.php --list | --account=<number> (--number=<new> | --switch-on | --switch-off | --add-channel=<code> --channel-name=<exact name>)',
+exit(Cli::main('carrier_account', ['list', 'account:', 'number:', 'switch-on', 'switch-off', 'add-channel:', 'channel-name:', 'party:', 'first-order:'],
+    'usage: php bin/carrier_account.php --list | --account=<number> (--number=<new> | --switch-on | --switch-off | --add-channel=<code> --channel-name=<exact name>)'
+    . ' | --party=<code> --first-order=<number>',
     static function (Cli $cli, array $opts): int {
         if (array_key_exists('list', $opts)) {
             foreach ($cli->db->all('SELECT a.carrier, a.account_no, a.name, a.state, a.key_name, p.code FROM carrier_account a JOIN delivery_party p ON p.id = a.main_party_id '
                 . 'ORDER BY a.carrier, a.account_no') as $a) {
                 $cli->log(sprintf('%-10s %-16s %-6s main %-12s key name %s  %s', $a['carrier'], $a['account_no'], $a['state'], $a['code'], $a['key_name'] ?? '-', $a['name']));
             }
+            foreach ($cli->db->all('SELECT code, first_order_no FROM delivery_party WHERE first_order_no IS NOT NULL ORDER BY code') as $p) {
+                $cli->log(sprintf('party %-12s first CW order number %s', $p['code'], $p['first_order_no']));
+            }
             return Cli::OK;
+        }
+        if (is_string($opts['party'] ?? null)) {
+            $code = $opts['party'];
+            $first = is_string($opts['first-order'] ?? null) ? $opts['first-order'] : '';
+            if (preg_match('/^[1-9][0-9]{0,8}$/D', $first) !== 1) {
+                throw new InvalidArgumentException('--first-order=<the shop\'s first order number in CW: digits, not 0>');
+            }
+            try {
+                return (new DeliveryBills($cli->db))->inLock(static fn (): int => carrier_party_first_order($cli, $code, (int) $first));
+            } catch (CwException $e) {
+                $cli->error(($e->errorCode === 'busy' ? 'busy: ' : '') . $e->getMessage());
+                return Cli::PROBLEM;
+            }
         }
         $no = is_string($opts['account'] ?? null) ? $opts['account'] : throw new InvalidArgumentException('--account=<number> is needed');
         // Under the delivery bills' lock, the account read again inside it: a bill of the account being stored meanwhile waits, or this does (the
@@ -100,5 +121,31 @@ function carrier_account_change(Cli $cli, array $opts, string $no): int
         Audit::write($db, $caller, 'carrier_account.set', 'carrier_account', (string) $a['id'], null, ['state' => [$a['state'], $state]]);
     });
     $cli->log("account {$a['account_no']}: {$state}");
+    return Cli::OK;
+}
+
+/**
+ * A shop's first order number in CW (DL78), under the delivery bills' lock and audited (delivery_party.set): never worked out from data, so a
+ * later backfill of the shop's older orders never moves it.
+ */
+function carrier_party_first_order(Cli $cli, string $code, int $first): int
+{
+    $p = $cli->db->one('SELECT id, code, channel_id, first_order_no FROM delivery_party WHERE code = ?', [$code])
+        ?? throw new InvalidArgumentException('no delivery party of that code (bin/carrier_account.php --list)');
+    if ($p['channel_id'] === null) {
+        $cli->error("party {$p['code']} has no shop in CW: a first CW order number is a shop's");
+        return Cli::PROBLEM;
+    }
+    $was = $p['first_order_no'] === null ? null : (int) $p['first_order_no'];
+    if ($was === $first) {
+        $cli->log("{$p['code']}: first CW order number {$first} already: nothing changed");
+        return Cli::OK;
+    }
+    $cli->db->transaction(static function (Db $db) use ($p, $was, $first): void {
+        $db->exec('UPDATE delivery_party SET first_order_no = ? WHERE id = ?', [$first, (int) $p['id']]);
+        Audit::write($db, Caller::system('carrier_account'), 'delivery_party.set', 'delivery_party', (string) $p['id'], null, ['first_order_no' => [$was, $first]]);
+    });
+    $cli->log("{$p['code']}: first CW order number {$first} (was " . ($was ?? 'none') . '). The nightly re-plan puts its labels where they now belong (or run '
+        . 'bin/match_delivery_bills.php).');
     return Cli::OK;
 }

@@ -17,10 +17,11 @@ use CW\Reports\ReportRefresh;
  * carries a reference it is the parcel's order number (# and digits never is: ref_differs), and when its channel's rules name a party, that is
  * the parcel's shop (shop_differs). Never by the reference alone.
  *
- * A label on NO CW parcel goes by the account's party rules (CarrierSettings::ruleParty; channel, then the reference's form): a party with a
+ * A label on NO CW parcel goes by the account's party rules (CarrierSettings::rule; channel, then the reference's form): a party with a
  * shop in CW on that day: before CW start (the day on or before the shop's start, or the reference an order number below its first order:
- * DL10, DL30) or the shop's "not on an order" (a label made on Click & Drop's own site); a party with no shop (or not yet in CW on that day):
- * its own line; no party, or a party the account does not serve that day: held (shop_unknown, not_served).
+ * DL10, DL30) or the shop's "not on an order" (a label made on Click & Drop's own site); a before-start rule (DL78: Electrofag's API labels
+ * with 4 digits below its first CW order number, a setting): that shop's before CW start whatever the day; a party with no shop (or not yet
+ * in CW on that day): its own line; no party, or a party the account does not serve that day: held (shop_unknown, not_served).
  *
  * A label whose price is already on an order stays on that order (sticky: as DPD's DL7, a cost put on an order is never moved to another).
  */
@@ -74,7 +75,8 @@ final class LabelDestinations
                     $fits[strtolower($p['channel_id'] . '|' . $p['order_ref'] . '|' . $p['parcel_ref'])] = $p;
                 }
             }
-            $ruled = CarrierSettings::ruleParty($rules, $l['channel_code'] ?? null, $l['reference'] ?? null);
+            $rule = CarrierSettings::rule($rules, $l['channel_code'] ?? null, $l['reference'] ?? null, $parties);
+            $ruled = $rule['party_id'] ?? null;
             if (count($fits) > 1) {
                 $out[$id] = self::held('two_parcels');
                 continue;
@@ -114,6 +116,12 @@ final class LabelDestinations
                 continue;
             }
             $party = $parties[$ruled];
+            if ($rule['before_first'] && $party['channel_id'] !== null) {
+                // below the shop's first CW order number: its order is older than its shop in CW, whatever the label's day (DL78)
+                $out[$id] = ['dest' => 'before_start', 'channel_id' => (int) $party['channel_id'], 'order_ref' => null, 'parcel_ref' => null, 'party_id' => null,
+                    'held_reason' => null];
+                continue;
+            }
             if ($party['channel_id'] === null || ($party['channel_from'] !== null && $day < $party['channel_from'])) {
                 $out[$id] = ['dest' => 'party', 'channel_id' => null, 'order_ref' => null, 'parcel_ref' => null, 'party_id' => $ruled, 'held_reason' => null];
                 continue;

@@ -11175,6 +11175,19 @@ final class Words
         'rm_report_upload' => 'Read the labels',
         'rm_labels_read' => 'Labels read: %s (%s new, %s with empty fields filled, %s rows skipped).',
         'rm_labels_differ' => '%s labels say something else than CW holds already: CW keeps what it read first.',
+        // the upload's check, then Store (DL79)
+        'rm_check_title' => 'Check Royal Mail bill %s before you store it',
+        'rm_check_intro' => 'Nothing is stored yet. This is what CW read from the bill and where its money would go. If it looks right, press "Store this bill".',
+        'rm_check_replaces' => 'It replaces bill %s, uploaded %s. That one is then kept, marked replaced, and taken out of the profit.',
+        'rm_check_same' => 'This very bill is in the profit already: there is nothing to store.',
+        'rm_check_where' => 'Where its money would go',
+        'rm_check_ties' => 'Its lines add up to its totals',
+        'rm_yes' => 'Yes',
+        'rm_bill_date' => 'Bill date',
+        'rm_check_store' => 'Store this bill',
+        'rm_check_time' => 'Store it within %s minutes, or upload it again.',
+        'rm_check_cancel' => 'Do not store it',
+        'rm_check_gone' => 'This check is no longer open: it was stored already, it is more than %s minutes old, or someone else made it. Nothing was saved. Upload the bill again to check it.',
     ];
 
     public const RD_REPORTS = [

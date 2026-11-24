@@ -50,11 +50,12 @@ final class DeliveryBillsController
         $account = UiRequest::id($ctx->req->field('account'));
         try {
             if ($carrier === 'royal_mail') {
-                // Royal Mail's bill: its saved page, or its text pasted in the box (DL52); the account it is of chosen (its printed number must agree)
+                // Royal Mail's bill: its saved page, or its text pasted in the box (DL52); the account it is of chosen (its printed number must agree).
+                // Checked first, nothing stored: the check page, then its Store (DL79).
                 if ($account === null) {
                     throw new CwException('no_account', Words::DELIVERY['rm_no_account'], 422, ['field' => 'account']);
                 }
-                $r = (new RoyalMailBills($ctx->db))->upload($ctx->caller(), $account, self::pageOrText($ctx));
+                return $this->checkPage($ctx, (new RoyalMailBills($ctx->db))->check($ctx->caller(), $account, self::pageOrText($ctx)));
             } else {
                 $file = InvoicesController::upload($ctx);
                 $bytes = (string) file_get_contents($file['path']);
@@ -81,7 +82,8 @@ final class DeliveryBillsController
         $id = $ctx->id();
         try {
             if (self::pooled($ctx, $id)) {
-                $r = (new RoyalMailBills($ctx->db))->replace($ctx->caller(), $id, self::pageOrText($ctx));
+                // a Royal Mail bill's corrected file: checked first, then its Store (DL79)
+                return $this->checkPage($ctx, (new RoyalMailBills($ctx->db))->check($ctx->caller(), null, self::pageOrText($ctx), $id));
             } else {
                 $file = InvoicesController::upload($ctx);
                 $r = (new DeliveryBills($ctx->db))->replace($ctx->caller(), $id, (string) file_get_contents($file['path']));
@@ -91,6 +93,39 @@ final class DeliveryBillsController
         }
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $r['invoice_id'], ['notice' => $r['result'] === 'same' ? 'same'
             : ($r['rematch_error'] !== null ? 'replaced_later' : 'replaced')]));
+    }
+
+    /**
+     * POST store: a Royal Mail bill checked on this screen stored (RoyalMailBills::storeChecked, DL79): the bill its check READ, by who checked it,
+     * once, within its time; a check that is not open stores nothing and says so.
+     */
+    public function store(Context $ctx): HtmlResponse
+    {
+        try {
+            $r = (new RoyalMailBills($ctx->db))->storeChecked($ctx->caller(), (string) ($ctx->req->field('check') ?? ''), (string) ($ctx->req->field('bill_sha256') ?? ''));
+        } catch (CwException $e) {
+            return $this->listPage($ctx, $e->httpStatus, $e, ['carrier' => 'royal_mail']);
+        }
+        $replaced = $ctx->db->value('SELECT supersedes_id FROM carrier_invoice WHERE id = ?', [$r['invoice_id']]) !== null;
+        $notice = $r['result'] === 'same' ? 'same' : ($replaced ? 'replaced' : 'stored') . ($r['rematch_error'] !== null ? '_later' : '');
+        return HtmlResponse::redirect(Html::url(self::PATH . '/' . $r['invoice_id'], ['notice' => $notice]));
+    }
+
+    /**
+     * A Royal Mail bill checked, nothing stored (DL79; the plan, section 6 step 3): what CW read (its number, account, date, days, that its lines add
+     * up to its totals, its rows and totals), where its money would go, the bill it replaces, and the Store button (or "in the profit already").
+     *
+     * @param array<string, mixed> $c RoyalMailBills::check()
+     */
+    private function checkPage(Context $ctx, array $c): HtmlResponse
+    {
+        $p = $c['preview'];
+        return $ctx->page('profit_delivery_rm_check', [
+            'check' => $c,
+            'bill' => $p,
+            'where' => (new RoyalMailViews($ctx->db))->checkWhere($p['where']),
+            'minutes' => RoyalMailBills::CHECK_MINUTES,
+        ], 200, ['title' => Words::say('DELIVERY', 'rm_check_title', (string) $p['invoice_no'])]);
     }
 
     /** POST {id}/undo: "Undo this upload" (DeliveryBills::undo), only with its box ticked. */

@@ -119,9 +119,10 @@ final class RoyalMailScreensTest extends KernelUiTestCase
         self::assertSame([[Words::DELIVERY['account'], '0706703000'], [Words::DELIVERY['rm_bill_date'], '16 Nov 2026'], [Words::DELIVERY['days'], '8 Nov 2026 - 9 Nov 2026'],
             [Words::DELIVERY['rm_check_ties'], Words::DELIVERY['rm_yes']], [Words::DELIVERY['rm_rows_title'], '2'], [Words::DELIVERY['net'], '£6.13'],
             [Words::DELIVERY['vat'], '£1.23'], [Words::DELIVERY['gross'], '£7.36']], self::rows($r, 'delivery-rm-check-facts'));
-        $check = self::rows($r, 'delivery-rm-check');
-        self::assertSame([Words::say('DELIVERY', 'rm_group_order', 'Vape and Go'), Words::say('DELIVERY', 'rm_group_shop', 'Vape and Go'),
-            Words::say('DELIVERY', 'rm_group_day_line', 'Vape and Go')], array_column(array_slice($check, 0, 3), 0));
+        $check = self::rows($r, 'delivery-rm-check-where');
+        $shop = (string) self::$db->value('SELECT name FROM channel WHERE id = ?', [$ch]);
+        self::assertSame([Words::say('DELIVERY', 'rm_group_order', $shop), Words::say('DELIVERY', 'rm_group_shop', $shop),
+            Words::say('DELIVERY', 'rm_group_day_line', $shop)], array_column(array_slice($check, 0, 3), 0));
         self::assertSame(['£5.08', '£3.59', '-£2.54', '£6.13'], array_column($check, 1), 'the same split the bill\'s page shows once stored');
         self::assertStringNotContainsString('SESSION-', $r->body, 'a hidden input of the saved page is never shown');
         self::assertTrue($r->hasForm('/ui/profit/delivery/store'));
@@ -156,7 +157,7 @@ final class RoyalMailScreensTest extends KernelUiTestCase
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM carrier_invoice'), 'nothing stored by the check');
         self::assertStringContainsString(Words::say('DELIVERY', 'rm_check_replaces', '9070000001', \CW\Ui\Html::when((string) self::$db->value('SELECT uploaded_at FROM '
             . 'carrier_invoice WHERE id = ?', [$id]))), $rep->text());
-        self::assertSame(['£5.08', '£3.59', '£8.67'], array_column(self::rows($rep, 'delivery-rm-check'), 1));
+        self::assertSame(['£5.08', '£3.59', '£8.67'], array_column(self::rows($rep, 'delivery-rm-check-where'), 1));
         $rep = $job->post('/ui/profit/delivery/store', $rep->form('/ui/profit/delivery/store'));
         self::assertSame(303, $rep->status, $rep->describe() . ' ' . implode(' | ', self::$log));
         $new = (int) self::$db->value("SELECT id FROM carrier_invoice WHERE status = 'live'");
