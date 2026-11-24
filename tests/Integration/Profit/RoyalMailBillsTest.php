@@ -664,4 +664,97 @@ final class RoyalMailBillsTest extends StockTestCase
         self::assertSame(0, ($sums[$id]['order']['p'] ?? 0) + ($sums[$id]['shop']['p'] ?? 0) + ($sums[$id]['outside']['p'] ?? 0));
     }
 
+
+    // ---- the Codex check r2 (cw_work/runs/rmbills_codex_r2.txt): each shown failing first (runs/rmbills_r2_red.log) ----------------------------
+
+    /** r2 (r1 HIGH 1 PARTLY): a day after the main shop's CW start with no label yet waits, even before the account's first label's day. */
+    public function testADayBeforeTheFirstLabelButAfterTheStartWaits(): void
+    {
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000091GB', 'TPL48HV', '2026-11-10', '1360091')], 'report');
+        $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line('2026-11-09', 'TPL', 1, 254, '943'),
+            RmBill::line('2026-10-20', 'TPL', 1, 239, '777')]))['invoice_id'];
+        self::assertSame(['before_start|' . $this->vpg . '|' => 239, 'held||no_report' => 254], self::where($id),
+            'after the start: waits for its labels; on or before it: before CW start');
+    }
+
+    /** r2 (r1 HIGH 2 PARTLY): a report row with no channel is no evidence of the account: refused. */
+    public function testAReportRowWithNoChannelIsRefused(): void
+    {
+        $head = ['Order number', 'Batch number', 'Manifest number', 'Channel', 'Channel reference', 'Despatch date', 'Manifest date', 'Customer', 'Company',
+            'Address line 1', 'Address line 2', 'City', 'Postcode', 'Country', 'Weight (kg)', 'Package size', 'Shipping service', 'Service code', 'Tracking number',
+            'Tracking status', 'Sales order number', 'Department', 'Notification email address', 'Notification mobile number', 'Tags'];
+        $row = [779001.0, 'B1', 'M2288', '', '13600', 46335.75, 46335.75, 'X', '', '', '', '', '', '', 0.3, 'Parcel', 'T48', 'TPL48HV', 'JV000000092GB', 'x', 'uuid', '', '', '', ''];
+        try {
+            self::rm()->importReport(self::system(), $this->acct['account'], XlsWriter::file([$head, $row]));
+            self::fail('no channel');
+        } catch (CwException $e) {
+            self::assertSame('other_account', $e->errorCode);
+        }
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_label'));
+    }
+
+    /** r2 (r1 HIGH 4 NOT FIXED): the account is read again once the lock is held: renumbered meanwhile, the bill is refused, nothing stored. */
+    public function testAnAccountRenumberedWhileTheUploadWaitsIsReadAgain(): void
+    {
+        $conn = TestDb::connect();
+        $conn->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\HookedStatement::class, []]);
+        $acct = $this->acct['account'];
+        \CW\Tests\Support\HookedStatement::$before = ['SELECT GET_LOCK(?, ?)' => static function () use ($acct): void {
+            self::$db->exec("UPDATE carrier_account SET account_no = '0706799999' WHERE id = ?", [$acct]);
+        }];
+        try {
+            (new RoyalMailBills($conn))->upload(self::system(), $acct, RmBill::page([RmBill::line('2026-11-09', 'TPL', 1, 254, '943')]));
+            self::fail('the account is not that number any more');
+        } catch (CwException $e) {
+            self::assertSame('other_account', $e->errorCode);
+        } finally {
+            \CW\Tests\Support\HookedStatement::$before = [];
+            self::$db->exec("UPDATE carrier_account SET account_no = '0706703000' WHERE id = ?", [$acct]);
+        }
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_invoice'));
+    }
+
+    /**
+     * r2 new HIGH 1: a day priced, then waiting again (a late label with no service), then its order's parcel removed: the label stays on the
+     * order it was first put on (the label keeps its CW parcel, whether its price counts at that moment or not).
+     */
+    public function testALabelKeepsItsOrderThroughAWait(): void
+    {
+        $day = '2026-11-09';
+        self::order($this->vpg, '1101', '1361101', '2026-11-09T09:00:00Z', ['JV000000101GB' => '2026-11-09T10:00:00Z']);
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000101GB', 'TPL48HV', $day, '1361101')], 'report');
+        self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 2, 508, '943')]));
+        self::assertSame(254, DeliveryBills::orderCost(self::$db, $this->vpg, '1101'));
+        self::rm()->importLabels(self::system(), $this->acct['account'], [['tracking_no' => 'JV000000102GB', 'source_id' => 5, 'reference' => '1361102',
+            'manifested_at' => $day . ' 18:00:00.000000', 'manifest_day' => $day]], 'api');
+        self::assertSame(0, DeliveryBills::orderCost(self::$db, $this->vpg, '1101'), 'the day waits for its labels');
+        (new OrderSnapshots(self::$db))->store($this->vpg, '1101', ['v' => 1, 'version' => 2, 'order_no' => '1361101', 'status' => 'completed',
+            'placed_at' => '2026-11-01T09:00:00Z', 'paid_at' => '2026-11-09T09:00:00Z', 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => null,
+            'lines' => [['line_id' => '8001101', 'variant_id' => '40123', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0,
+                'free' => false]], 'delivery' => ['method_id' => '5', 'method' => 'Royal Mail', 'charged_inc' => 399, 'refund_inc' => 0], 'order_refund_inc' => 0,
+            'grand_inc' => 1599, 'parcels' => []], 'api');
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000102GB', 'TPL48HV', $day, '1361102')], 'report');
+        self::assertSame(254, DeliveryBills::orderCost(self::$db, $this->vpg, '1101'), 'back on the order it was first put on');
+        $this->assertRebuilds();
+    }
+
+    /** r2 new MEDIUM 3 and 6: a new account's channels are set with the tool (audited); only a placeholder number is ever changed. */
+    public function testANewAccountsChannelsAreSetAndOnlyAPlaceholderIsRenumbered(): void
+    {
+        RmFixtures::account(self::$db, $this->vpg, null, 'off', 'vapebig-pending');
+        $r = self::script('carrier_account', '--account=vapebig-pending', '--add-channel=api', '--channel-name=Vape Big Ltd - API (Vape Big Ltd)');
+        self::assertSame(0, $r['code'], $r['out']);
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM carrier_channel c JOIN carrier_account a ON a.id = c.account_id WHERE a.account_no = 'vapebig-pending' "
+            . "AND c.name = 'Vape Big Ltd - API (Vape Big Ltd)' AND c.code = 'api'"));
+        self::assertSame(1, self::script('carrier_account', '--account=0706703000', '--number=0706799999')['code'], 'a real number is never changed');
+        self::assertSame('0706703000', (string) self::$db->value('SELECT account_no FROM carrier_account WHERE id = ?', [$this->acct['account']]));
+    }
+
+    /** r2 new MEDIUM 4: a service code is kept only in a service code's shape (letters and a digit): a word there is never a service. */
+    public function testAWordIsNeverAServiceCode(): void
+    {
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000111GB', 'ADA', '2026-11-09', '1360111')], 'report');
+        self::assertNull(self::$db->value("SELECT service_code FROM carrier_label WHERE tracking_no = 'JV000000111GB'"));
+    }
+
 }
