@@ -20169,7 +20169,7 @@ goes on the line's order like the others; a file without the column (the weeks b
 (a column CW did not know, with amounts in it). Tested with a synthetic file only. (DPD account 3012002 stays Vape and Go's only: the
 owner, 23 Nov 2026, Electrofag does not use DPD.)
 
-## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL70; migration 0078)
+## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL73; migration 0078)
 
 <!-- ---- Shipping plan v3 phase 1 (0078): DL43-DL70. ---- -->
 The plan: `cw_work/delivery_cost_20261123/SHIPPING_PLAN_v3.md` (its money rules and the owner's decisions Q1-Q8 of 23 Nov 2026 are the spec);
@@ -20348,6 +20348,51 @@ not built here): migrate 0078 (adds; one small ALTER of carrier_invoice), the re
 `click_and_drop_0706703000=<key>`), a first `--pull --from=<day>` and the report of the weeks to load, then the bills oldest first. Undo: the
 release before (14c6e31) with 0078 added byte for byte (RollbackReleaseTest); the tables and rows stay unused; a bill's money is undone with
 "Undo this upload" BEFORE the release goes back (the release before reads no allocation: its rebuild would drop them from the days, as DL22).
+
+**The Codex check r1 of 9ff6b4e (`cw_work/runs/rmbills_codex_r1.txt`, default model: NO GO, 4 HIGH, 10 MEDIUM, 6 LOW).** Each shown failing first
+(`runs/rmbills_r1_red.log`: 17 tests), then fixed in c52784e (`runs/rmbills_r1_green*.log`).
+
+**DL71. A day waits for its labels; the main shop's charges before its CW start are before CW start (r1 HIGH 1).** The API gives no service
+(DL49): a bill read before Click & Drop's report would have put the day's whole Tracked money, Electrofag's and Hayati's part with it, on the
+main shop as "billed, no label found". Now a row's service day WAITS when the account has a label of that day with no service yet, or no
+label at all on a day on or after its first label's day (no label at all yet: every day): a flat day is HELD whole (`no_report`), and a
+Special Delivery or wrong-weight row that finds no label on a waiting day too; the report's labels plan the day again (the keys of every label
+read and every row of their manifest days and the day after). Money that falls to the main shop (no label on a day that does not wait, a
+surcharge, a return, pence left over) on or before the main shop's CW start day is `before_start` (as DPD's DL10), not in its profit.
+
+**DL72. The rest of r1.** (HIGH 2) a Click & Drop report with a label of a channel the account does not have is refused whole (it is another
+account's); the channel is never named. (HIGH 3) the parcels are read 500 numbers a statement: an order seen at two snapshots in one plan is
+named `conflict`, which no write passes (tried again). (HIGH 4) `bin/carrier_account.php` changes an account only under the delivery bills'
+lock, the account read again inside it, its bills of any status counted there. (MEDIUM 5) every label read plans its keys again, changed or
+not (a read whose plan died is planned by the next read; the nightly's 120 days are no limit to that). (MEDIUM 6) a plan reads every label of
+the sales orders its Special Delivery rows name, and plans with them the key each row has now and the manifests its live allocations' labels
+are on, until nothing new comes (3 rounds). (MEDIUM 7) the loading step's row waits are 1 s at most, a chunk tried again 5 times, then busy.
+(MEDIUM 8) the clean-up after a committed undo or store never says the write failed; the nightly sweeps first, whatever the accounts' state.
+(MEDIUM 9) check d: royal_mail, or a hand-made label (carrier manual, or none with the manual flag) with a Royal Mail number; another carrier's
+parcel never, manual flag or not. (MEDIUM 10) every pull reads the last 14 days at least. (MEDIUM 11) a reference is kept up to 9 digits and
+a tracking number only in Royal Mail's shape (two letters, nine digits, GB): a phone number is never kept (readers and the store). (MEDIUM 12)
+an amount among a line's reference cells refuses the bill (by its row and column). (MEDIUM 13) anything the saved page hides (the hidden
+attribute, aria-hidden, display none, visibility hidden) is never read, and the top block is read from the page's text only, never a button.
+(MEDIUM 14) 0078 makes Vape Big's account only while Vape Big has no Royal Mail account (its number changed later, a run again makes no
+second). (LOW 15) the key file is opened once, a link refused, its owner the user CW runs as (root for the cron), mode 600. (LOW 16) an unknown
+product is named only in a 3-character code's shape. (LOW 17) the bill's date must be a calendar day. (LOW 18) a zero-rated code's rows carry
+no VAT at all. (LOW 20) the list sums a live bill's live allocations, a replaced or undone one's last (what it had), a loading one's nothing.
+NOT changed: (LOW 19) a failed replacement leaves a `system:not_stored` row naming the old bill: the release before's DB6 would report it
+after a rollback (the rollback kit must say so; the money is not affected); (MEDIUM 7, its last point) DPD's own retry budget is unchanged.
+
+**DL73. The bill's page text as a browser's page reader gives it, and the owner's three real bills.** The coordinator's copies of bills
+9077198715 (2 Nov), 9077251573 (9 Nov) and 9077300608 (16 Nov) are the page's text with no tabs: the heading's words joined by spaces, each
+line over two lines ("05:11:2026 SD1 5.000 SD GUARANTEED BY 1PM" / "/ CLICK AND DROP M2281 GBP 53.08 GBP 63.70 T"; an empty reference:
+"/ GBP 7.63 GBP 9.16 T"), a note "Surcharge included on Invoice GBP n" (not a line: skipped, never money), the VAT summary and the total. Read
+by the same reader (a third form beside the saved page and the tab-separated copy): 173, 189 and 159 lines, each tying to the penny
+(net, gross, VAT by the rows). The page's text has no sales order button: a Special Delivery row is found by its manifest. Stored in date
+order on a test schema with the phase-0 labels and CW parcel extract (`runs/rmbills_realbills.log`, counts only): every row's allocations add
+up, the allocations equal a plan from scratch, the nightly checks clean; Special Delivery priced by weight band on every manifest with
+labels (41 of 42; M2250 has no label: before the labels' first day); bill 1 is mostly before CW start (its days are on or before 28 Oct);
+"held, shop not known" £255 / £452 / £466: labels with a bare 4-digit reference (Electrofag's order numbers, which name nobody by DL46) whose
+order is not in the extract (its Electrofag parcels start 12 Nov). FOR THE LEAD: on live, the Electrofag orders in CW take them (checks a-e);
+labels of Electrofag orders older than its CW start stay held (not before CW start), unless a rule "channel api + 4 digits = Electrofag" is
+added (DL46 / P0-6 say a bare 4-digit reference names nobody).
 
 ## A count sheet's product box: find an item by its name, as on the adjustment screen (branch `count-picker`, 23 Nov 2026; CP1-CP8; no migration)
 
