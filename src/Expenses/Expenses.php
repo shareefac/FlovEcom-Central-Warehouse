@@ -171,14 +171,16 @@ final class Expenses
     public static function state(Db $db, int $id): array
     {
         $r = $db->one('SELECT e.channel_id, c.name AS shop, e.supplier_id, s.name AS supplier, e.type_id, t.name AS type, e.invoice_date, e.invoice_no, e.net_pence, '
-            . 'e.vat_pence, e.total_pence, e.note, e.file_id, e.deleted_reason FROM expense e JOIN channel c ON c.id = e.channel_id '
+            . 'e.vat_pence, e.total_pence, e.note, e.file_id, e.deleted_reason, e.deleted_at, e.deleted_actor FROM expense e JOIN channel c ON c.id = e.channel_id '
             . 'JOIN expense_supplier s ON s.id = e.supplier_id JOIN expense_type t ON t.id = e.type_id WHERE e.id = ?', [$id])
             ?? throw new \LogicException("expense {$id} vanished");
         return ['channel_id' => (int) $r['channel_id'], 'shop' => (string) $r['shop'], 'supplier_id' => (int) $r['supplier_id'], 'supplier' => (string) $r['supplier'],
             'type_id' => (int) $r['type_id'], 'type' => (string) $r['type'], 'invoice_date' => (string) $r['invoice_date'], 'invoice_no' => (string) $r['invoice_no'],
             'net_pence' => (int) $r['net_pence'], 'vat_pence' => (int) $r['vat_pence'], 'total_pence' => (int) $r['total_pence'],
             'note' => $r['note'] === null ? null : (string) $r['note'], 'file_id' => $r['file_id'] === null ? null : (int) $r['file_id'],
-            'deleted_reason' => $r['deleted_reason'] === null ? null : (string) $r['deleted_reason']];
+            'deleted_reason' => $r['deleted_reason'] === null ? null : (string) $r['deleted_reason'],
+            // Who deleted it and when, compared every night (the Codex check r2, M11).
+            'deleted_at' => $r['deleted_at'] === null ? null : (string) $r['deleted_at'], 'deleted_actor' => $r['deleted_actor'] === null ? null : (string) $r['deleted_actor']];
     }
 
     /**

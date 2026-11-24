@@ -7,7 +7,9 @@ declare(strict_types=1);
  * week, for Vape and Go, from 1 Nov 2026 unless --from says another first day (confirmed with the owner before go-live). Weekly total
  * GBP 9,771.94. Starlink (a monthly invoice: an expense) and Cloudflare (yearly: the owner adds it) are not in it.
  *
- *   php bin/seed_regular_costs.php [--from=2026-11-01] [--shop=vapeandgo] [--apply]
+ *   php bin/seed_regular_costs.php [--from=2026-11-01] [--apply]
+ *
+ * Always Vape and Go's (the owner: the list is Vape and Go's; no other shop can be named: the Codex check r2, H3).
  *
  *   (none)    a dry run: every line said, what would be added and what is there already; nothing written
  *   --apply   adds the lines not there yet (as system:seed_regular_costs, each with its history); a line of the same name in the shop that is
@@ -45,13 +47,13 @@ const SEED_LIST = [
     ['Dean', '1,883.00', 'Marketing, website and people', null],
 ];
 
-exit(Cli::main('seed_regular_costs', ['from:', 'shop:', 'apply'], 'usage: php bin/seed_regular_costs.php [--from=YYYY-MM-DD] [--shop=<store code>] [--apply]',
+exit(Cli::main('seed_regular_costs', ['from:', 'apply'], 'usage: php bin/seed_regular_costs.php [--from=YYYY-MM-DD] [--apply]',
     static function (Cli $cli, array $opts): int {
         $from = is_string($opts['from'] ?? null) ? $opts['from'] : '2026-11-01';
         if (!RegularCostMath::isDay($from)) {
             throw new InvalidArgumentException('--from must be a day: YYYY-MM-DD');
         }
-        $code = is_string($opts['shop'] ?? null) ? $opts['shop'] : 'vapeandgo';
+        $code = 'vapeandgo';
         $apply = array_key_exists('apply', $opts);
         $shop = $cli->db->one('SELECT id, name FROM channel WHERE code = ?', [$code]);
         if ($shop === null) {

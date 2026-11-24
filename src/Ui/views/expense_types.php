@@ -74,6 +74,7 @@ $help = $T['help'] . ($lookOnly !== null ? ' ' . \CW\Ui\Words::say('UI', 'look_o
   </div>
 </section>
 <?php endforeach; ?>
+<?php if ($seeHistory): ?>
 <details class="fold expense-types-history">
   <summary><?= $word('EXPENSES', 'history') ?></summary>
 <?php
@@ -89,6 +90,7 @@ usort($all, static fn (array $a, array $b): int => strcmp((string) $b['at'], (st
 ?>
 <?= $partial('expense_history', ['history' => array_slice($all, 0, 100)]) ?>
 </details>
+<?php endif; ?>
 </div>
 </div>
 </div>

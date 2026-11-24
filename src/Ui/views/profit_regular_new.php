@@ -8,7 +8,7 @@ $bad = static fn (string $f): string => $errorField === $f ? ' aria-invalid="tru
 ?>
 <?= $head($R['new_title'], intro: 'profit_regular_new', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_regular']), back: ['/ui/profit/regular', $R['back']]) ?>
 <?php if ($error !== null): ?>
-<p class="error" role="alert"><?= $e($error) ?></p>
+<p class="error" role="alert"><?= $e($error) ?><?php if ($other !== null): ?> <a href="<?= $e($other) ?>"><?= $word('REGULAR', 'open_other') ?></a><?php endif; ?></p>
 <?php endif; ?>
 <form class="record" method="post" action="/ui/profit/regular/new" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
@@ -50,6 +50,9 @@ $bad = static fn (string $f): string => $errorField === $f ? ' aria-invalid="tru
       <input type="text" name="note" value="<?= $e((string) $t['note']) ?>" maxlength="500"<?= $bad('note') ?>>
     </label>
   </fieldset>
+<?php if ($sameAsk): ?>
+  <label class="choice same-ok"><input type="checkbox" name="same_ok" value="1"> <?= $word('REGULAR', 'same_ok') ?></label>
+<?php endif; ?>
   <p class="actions"><button type="submit" class="btn primary"><?= $word('REGULAR', 'save') ?></button></p>
 </form>
 <p class="muted"><?= $word('REGULAR', 'how_counts') ?></p>

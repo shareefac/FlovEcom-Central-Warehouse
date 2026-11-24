@@ -83,6 +83,7 @@ final class ExpensesController
         $typed = self::typed($ctx);
         try {
             $file = self::upload($ctx, false);
+            self::fileAgain($ctx, $file);
             $r = (new Expenses($ctx->db, static fn (): FileStore => $ctx->files()))->add($ctx->caller(), $typed, $file, $ctx->req->field('same_ok') === '1');
         } catch (CwException $e) {
             return $this->form($ctx, $e->httpStatus, $e, $typed, null);
@@ -107,6 +108,7 @@ final class ExpensesController
         $typed = self::typed($ctx);
         try {
             $file = self::upload($ctx, false);
+            self::fileAgain($ctx, $file);
             $r = (new Expenses($ctx->db, static fn (): FileStore => $ctx->files()))->change($ctx->caller(), $id, self::seen($ctx), $typed, $file,
                 $ctx->req->field('same_ok') === '1');
         } catch (CwException $e) {
@@ -137,6 +139,12 @@ final class ExpensesController
             . 'WHERE e.id = ?', [$ctx->id()]);
         if ($x === null || $x['file_id'] === null) {
             return $ctx->error(404, 'not_found', Words::EXPENSES_ERROR['no_such_file'], [self::PATH, Words::MENU['profit_expenses']]);
+        }
+        // The same rules as the general file address: bytes that are also a supplier's invoice copy need invoices.view as well (the Codex check
+        // r2, H8; EX24).
+        $refused = FilesController::refusal($ctx, (int) $x['file_id']);
+        if ($refused !== null) {
+            return $refused;
         }
         $file = $ctx->files()->read((int) $x['file_id']);
         $mime = (string) $file['meta']['mime'];
@@ -185,6 +193,7 @@ final class ExpensesController
     {
         return match ($e->errorCode) {
             'same_invoice' => Words::say('EXPENSES_ERROR', 'same_invoice', is_string($e->detail['date'] ?? null) ? Html::day($e->detail['date']) : ''),
+            'same_cost' => Words::say('EXPENSES_ERROR', 'same_cost', is_string($e->detail['from'] ?? null) ? Html::day($e->detail['from']) : ''),
             'file_too_large', 'too_large' => Words::say('EXPENSES_ERROR', 'file_too_large', intdiv(ExpenseFiles::MAX_BYTES, 1_048_576)),
             'changed_meanwhile' => Words::say('EXPENSES_ERROR', 'changed_meanwhile', (string) ($e->detail['by'] ?? '?')),
             default => Words::EXPENSES_ERROR[$e->errorCode] ?? Words::error($e->errorCode, $e->getMessage()),
@@ -213,6 +222,25 @@ final class ExpensesController
             throw new CwException('upload_failed', Words::EXPENSES_ERROR['upload_failed'], 400, ['field' => 'file']);
         }
         return ['path' => (string) $file['path'], 'name' => (string) $file['name']];
+    }
+
+    /**
+     * A form sent back after a refusal while a file had been chosen says so (file_again, a hidden field): sent again without a file it is
+     * refused (422 file_again) unless "Save without a file" is ticked, so the PDF is never lost unseen (the Codex check r2, M10; EX28).
+     *
+     * @param array{path: string, name: string}|null $file
+     */
+    private static function fileAgain(Context $ctx, ?array $file): void
+    {
+        if ($file === null && $ctx->req->field('file_again') === '1' && $ctx->req->field('no_file_ok') !== '1') {
+            throw new CwException('file_again', Words::EXPENSES_ERROR['file_again'], 422, ['field' => 'file']);
+        }
+    }
+
+    /** Whether the form being answered had a file chosen, or was itself sent back asking for one (its refusal must ask again). */
+    private static function fileChosen(Context $ctx): bool
+    {
+        return $ctx->req->file('file') !== null || ($ctx->req->field('file_again') === '1' && $ctx->req->field('no_file_ok') !== '1');
     }
 
     private static function seen(Context $ctx): int
@@ -244,6 +272,7 @@ final class ExpensesController
             'sameAsk' => $error?->errorCode === 'same_invoice',
             'other' => is_int($error?->detail['other'] ?? null) ? self::PATH . '/' . $error->detail['other'] : null,
             'maxMb' => intdiv(ExpenseFiles::MAX_BYTES, 1_048_576),
+            'fileAgain' => $error !== null && self::fileChosen($ctx),
         ], $status, ['title' => Words::EXPENSES['new_title'], 'notice' => $notice]);
     }
 
@@ -295,6 +324,7 @@ final class ExpensesController
             'sameAsk' => $error?->errorCode === 'same_invoice',
             'maxMb' => intdiv(ExpenseFiles::MAX_BYTES, 1_048_576),
             'listHref' => Html::url(self::PATH, ['month' => substr((string) $x['invoice_date'], 0, 7)]),
+            'fileAgain' => $error !== null && $typed !== null && self::fileChosen($ctx),
             'seen' => $seen ?? (int) $x['version'],
         ], $status, ['title' => $title, 'notice' => $notice]);
     }

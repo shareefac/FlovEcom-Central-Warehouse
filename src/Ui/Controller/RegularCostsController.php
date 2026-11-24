@@ -38,13 +38,17 @@ final class RegularCostsController
         $range = RegularCostMath::isDay($from) && RegularCostMath::isDay($to) && $from <= $to ? [$from, $to] : null;
         $shop = \CW\Ui\UiRequest::id($ctx->req->param('shop'));
         $shop = in_array($shop, array_column($views->shops(), 'id'), true) ? $shop : null;
-        $shares = [];
-        if ($range !== null) {
-            foreach ($views->regularLines($range[0], $range[1], $shop) as $l) {
-                $shares[$l['id']] = $l['share'];
+        // The lines and their shares from ONE moment of the database (the Codex check r2, H5).
+        [$list, $shares] = \CW\Profit\ProfitDays::snapshot($ctx->db, static function () use ($views, $range, $shop, $today): array {
+            $shares = [];
+            if ($range !== null) {
+                foreach ($views->regularLines($range[0], $range[1], $shop) as $l) {
+                    $shares[$l['id']] = $l['share'];
+                }
             }
-        }
-        return $ctx->page('profit_regular', $views->regularList($today, $range === null ? null : $shop) + [
+            return [$views->regularList($today, $range === null ? null : $shop), $shares];
+        });
+        return $ctx->page('profit_regular', $list + [
             'canEdit' => $ctx->me()->can(ExpenseAccess::PERM_EDIT),
             'range' => $range,
             'shares' => $shares,
@@ -63,7 +67,7 @@ final class RegularCostsController
         $typed = ['name' => $f('name'), 'shop' => $f('shop'), 'type' => $f('type'), 'every' => $f('every'), 'amount' => $f('amount'), 'from' => $f('from'),
             'until' => $f('until'), 'note' => $f('note')];
         try {
-            $id = (new RegularCosts($ctx->db))->add($ctx->caller(), $typed);
+            $id = (new RegularCosts($ctx->db))->add($ctx->caller(), $typed, $ctx->req->field('same_ok') === '1');
         } catch (CwException $e) {
             return $this->form($ctx, $e->httpStatus, $e, $typed);
         }
@@ -147,6 +151,8 @@ final class RegularCostsController
             'typed' => $typed + ['name' => '', 'shop' => '', 'type' => '', 'every' => 'week', 'amount' => '', 'from' => '', 'until' => '', 'note' => ''],
             'error' => $error === null ? null : ExpensesController::plain($error),
             'errorField' => is_string($error?->detail['field'] ?? null) ? $error->detail['field'] : null,
+            'sameAsk' => $error?->errorCode === 'same_cost',
+            'other' => is_int($error?->detail['other'] ?? null) ? self::PATH . '/' . $error->detail['other'] : null,
         ], $status, ['title' => Words::REGULAR['new_title']]);
     }
 

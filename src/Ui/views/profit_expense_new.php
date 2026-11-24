@@ -33,9 +33,16 @@ $bad = static fn (string $f): string => $errorField === $f ? ' aria-invalid="tru
   </div>
   <fieldset class="expense-file">
     <legend><?= $word('EXPENSES', 'file_title') ?></legend>
+<?php if ($fileAgain): ?>
+    <p class="note" role="status"><?= $word('EXPENSES', 'file_again') ?></p>
+    <input type="hidden" name="file_again" value="1">
+<?php endif; ?>
     <label><?= $word('EXPENSES', 'file_label') ?> <span class="hint"><?= $say('EXPENSES', 'file_hint', $maxMb) ?></span>
       <input type="file" name="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"<?= $bad('file') ?>>
     </label>
+<?php if ($fileAgain): ?>
+    <label class="choice"><input type="checkbox" name="no_file_ok" value="1"> <?= $word('EXPENSES', 'no_file_ok') ?></label>
+<?php endif; ?>
     <p class="muted"><?= $word('EXPENSES', 'file_kept') ?></p>
   </fieldset>
 </form>

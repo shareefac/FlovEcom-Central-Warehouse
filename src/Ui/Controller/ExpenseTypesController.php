@@ -64,14 +64,18 @@ final class ExpenseTypesController
         $types = new ExpenseTypes($ctx->db);
         $canEdit = $ctx->me()->can('settings.manage');
         $all = $types->all();
+        // The history (its reasons may name amounts) only for those who see the expenses or change settings (the Codex check r2, H7; EX28):
+        // the types themselves for everyone.
+        $seeHistory = $canEdit || $ctx->me()->can(ExpensesController::PERM_VIEW);
         $history = [];
-        foreach ($all as $t) {
+        foreach ($seeHistory ? $all : [] as $t) {
             $history[$t['id']] = ExpenseHistory::of($ctx->db, 'type', $t['id']);
         }
         return $ctx->page('expense_types', [
             'kinds' => array_map(static fn (string $k): array => ['kind' => $k, 'types' => array_values(array_filter($all, static fn (array $t): bool => $t['kind'] === $k))],
                 ExpenseTypes::KINDS),
             'history' => $history,
+            'seeHistory' => $seeHistory,
             'canEdit' => $canEdit,
             'lookOnly' => $canEdit ? null : Words::EXPENSE_TYPES['look_only'],
             'typed' => $typed ?? ['kind' => 'expense', 'name' => '', 'reason' => ''],

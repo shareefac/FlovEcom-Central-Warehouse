@@ -20484,3 +20484,30 @@ the profit reads (a delete's reason exactly, the note, a regular cost's name and
 I23: "a row never names content the storage does not hold"); a commit that then fails leaves bytes no row names, in the private store, which
 bin/verify_files.php counts as orphans every night. This is the document store's own design for every file of CW (the files are never in a
 web directory and have no id to be served by); changing it is not this release's.
+
+**The Codex check r2 of 9b25afe (`cw_work/runs/expenses_codex_r2.txt`: r1's H2-H6, M8, H9-H11, M12 FIXED; H1, M7, M14 PARTLY; M13 left (EX27);
+new: 7 HIGH, 3 MEDIUM; NO GO). Each shown failing first on b50ab78 (9b25afe + the tests: `runs/expenses_r2red.log`), then fixed (EX28-EX31).**
+
+**EX28. The same regular cost twice is refused unless confirmed (r2 H2, H4).** A line of the same name (any case, spaces trimmed) in the same shop
+on days that meet the new line's, not deleted, refuses the add ("A regular cost of this name is in already ... from <day>", with a link to it)
+unless "It is another cost: save it all the same" is ticked: a form sent twice, a line typed in again, the seed and a person at the same
+moment. Every add of a regular cost waits for the one before (the groups' rows locked in their order), so two adds at once are checked one
+after the other; the seed's adds go through the same check inside its one transaction (a person's line saved meanwhile refuses the whole run,
+nothing written).
+
+**EX29. A chain of new amounts: every branch (r2 H1).** A second new amount on the same line makes two lines continuing it. A line's last day
+may not reach the first day of ANY later line of its whole chain (from its first line down every branch, through deleted lines) that is not
+deleted; every write to a chain locks its first line first, so two people changing two lines of one chain go one after the other. EX-I3 checks
+every two lines of a chain.
+
+**EX30. The seed is Vape and Go's only (r2 H3).** `--shop` is gone (the owner gave the list for Vape and Go); the tool refuses an option it
+does not know (exit 2).
+
+**EX31. The rest of r2.** H5: Regular costs on exact days reads its lines and their shares in one snapshot. M6 (and r1 M7): the expenses list
+opened on exact days keeps them when Show is pressed (the days are part of its form; "Show by month" leaves them). H7: Settings > Expense
+types shows the types to everyone and their history (the reasons, which may name amounts) only to those who see the expenses or change
+settings. H8: an expense's download asks the same rules as the general file address (FilesController::refusal): bytes that are also a
+supplier's invoice copy need invoices.view as well; the expense page names no stored file name. H9: the file rules and the file's own row are
+read in one moment and a file that is not there is "no such file" before any rule, so a request racing a store can never pass the rules
+before the file exists. M10: a form refused after a file was chosen says the file was not kept and asks for it again: sent without a file it
+is refused, unless "Save without a file" is ticked. M11 (and r1 M14): who deleted a row and when are in its history and compared every night.

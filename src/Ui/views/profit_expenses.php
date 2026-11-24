@@ -11,14 +11,19 @@ $cols = ['date', 'supplier', 'type', 'invoice_no', 'shop', 'net', 'total', 'pdf'
 ?>
 <?= $head(\CW\Ui\Words::MENU['profit_expenses'], intro: 'profit_expenses', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_expenses'])) ?>
 <form class="filters expenses-filters" method="get" action="/ui/profit/expenses" role="search">
+<?php if ($range !== null): ?>
+  <input type="hidden" name="from" value="<?= $e($range[0]) ?>">
+  <input type="hidden" name="to" value="<?= $e($range[1]) ?>">
+<?php else: ?>
   <label><?= $word('EXPENSES', 'month') ?>
     <select name="month">
 <?php foreach ($months as $m): ?>
       <option value="<?= $e($m) ?>"<?php if ($month === $m): ?> selected<?php endif; ?>><?= $e($monthName($m)) ?></option>
 <?php endforeach; ?>
-      <option value="all"<?php if ($month === null && $range === null): ?> selected<?php endif; ?>><?= $word('EXPENSES', 'all_months') ?></option>
+      <option value="all"<?php if ($month === null): ?> selected<?php endif; ?>><?= $word('EXPENSES', 'all_months') ?></option>
     </select>
   </label>
+<?php endif; ?>
   <label><?= $word('EXPENSES', 'shop') ?>
     <select name="shop">
       <option value=""><?= $word('EXPENSES', 'all_shops') ?></option>
@@ -35,7 +40,7 @@ $cols = ['date', 'supplier', 'type', 'invoice_no', 'shop', 'net', 'total', 'pdf'
 </form>
 <p class="muted"><a href="/ui/profit/expenses/suppliers"><?= $word('EXPENSES', 'suppliers') ?></a> · <a href="/ui/profit/regular"><?= $word('EXPENSES', 'regular_link') ?></a> · <a href="/ui/reference/expense-types"><?= $word('EXPENSES', 'types_link') ?></a></p>
 <?php if ($range !== null): ?>
-<p class="note" role="status"><?= $say('EXPENSES', 'range_note', \CW\Ui\Html::day($range[0]), \CW\Ui\Html::day($range[1])) ?></p>
+<p class="note" role="status"><?= $say('EXPENSES', 'range_note', \CW\Ui\Html::day($range[0]), \CW\Ui\Html::day($range[1])) ?> <a href="<?= $u('/ui/profit/expenses', ['month' => substr($range[0], 0, 7), 'shop' => $shopId]) ?>"><?= $word('EXPENSES', 'by_month') ?></a></p>
 <?php endif; ?>
 <?php if ($tiles !== []): ?>
 <section class="doc-progress rp-figs rp-keep expense-figs" aria-label="<?= $word('EXPENSES', 'tiles') ?>">

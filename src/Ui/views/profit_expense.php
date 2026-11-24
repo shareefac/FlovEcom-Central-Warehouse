@@ -32,7 +32,7 @@ $deleted = $x['deleted_at'] !== null;
 <?php if ($x['note'] !== null): ?>
     <tr><th scope="row"><?= $word('EXPENSES', 'f_note') ?></th><td><?= $e((string) $x['note']) ?></td></tr>
 <?php endif; ?>
-    <tr><th scope="row"><?= $word('EXPENSES', 'file') ?></th><td><?php if ($x['file_id'] !== null): ?><a href="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/file') ?>"><?= $word('EXPENSES', 'open_file') ?></a> <span class="muted"><?= $e((string) $x['original_name']) ?></span><?php else: ?><?= $word('EXPENSES', 'no_file') ?><?php endif; ?></td></tr>
+    <tr><th scope="row"><?= $word('EXPENSES', 'file') ?></th><td><?php if ($x['file_id'] !== null): ?><a href="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/file') ?>"><?= $word('EXPENSES', 'open_file') ?></a><?php else: ?><?= $word('EXPENSES', 'no_file') ?><?php endif; ?></td></tr>
     <tr><th scope="row"><?= $word('EXPENSES', 'added_by') ?></th><td><?= $e((string) ($x['created_name'] ?? $x['created_actor'])) ?> <span class="muted"><?= $when($x['created_at']) ?></span></td></tr>
   </tbody>
 </table>
@@ -58,9 +58,16 @@ $deleted = $x['deleted_at'] !== null;
     </div>
     <fieldset class="expense-file">
       <legend><?= $word('EXPENSES', 'file_title') ?></legend>
+<?php if ($fileAgain): ?>
+      <p class="note" role="status"><?= $word('EXPENSES', 'file_again') ?></p>
+      <input type="hidden" name="file_again" value="1">
+<?php endif; ?>
       <label><?= $word('EXPENSES', 'change_file') ?> <span class="hint"><?= $say('EXPENSES', 'file_hint', $maxMb) ?></span>
         <input type="file" name="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"<?= $bad('file') ?>>
       </label>
+<?php if ($fileAgain): ?>
+      <label class="choice"><input type="checkbox" name="no_file_ok" value="1"> <?= $word('EXPENSES', 'no_file_ok') ?></label>
+<?php endif; ?>
     </fieldset>
   </form>
 </details>
