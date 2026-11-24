@@ -40,6 +40,10 @@ final class ExpensesScreensTest extends KernelUiTestCase
 
     protected function tearDown(): void
     {
+        // The three shops' first real profit days as 0079 sets them (a test that moves one puts it back here; EX39).
+        foreach (['vapeandgo' => '2026-11-01', 'electrofag' => '2026-12-01', 'vapebig' => '2026-12-01'] as $code => $day) {
+            self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key = ?', [json_encode($day), 'profit.real_from_' . $code]);
+        }
         putenv($this->prevStore === false ? 'CW_FILE_STORE_DIR' : 'CW_FILE_STORE_DIR=' . $this->prevStore);
         exec('rm -rf ' . escapeshellarg($this->dir));
         parent::tearDown();
@@ -335,6 +339,9 @@ final class ExpensesScreensTest extends KernelUiTestCase
 
     public function testTheRealProfitPerShop(): void
     {
+        // These figures are of November for every shop: all three counted from 1 Nov here (0079 has Electrofag and Vape Big from 1 Dec: EX39).
+        self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key IN (?, ?, ?)', ['"2026-11-01"', 'profit.real_from_vapeandgo',
+            'profit.real_from_electrofag', 'profit.real_from_vapebig']);
         // The days' figures as the profit days hold them (goods, cost, delivery charged, delivery cost on orders, charges on no order).
         self::$db->exec('INSERT INTO profit_day (channel_id, day, orders, units, sale_ex, order_refund_ex, cost, delivery_ex, delivery_cost, delivery_other) VALUES '
             . "(?, '2026-11-05', 10, 12, 100000, 2000, 50000, 5000, 4000, 300), (?, '2026-11-06', 2, 2, 20000, 0, 9000, 0, 0, 0), (?, '2026-10-31', 9, 9, 99999, 0, 1, 0, 0, 0)",

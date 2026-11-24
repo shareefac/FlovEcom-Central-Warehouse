@@ -4,44 +4,81 @@ declare(strict_types=1);
 
 namespace CW\Expenses;
 
+use CW\Caller;
 use CW\Db;
 use CW\Profit\ProfitDays;
 use CW\Profit\ProfitViews;
+use CW\Settings;
 
 /**
  * The read side of Profit > Expenses, Profit > Regular costs and the real profit (docs/decisions.md EX13-EX16). Reads only. Money in pence.
  * The expenses count by their invoice date and their amount WITHOUT VAT (the profit pages are all without VAT); a deleted one counts nowhere.
  * The regular costs count per day (RegularCostMath) WITHOUT their VAT (the amount less the VAT it includes: EX38), each line rounded once per
  * period. Summed on read: profit_day is not changed.
+ *
+ * Given the person who reads ($viewer), every read of expense figures checks again, inside its own snapshot, that they see the expenses
+ * (expenses.view: ExpenseAccess::mayView), so a job taken away while a page is drawn shows nothing (the final review of 70ab3d2, astra MEDIUM;
+ * EX48). Without one: a server tool or a service's own read.
  */
 final class ExpenseViews
 {
     /** The most rows the list shows at once (a month of one business holds far fewer). */
     public const LIST_LIMIT = 1000;
+    /** The three shops expenses and regular costs are for (the owner: EX1), by their codes; any other channel takes none (EX44). */
+    public const SHOP_CODES = ['vapeandgo', 'electrofag', 'vapebig'];
+    /** The setting of each shop's first real profit day (0079, EX39): this prefix + its code. */
+    public const REAL_FROM = 'profit.real_from_';
 
-    public function __construct(private readonly Db $db)
+    public function __construct(private readonly Db $db, private readonly ?Caller $viewer = null)
     {
     }
 
-    /** @return list<array{id: int, code: string, name: string}> the shops in their order */
+    /** @return list<array{id: int, code: string, name: string}> the three shops in their order (their ids) */
     public function shops(): array
     {
         return array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'code' => (string) $r['code'], 'name' => (string) $r['name']],
-            $this->db->all('SELECT id, code, name FROM channel ORDER BY id'));
+            $this->db->all('SELECT id, code, name FROM channel WHERE code IN (' . implode(', ', array_fill(0, count(self::SHOP_CODES), '?')) . ') ORDER BY id',
+                self::SHOP_CODES));
+    }
+
+    /** Whether channel $id is one of the three shops (the services take no other: the final review of 70ab3d2, astra MEDIUM; EX44). */
+    public static function isBusinessShop(Db $db, int $id): bool
+    {
+        return in_array((string) $db->value('SELECT code FROM channel WHERE id = ?', [$id]), self::SHOP_CODES, true);
+    }
+
+    /** The first day shop $code's real profit counts (its setting; null: none set, so never started). */
+    public function realFrom(string $code): ?string
+    {
+        $s = new Settings($this->db);
+        $v = $s->has(self::REAL_FROM . $code) ? $s->get(self::REAL_FROM . $code) : null;
+        return is_string($v) && RegularCostMath::isDay($v) ? $v : null;
+    }
+
+    /** 403 unless the viewer (when given) sees the expenses; call inside the read's snapshot. */
+    private function guard(): void
+    {
+        if ($this->viewer !== null) {
+            ExpenseAccess::mayView($this->db, $this->viewer);
+        }
     }
 
     /**
      * The expenses of the days $from..$to (by invoice date, not deleted), per shop: without VAT, VAT, total and how many.
      *
-     * @return array<int, array{net: int, vat: int, total: int, count: int}>
+     * @return array<int, array{net: int, vat: int, total: int, count: int, credits: int}>
      */
     public function expensesBy(string $from, string $to, ?int $shop): array
     {
+        $this->guard();
         $out = [];
-        foreach ($this->db->all('SELECT channel_id, SUM(net_pence) AS net, SUM(vat_pence) AS vat, SUM(total_pence) AS total, COUNT(*) AS n FROM expense '
+        foreach ($this->db->all('SELECT channel_id, SUM(net_pence) AS net, SUM(vat_pence) AS vat, SUM(total_pence) AS total, COUNT(*) AS n, '
+            . 'SUM(net_pence < 0) AS credits FROM expense '
             . 'WHERE invoice_date BETWEEN ? AND ? AND deleted_at IS NULL' . ($shop === null ? '' : ' AND channel_id = ?') . ' GROUP BY channel_id ORDER BY channel_id',
             [$from, $to, ...($shop === null ? [] : [$shop])]) as $r) {
-            $out[(int) $r['channel_id']] = ['net' => (int) $r['net'], 'vat' => (int) $r['vat'], 'total' => (int) $r['total'], 'count' => (int) $r['n']];
+            // How many, and of them the credit notes (the tiles count them apart: the Fable review, L4).
+            $out[(int) $r['channel_id']] = ['net' => (int) $r['net'], 'vat' => (int) $r['vat'], 'total' => (int) $r['total'], 'count' => (int) $r['n'],
+                'credits' => (int) $r['credits']];
         }
         return $out;
     }
@@ -54,6 +91,7 @@ final class ExpenseViews
      */
     public function regularLines(string $from, string $to, ?int $shop): array
     {
+        $this->guard();
         $out = [];
         foreach ($this->db->all('SELECT r.id, r.name, r.channel_id, c.name AS shop, t.name AS grp, r.every, r.amount_pence, r.vat_rate_bp, r.from_day, r.until_day '
             . 'FROM regular_cost r '
@@ -135,7 +173,10 @@ final class ExpenseViews
      */
     public function days(?string $from, ?string $to, ?int $shop, string $q, bool $deleted): array
     {
-        return ProfitDays::snapshot($this->db, fn (): array => $this->daysNow($from, $to, $shop, $q, $deleted));
+        return ProfitDays::snapshot($this->db, function () use ($from, $to, $shop, $q, $deleted): array {
+            $this->guard();
+            return $this->daysNow($from, $to, $shop, $q, $deleted);
+        });
     }
 
     /** @return array{groups: list<array<string, mixed>>, tiles: list<array<string, mixed>>, more: bool} */
@@ -183,13 +224,14 @@ final class ExpenseViews
                 'total' => (int) $r['total_pence'], 'has_file' => $r['file_id'] !== null, 'deleted' => $r['deleted_at'] !== null], $mine),
                 'net' => array_sum(array_map(static fn (array $r): int => (int) $r['net_pence'], $live)),
                 'total' => array_sum(array_map(static fn (array $r): int => (int) $r['total_pence'], $live)), 'count' => count($live), 'regular' => $reg];
+            // (the rows' shops are the three: an expense of another channel is never taken, EX44)
         }
         $tiles = [];
         if ($from !== null) {
             $by = $this->expensesBy($from, (string) $to, null);
             foreach ($this->shops() as $s) {
                 $tiles[] = ['shop_id' => $s['id'], 'shop' => $s['name'], 'net' => $by[$s['id']]['net'] ?? 0, 'total' => $by[$s['id']]['total'] ?? 0,
-                    'count' => $by[$s['id']]['count'] ?? 0];
+                    'count' => $by[$s['id']]['count'] ?? 0, 'credits' => $by[$s['id']]['credits'] ?? 0];
             }
         }
         return ['groups' => $groups, 'tiles' => $tiles, 'more' => $more];
@@ -198,7 +240,10 @@ final class ExpenseViews
     /** @return array<string, mixed>|null one expense with its shop, supplier, type, file and history, from ONE moment (the Codex check r3, M10) */
     public function expense(int $id): ?array
     {
-        return ProfitDays::snapshot($this->db, fn (): ?array => $this->expenseNow($id));
+        return ProfitDays::snapshot($this->db, function () use ($id): ?array {
+            $this->guard();
+            return $this->expenseNow($id);
+        });
     }
 
     /** @return array<string, mixed>|null */
@@ -214,6 +259,7 @@ final class ExpenseViews
     /** @return list<array{id: int, name: string, is_active: bool, version: int, used: int}> the expenses' suppliers by name */
     public function suppliers(): array
     {
+        $this->guard();
         return array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'name' => (string) $r['name'], 'is_active' => (int) $r['is_active'] === 1,
             'version' => (int) $r['version'], 'used' => (int) $r['used']], $this->db->all('SELECT s.id, s.name, s.is_active, s.version, '
             . '(SELECT COUNT(*) FROM expense e WHERE e.supplier_id = s.id AND e.deleted_at IS NULL) AS used FROM expense_supplier s ORDER BY s.name, s.id'));
@@ -228,7 +274,9 @@ final class ExpenseViews
      */
     public function regularList(string $today, ?int $shop = null): array
     {
-        $rows = $this->db->all('SELECT r.id, r.name, r.channel_id, c.name AS shop, r.type_id, t.name AS grp, t.sort_order, r.every, r.amount_pence, r.vat_rate_bp, '
+        $this->guard();
+        $rows = $this->db->all('SELECT r.id, r.name, r.channel_id, c.name AS shop, r.type_id, t.name AS grp, t.sort_order, r.every, r.amount_pence, r.vat_included, '
+            . 'r.vat_rate_bp, '
             . 'r.from_day, r.until_day, '
             . 'r.note, r.version FROM regular_cost r JOIN channel c ON c.id = r.channel_id JOIN expense_type t ON t.id = r.type_id WHERE r.deleted_at IS NULL'
             . ($shop === null ? '' : ' AND r.channel_id = ?') . ' ORDER BY t.sort_order, t.name, r.id', $shop === null ? [] : [$shop]);
@@ -247,8 +295,8 @@ final class ExpenseViews
             $g = (string) $r['grp'];
             $groups[$g] ??= ['group' => $g, 'rows' => []];
             $groups[$g]['rows'][] = ['id' => (int) $r['id'], 'name' => (string) $r['name'], 'shop_id' => (int) $r['channel_id'], 'shop' => (string) $r['shop'],
-                'every' => (string) $r['every'], 'amount' => (int) $r['amount_pence'], 'vat_rate' => (int) $r['vat_rate_bp'], 'vat' => $vat, 'cost' => $cost,
-                'from' => (string) $r['from_day'], 'until' => $until, 'ended' => $ended,
+                'every' => (string) $r['every'], 'amount' => (int) $r['amount_pence'], 'vat_included' => (int) $r['vat_included'] === 1, 'vat_rate' => (int) $r['vat_rate_bp'],
+                'vat' => $vat, 'cost' => $cost, 'from' => (string) $r['from_day'], 'until' => $until, 'ended' => $ended,
                 'running' => $running, 'note' => $r['note'] === null ? null : (string) $r['note']];
         }
         return ['groups' => array_values($groups), 'today' => $inForce, 'today_cost' => $inForceCost];
@@ -257,7 +305,10 @@ final class ExpenseViews
     /** @return array<string, mixed>|null one regular cost line with its shop, group, the line it continues, the line continuing it, its history */
     public function regular(int $id): ?array
     {
-        return ProfitDays::snapshot($this->db, fn (): ?array => $this->regularNow($id));
+        return ProfitDays::snapshot($this->db, function () use ($id): ?array {
+            $this->guard();
+            return $this->regularNow($id);
+        });
     }
 
     /** @return array<string, mixed>|null */
@@ -268,8 +319,11 @@ final class ExpenseViews
         if ($r === null) {
             return null;
         }
-        // The line that follows it by date (a second new amount on the same line makes two: the Codex check r3, M4).
-        $next = $this->db->one('SELECT id, amount_pence, from_day FROM regular_cost WHERE replaces_id = ? AND deleted_at IS NULL ORDER BY from_day, id LIMIT 1', [$id]);
+        // The line that follows it by date in its whole chain of new amounts, any branch (a second new amount on the same line makes two, and a
+        // backdated one makes the later one its sibling: the Codex check r3, M4; the final review of 70ab3d2, astra LOW).
+        $next = $this->db->one('WITH RECURSIVE d (id) AS (SELECT ? UNION ALL SELECT r.id FROM regular_cost r JOIN d ON r.replaces_id = d.id) '
+            . 'SELECT r.id, r.amount_pence, r.from_day FROM d JOIN regular_cost r ON r.id = d.id WHERE r.id <> ? AND r.deleted_at IS NULL AND r.from_day > ? '
+            . 'ORDER BY r.from_day, r.id LIMIT 1', [RegularCosts::root($this->db, $id), $id, (string) $r['from_day']]);
         return $r + ['next' => $next, 'history' => ExpenseHistory::of($this->db, 'regular_cost', $id)];
     }
 
@@ -277,36 +331,52 @@ final class ExpenseViews
      * The real profit of the days $from..$to per shop (the brief's point 4; docs/decisions.md EX15): the profit days' figures as the other
      * Profit pages show them (goods sold less refunds, buying cost, delivery charged, the carriers' bills on the orders and not on one), then
      * payment fees (not built yet: 0), the expenses (without VAT, by invoice date; a credit note takes off) and the regular costs (per day, without
-     * their VAT); real profit = goods - cost +
-     * delivery charged - delivery cost - fees - expenses - regular costs. All from ONE moment of the database.
+     * their VAT); real profit = goods - cost + delivery charged - delivery cost - fees - expenses - regular costs. All from ONE moment of the
+     * database.
      *
-     * @return list<array{shop_id: int, shop: string, goods: int, cost: int, delivery: int, delivery_cost: int, fees: int, expenses: int, expenses_count: int, regular: int, real: int, incomplete: bool}>
+     * Each shop counts from its own first day (its setting profit.real_from_<code>; the owner, 24 Nov 2026: Vape and Go from 1 Nov, Electrofag
+     * and Vape Big from 1 Dec; EX39): days before it are left out of every line (counted_from says from when, when the days start earlier); a
+     * shop whose day is after $to (or not set) has not started: no figure (null), only its day (from). Not complete while ANY unit counted
+     * has no buying price or waits for it (EX35). $withExpenses false (a person without expenses.view): the expense reads are not made at all
+     * and their lines are null (EX22, EX48).
+     *
+     * @return list<array{shop_id: int, shop: string, code: string, started: bool, from: ?string, counted_from: ?string, goods: ?int, cost: ?int, delivery: ?int, delivery_cost: ?int, fees: ?int, expenses: ?int, expenses_count: int, regular: ?int, real: ?int, incomplete: bool, no_cost: int}>
      */
-    public function realProfit(string $from, string $to, ?int $shop): array
+    public function realProfit(string $from, string $to, ?int $shop, bool $withExpenses = true): array
     {
         $views = new ProfitViews($this->db);
-        return ProfitDays::snapshot($this->db, function () use ($views, $from, $to, $shop): array {
-            $expenses = $this->expensesBy($from, $to, $shop);
-            $regular = $this->regularBy($from, $to, $shop);
+        return ProfitDays::snapshot($this->db, function () use ($views, $from, $to, $shop, $withExpenses): array {
+            if ($withExpenses) {
+                $this->guard();
+            }
             $out = [];
             foreach ($this->shops() as $s) {
                 if ($shop !== null && $s['id'] !== $shop) {
                     continue;
                 }
-                $f = $views->totals($from, $to, $s['id']);
-                $goods = (int) $f['goods'];
-                $cost = (int) $f['cost'];
-                $delivery = (int) $f['delivery'];
+                $start = $this->realFrom($s['code']);
+                $a = $start !== null && $start > $from ? $start : $from;
+                $row = ['shop_id' => $s['id'], 'shop' => $s['name'], 'code' => $s['code'], 'started' => $start !== null && $a <= $to, 'from' => $start,
+                    'counted_from' => $start !== null && $start > $from && $start <= $to ? $start : null, 'goods' => null, 'cost' => null, 'delivery' => null,
+                    'delivery_cost' => null, 'fees' => null, 'expenses' => null, 'expenses_count' => 0, 'regular' => null, 'real' => null, 'incomplete' => false,
+                    'no_cost' => 0];
+                if (!$row['started']) {
+                    $out[] = $row;
+                    continue;
+                }
+                $f = $views->totals($a, $to, $s['id']);
                 $deliveryCost = (int) $f['delivery_cost'] + (int) $f['delivery_other'];
-                $fees = 0;
-                $exp = $expenses[$s['id']]['net'] ?? 0;
-                $reg = $regular[$s['id']] ?? 0;
-                $out[] = ['shop_id' => $s['id'], 'shop' => $s['name'], 'goods' => $goods, 'cost' => $cost, 'delivery' => $delivery, 'delivery_cost' => $deliveryCost,
-                    'fees' => $fees, 'expenses' => $exp, 'expenses_count' => $expenses[$s['id']]['count'] ?? 0, 'regular' => $reg,
+                $row = ['goods' => (int) $f['goods'], 'cost' => (int) $f['cost'], 'delivery' => (int) $f['delivery'], 'delivery_cost' => $deliveryCost, 'fees' => 0,
                     // Not complete while ANY unit counted has no buying price or waits for it (the margin pages' 0.5% rule is for a margin; a real
                     // profit is an amount: the Codex check r3, H5).
-                    'real' => $goods - $cost + $delivery - $deliveryCost - $fees - $exp - $reg, 'incomplete' => (int) $f['no_cost'] + (int) $f['pending'] > 0,
-                    'no_cost' => (int) $f['no_cost'] + (int) $f['pending']];
+                    'incomplete' => (int) $f['no_cost'] + (int) $f['pending'] > 0, 'no_cost' => (int) $f['no_cost'] + (int) $f['pending']] + $row;
+                if ($withExpenses) {
+                    $e = $this->expensesBy($a, $to, $s['id'])[$s['id']] ?? ['net' => 0, 'count' => 0];
+                    $reg = $this->regularBy($a, $to, $s['id'])[$s['id']] ?? 0;
+                    $row = ['expenses' => $e['net'], 'expenses_count' => $e['count'], 'regular' => $reg,
+                        'real' => $row['goods'] - $row['cost'] + $row['delivery'] - $deliveryCost - $row['fees'] - $e['net'] - $reg] + $row;
+                }
+                $out[] = $row;
             }
             return $out;
         });

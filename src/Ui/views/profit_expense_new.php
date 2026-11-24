@@ -8,7 +8,7 @@ $t = $typed;
 $net = \CW\Expenses\ExpenseMoney::pence((string) $t['net']);
 $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
 ?>
-<?= $head($X['new_title'], intro: 'profit_expense_new', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_expenses']), back: ['/ui/profit/expenses', $X['back']]) ?>
+<?= $head($X['new_title'], intro: 'profit_expense_new', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_expenses'], [$vatPct]), back: ['/ui/profit/expenses', $X['back']]) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?><?php if ($other !== null): ?> <a href="<?= $e($other) ?>"><?= $word('EXPENSES', 'open_other') ?></a><?php endif; ?></p>
 <?php endif; ?>
@@ -25,6 +25,7 @@ $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
 <?= $partial('expense_fields', ['t' => $t, 'types' => $types, 'suppliers' => $suppliers, 'errorField' => $errorField, 'net' => $net, 'vat' => $vat, 'newSupplier' => true]) ?>
 <?php if ($sameAsk): ?>
     <label class="choice same-ok"><input type="checkbox" name="same_ok" value="1"> <?= $word('EXPENSES', 'same_ok') ?></label>
+    <input type="hidden" name="same_ids" value="<?= $e($sameIds) ?>">
 <?php endif; ?>
     <p class="actions">
       <button type="submit" class="btn primary" name="then" value="done"><?= $word('EXPENSES', 'save') ?></button>

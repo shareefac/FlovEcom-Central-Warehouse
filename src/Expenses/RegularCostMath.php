@@ -55,30 +55,32 @@ final class RegularCostMath
             $n = self::days($from, $end);
             return self::norm(0, $amount * $n, 7);
         }
-        // Month or year: whole segments (calendar months or years) add the amount; a part of one adds amount x its days / the segment's days.
-        $whole = 0;
-        $num = 0;
-        $den = 1;
-        $cursor = $from;
-        while ($cursor <= $end) {
-            [$segStart, $segEnd] = self::segment($every, $cursor);
-            $last = $segEnd < $end ? $segEnd : $end;
-            $len = self::days($segStart, $segEnd);
-            $k = self::days($cursor, $last);
-            if ($k === $len) {
-                $whole += $amount;
-            } else {
-                [$w, $n, $d] = self::norm(0, $amount * $k, $len);
-                $whole += $w;
-                [$w2, $num, $den] = self::norm(0, $num * $d + $n * $den, $den * $d);
-                $whole += $w2;
-            }
-            if ($last >= $end) {
-                break; // the last day is done: never a day after it (the year 9999's next day is no YYYY day: the Codex check r3, M11)
-            }
-            $cursor = self::addDays($last, 1);
+        // Month or year: the first segment (calendar month or year) from the first day, the last one to $end, and the whole ones between
+        // them worked out directly (never walked one by one: a one-day report years after a line's first day costs the same as one in its first
+        // month; the final review of 70ab3d2, astra LOW). A whole segment adds the amount; a part of one adds amount x its days / the
+        // segment's days; summed exactly, the same fraction as day by day.
+        [$s1, $e1] = self::segment($every, $from);
+        if ($end <= $e1) {
+            return self::part($amount, self::days($from, $end), self::days($s1, $e1));
         }
-        return [$whole, $num, $den];
+        [$s2, $e2] = self::segment($every, $end);
+        $first = self::part($amount, self::days($from, $e1), self::days($s1, $e1));
+        $last = self::part($amount, self::days($s2, $end), self::days($s2, $e2));
+        $between = self::index($every, $s2) - self::index($every, $s1) - 1;
+        return self::norm($first[0] + $last[0] + $between * $amount, $first[1] * $last[2] + $last[1] * $first[2], $first[2] * $last[2]);
+    }
+
+    /** $k days of a segment of $len days of $amount, exactly. @return array{0: int, 1: int, 2: int} */
+    private static function part(int $amount, int $k, int $len): array
+    {
+        return $k === $len ? [$amount, 0, 1] : self::norm(0, $amount * $k, $len);
+    }
+
+    /** The calendar month (counted from year 0) or year that holds $day. */
+    private static function index(string $every, string $day): int
+    {
+        $y = (int) substr($day, 0, 4);
+        return $every === 'year' ? $y : $y * 12 + (int) substr($day, 5, 2) - 1;
     }
 
     /** An exact amount rounded to the penny, half up (amounts are never below 0). @param array{0: int, 1: int, 2: int} $x */

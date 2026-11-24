@@ -51,8 +51,11 @@ final class FilesController
             }
             $kind = (string) $row['kind'];
             // Scoped like the pages that link them (I85): a supplier's evidence needs suppliers.view; a supplier's invoice invoices.view; a file
-            // attached only to purchase orders (the PDF as sent) needs purchasing.view.
-            if ($kind === 'supplier_check' && !$me->can('suppliers.view')) {
+            // attached only to purchase orders (the PDF as sent) needs purchasing.view. A supplier's evidence is one kept as one OR named as one
+            // on a supplier (the same bytes kept first as another kind: one stored row, its first kind; the final review of 70ab3d2, astra
+            // MEDIUM; docs/decisions.md EX49), so the rule never depends on which came first.
+            if (!$me->can('suppliers.view') && ($kind === 'supplier_check'
+                || $db->value('SELECT 1 FROM supplier WHERE dd_evidence_file_id = ? UNION ALL SELECT 1 FROM supplier WHERE import_route_file_id = ? LIMIT 1', [$id, $id]) !== null)) {
                 return [403, 'role_not_allowed', Words::say('ERROR', 'file_suppliers', Words::whoCan('suppliers.view'))];
             }
             // A supplier's invoice shows its prices: the money permission's (invoices.view, not goods in; the Codex review of d18e699, GV16),
@@ -65,10 +68,12 @@ final class FilesController
                 return [403, 'role_not_allowed', Words::say('ERROR', 'file_orders', Words::whoCan('purchasing.view'))];
             }
             // An expense's invoice (0079, docs/decisions.md EX9) only for those who see the expenses (expenses.view), whatever else the file is:
-            // kept as one, named by an expense now, or by any version of one (its history: the Codex check r1, H11).
+            // kept as one, named by an expense now, or by any version of one (the Codex check r1, H11): expense_file holds every file any version
+            // named, read by its file_id index (an ordinary download never reads the expenses' history: the final review of 70ab3d2, astra
+            // MEDIUM; EX40).
             if (!$me->can(\CW\Expenses\ExpenseAccess::PERM_VIEW) && ($kind === \CW\Expenses\ExpenseFiles::KIND
                 || $db->value('SELECT 1 FROM expense WHERE file_id = ? LIMIT 1', [$id]) !== null
-                || $db->value("SELECT 1 FROM expense_history WHERE subject = 'expense' AND JSON_CONTAINS(state, CAST(? AS JSON), '$.file_id') LIMIT 1", [(string) $id]) !== null)) {
+                || $db->value('SELECT 1 FROM expense_file WHERE file_id = ? LIMIT 1', [$id]) !== null)) {
                 return [403, 'role_not_allowed', Words::say('ERROR', 'file_expenses', Words::whoCan(\CW\Expenses\ExpenseAccess::PERM_VIEW))];
             }
             return null;

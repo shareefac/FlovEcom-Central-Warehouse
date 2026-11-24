@@ -125,8 +125,10 @@ final class ExpensesScreensOwnerAnswersTest extends KernelUiTestCase
         self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
         self::assertSame(0, (int) self::$db->value('SELECT vat_rate_bp FROM regular_cost WHERE id = ?', [$id]));
         $after = $job->get("/ui/profit/regular/{$id}");
-        self::assertStringContainsString(Words::EXPENSES['f_vat_rate_bp'] . ': ' . Words::say('REGULAR', 'vat_inc', '20%') . ' → ' . Words::REGULAR['vat_none'],
+        // The choice and its rate apart (EX54): "VAT: Includes VAT → No VAT; VAT rate: 20% → 0%".
+        self::assertStringContainsString(Words::EXPENSES['f_vat_included'] . ': ' . Words::REGULAR['vat_included'] . ' → ' . Words::REGULAR['vat_none'],
             self::rows($after, 'expense-history')[0][2]);
+        self::assertStringContainsString(Words::EXPENSES['f_vat_rate_bp'] . ': 20% → 0%', self::rows($after, 'expense-history')[0][2]);
         self::assertSame('£207.69', array_column(self::rows($after, 'regular-facts'), 1, 0)[Words::REGULAR['cost']] ?? null);
         self::assertSame('£890.10', array_column(self::rows($fin->get('/ui/profit/real', ['period' => 'choose', 'from' => '2026-11-01', 'to' => '2026-11-30']),
             'real-profit'), 1, 0)[Words::PROFIT['real_regular']] ?? null);

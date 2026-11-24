@@ -6,7 +6,10 @@ $X = \CW\Ui\Words::EXPENSES;
 $R = \CW\Ui\Words::REGULAR;
 $gbp = static fn (int $p): string => \CW\Expenses\ExpenseMoney::gbp($p);
 ?>
-<?= $head(\CW\Ui\Words::MENU['profit_regular'], intro: 'profit_regular', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_regular'])) ?>
+<?= $head(\CW\Ui\Words::MENU['profit_regular'], intro: 'profit_regular', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_regular'], [$vatPct])) ?>
+<?php if ($cut !== null): ?>
+<p class="note" role="status"><?= $e($cut) ?></p>
+<?php endif; ?>
 <?php if ($range !== null): ?>
 <p class="note regular-period-total" role="status"><?= $say('REGULAR', 'period_total', $shopName ?? \CW\Ui\Words::EXPENSES['all_shops'], \CW\Ui\Html::day($range[0]), \CW\Ui\Html::day($range[1]), $gbp(array_sum($shares))) ?> <a href="/ui/profit/regular"><?= $word('REGULAR', 'all_lines') ?></a></p>
 <?php endif; ?>
@@ -69,5 +72,5 @@ $gbp = static fn (int $p): string => \CW\Expenses\ExpenseMoney::gbp($p);
 <p class="muted"><?= $say('REGULAR', 'also_in_force', $gbp($today['month']), $gbp($todayCost['month']), $gbp($today['year']), $gbp($todayCost['year'])) ?></p>
 <?php endif; ?>
 <?php endif; ?>
-<p class="muted"><?= $word('REGULAR', 'how_counts') ?></p>
+<p class="muted"><?= $e($howCounts) ?></p>
 <p class="muted"><?= $word('REGULAR', 'invoice_note') ?></p>

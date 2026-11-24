@@ -11,45 +11,25 @@ declare(strict_types=1);
  *
  *   php bin/seed_regular_costs.php [--from=2026-11-01] [--apply]
  *
- * Always Vape and Go's (the owner: the list is Vape and Go's; no other shop can be named: the Codex check r2, H3).
+ * Always Vape and Go's (the owner: the list is Vape and Go's; no other shop can be named: the Codex check r2, H3). The work is
+ * CW\Expenses\RegularCostSeed (plan, then apply in one transaction: docs/decisions.md EX47).
  *
- *   (none)    a dry run: every line said, what would be added and what is there already; nothing written
+ *   (none)    a dry run: every line said, what would be added and what is there already; nothing written; never waits for a lock
  *   --apply   adds the lines not there yet (as system:seed_regular_costs, each with its history); a line of the same name in the shop that is
- *             not deleted with the same figures (amount, VAT, days) is there already (a second run adds nothing); with other figures the whole
- *             run is refused
+ *             not deleted with the same figures (group, amount, VAT, days) is there already (a second run adds nothing); with other figures
+ *             the whole run is refused; the whole plan is checked again under the locks before anything is written
  *
- * Exit codes: 0 done · 1 refused (no such shop, a group missing) · 2 usage · 3 cannot run.
+ * Exit codes: 0 done · 1 refused (no such shop, a group missing or off, other figures, changed meanwhile: nothing written) · 2 usage ·
+ * 3 cannot run · 4 busy: another run holds the seed's lock, nothing written (run it again; never 0: the final review of 70ab3d2, astra HIGH 3).
  */
 
-use CW\Caller;
 use CW\CwException;
 use CW\Expenses\ExpenseMoney;
 use CW\Expenses\RegularCostMath;
-use CW\Expenses\RegularCosts;
+use CW\Expenses\RegularCostSeed;
 use CW\Ops\Cli;
-use CW\Profit\ProfitSettings;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
-
-/** The list (the brief, 24 Nov 2026): name, pounds a week, its group (as the drawing MonthlyCosts groups it), its last day (none: no end). */
-const SEED_LIST = [
-    ['Unit 1 rent', '207.69', 'Rent', null],
-    ['Unit 2 rent', '230.77', 'Rent', null],
-    ['Unit 3 rent', '923.08', 'Rent', '2027-03-31'],
-    ['Hub Box', '109.00', 'Running the business', null],
-    ['Phone and internet', '26.40', 'Running the business', null],
-    ['Verisure', '36.00', 'Running the business', null],
-    ['Car and van lease', '152.00', 'Running the business', null],
-    ['Adobe', '20.00', 'Running the business', null],
-    ['Accounting', '138.00', 'Running the business', null],
-    ['Sage', '42.00', 'Running the business', null],
-    ['Cardboard', '13.00', 'Running the business', null],
-    ['Bin', '177.00', 'Running the business', null],
-    ['Netcore', '969.00', 'Marketing, website and people', null],
-    ['Novos', '2,769.00', 'Marketing, website and people', null],
-    ['Reboot', '2,076.00', 'Marketing, website and people', '2027-02-28'],
-    ['Dean', '1,883.00', 'Marketing, website and people', null],
-];
 
 exit(Cli::main('seed_regular_costs', ['from:', 'apply'], 'usage: php bin/seed_regular_costs.php [--from=YYYY-MM-DD] [--apply]',
     static function (Cli $cli, array $opts): int {
@@ -57,106 +37,37 @@ exit(Cli::main('seed_regular_costs', ['from:', 'apply'], 'usage: php bin/seed_re
         if (!RegularCostMath::isDay($from)) {
             throw new InvalidArgumentException('--from must be a day: YYYY-MM-DD');
         }
-        $code = 'vapeandgo';
         $apply = array_key_exists('apply', $opts);
-        $shop = $cli->db->one('SELECT id, name FROM channel WHERE code = ?', [$code]);
-        if ($shop === null) {
-            $cli->error("refused: no shop {$code} in CW");
-            return Cli::PROBLEM;
+        // --apply takes the seed's lock (one apply at a time); held by another run, nothing is written and it says so with its own exit code
+        // (Cli::BUSY), never 0. A dry run writes nothing and takes no lock.
+        if ($apply && !$cli->tryLock()) {
+            $cli->error('busy: another run of the seed holds its lock: nothing written (run it again)');
+            return Cli::BUSY;
         }
-        $groups = [];
-        foreach ($cli->db->all("SELECT id, name FROM expense_type WHERE kind = 'regular'") as $g) {
-            $groups[(string) $g['name']] = (int) $g['id'];
+        $seed = new RegularCostSeed($cli->db);
+        $plan = $seed->plan($from);
+        if ($plan['shop'] !== null) {
+            $cli->log(($apply ? 'APPLY' : 'DRY RUN (nothing written; --apply writes)') . ": {$plan['shop']['name']}, every week, from {$from}");
         }
-        $cli->log(($apply ? 'APPLY' : 'DRY RUN (nothing written; --apply writes)') . ": {$shop['name']}, every week, from {$from}");
-        // Every line checked first; then all of them written in ONE transaction, or none (the Codex check r1, H3): a run refused half way never
-        // leaves some lines in, and a line of the same name in the shop with other figures refuses the whole run (it is never skipped as
-        // "already there" when it is not the same).
-        $plan = [];
-        $refusals = [];
-        $week = 0;
-        $weekCost = 0;
-        $rate = (new ProfitSettings($cli->db))->vatBp();
-        $pct = RegularCostMath::percent($rate);
-        foreach (SEED_LIST as [$name, $amount, $group, $until]) {
-            $pence = (int) ExpenseMoney::pence($amount);
-            $cost = $pence - RegularCostMath::vat($pence, $rate);
-            $week += $pence;
-            $weekCost += $cost;
-            $line = sprintf('%-20s %12s a week incl. %s VAT (%s without)  %-30s from %s%s', $name, ExpenseMoney::gbp($pence), $pct, ExpenseMoney::gbp($cost), $group,
-                $from, $until === null ? '' : " until {$until}");
-            if (!isset($groups[$group])) {
-                $refusals[] = "{$name}: the group {$group} is not in Settings > Expense types";
-                continue;
-            }
-            if ($until !== null && $until < $from) {
-                $refusals[] = "{$name} ends on {$until}, before the first day {$from}";
-                continue;
-            }
-            $same = $cli->db->all('SELECT id, every, amount_pence, vat_rate_bp, from_day, until_day FROM regular_cost WHERE channel_id = ? AND name = ? AND deleted_at IS NULL',
-                [$shop['id'], $name]);
-            if ($same === []) {
-                $plan[] = ['add', $name, $amount, $groups[$group], $until, $line];
-                continue;
-            }
-            $match = array_filter($same, static fn (array $r): bool => (string) $r['every'] === 'week' && (int) $r['amount_pence'] === $pence
-                && (int) $r['vat_rate_bp'] === $rate && (string) $r['from_day'] === $from && ($r['until_day'] === null ? null : (string) $r['until_day']) === $until);
-            if ($match === [] || count($same) > 1) {
-                $r = $same[0];
-                $refusals[] = "{$name} is there already with other figures (line {$r['id']}: " . ExpenseMoney::gbp((int) $r['amount_pence']) . " every {$r['every']} "
-                    . ((int) $r['vat_rate_bp'] > 0 ? 'incl. ' . RegularCostMath::percent((int) $r['vat_rate_bp']) . ' VAT' : 'no VAT') . " from {$r['from_day']}"
-                    . ($r['until_day'] === null ? '' : " until {$r['until_day']}") . '): change or delete it on Profit > Regular costs first';
-                continue;
-            }
-            $plan[] = ['there', $name, $amount, $groups[$group], $until, $line . ' (line ' . (int) array_values($match)[0]['id'] . ')', (int) array_values($match)[0]['id']];
-        }
-        if ($refusals !== []) {
-            foreach ($refusals as $why) {
+        if ($plan['refusals'] !== []) {
+            foreach ($plan['refusals'] as $why) {
                 $cli->error("refused: {$why}");
             }
             $cli->error('refused: nothing written');
             return Cli::PROBLEM;
         }
-        $add = count(array_filter($plan, static fn (array $p): bool => $p[0] === 'add'));
-        $there = count($plan) - $add;
+        $add = count(array_filter($plan['lines'], static fn (array $p): bool => $p['what'] === 'add'));
+        $there = count($plan['lines']) - $add;
+        $total = 'every week in all ' . ExpenseMoney::gbp($plan['week']) . ' with VAT, ' . ExpenseMoney::gbp($plan['week_cost']) . ' without VAT';
         if (!$apply) {
-            foreach ($plan as [$what, , , , , $line]) {
-                $cli->log(($what === 'add' ? 'would add: ' : 'already there: ') . $line);
+            foreach ($plan['lines'] as $p) {
+                $cli->log(($p['what'] === 'add' ? 'would add: ' : 'already there: ') . $p['line']);
             }
-            $cli->log("{$add} to add, {$there} already there; every week in all " . ExpenseMoney::gbp($week) . ' with VAT, ' . ExpenseMoney::gbp($weekCost) . ' without VAT');
+            $cli->log("{$add} to add, {$there} already there; {$total}");
             return Cli::OK;
         }
-        $rc = new RegularCosts($cli->db);
-        $caller = Caller::system('seed_regular_costs');
         try {
-            $done = $cli->db->transaction(static function (\CW\Db $db) use ($plan, $rc, $caller, $shop, $from, $rate): array {
-                // The plan checked again under the locks every add takes (the Codex check r3, H7): a line "already there" must still be there,
-                // not deleted, with the same figures, and stays so until this commits (its row locked); a line to add is checked by the add
-                // itself (EX28). Anything changed meanwhile refuses the whole run: nothing written.
-                $db->all("SELECT id FROM expense_type WHERE kind = 'regular' ORDER BY id FOR UPDATE");
-                foreach ($plan as $p) {
-                    if ($p[0] !== 'there') {
-                        continue;
-                    }
-                    $r = $db->one('SELECT every, amount_pence, vat_rate_bp, from_day, until_day, deleted_at FROM regular_cost WHERE id = ? FOR UPDATE', [$p[6]]);
-                    if ($r === null || $r['deleted_at'] !== null || (string) $r['every'] !== 'week' || (int) $r['amount_pence'] !== (int) ExpenseMoney::pence($p[2])
-                        || (int) $r['vat_rate_bp'] !== $rate
-                        || (string) $r['from_day'] !== $from || ($r['until_day'] === null ? null : (string) $r['until_day']) !== $p[4]) {
-                        throw new CwException('seed_changed', "{$p[1]} (line {$p[6]}) changed while the seed ran", 409);
-                    }
-                }
-                $out = [];
-                foreach ($plan as [$what, $name, $amount, $type, $until, $line]) {
-                    if ($what === 'add') {
-                        $id = $rc->add($caller, ['name' => $name, 'shop' => (int) $shop['id'], 'type' => $type, 'vat' => 'inc', 'every' => 'week', 'amount' => $amount,
-                            'from' => $from, 'until' => $until, 'note' => 'The owner\'s weekly list (no invoice), 24 Nov 2026']);
-                        $out[] = "added (line {$id}): {$line}";
-                    } else {
-                        $out[] = "already there: {$line}";
-                    }
-                }
-                return $out;
-            });
+            $done = $seed->apply($plan);
         } catch (CwException $e) {
             $cli->error("refused: {$e->getMessage()}: nothing written");
             return Cli::PROBLEM;
@@ -164,6 +75,6 @@ exit(Cli::main('seed_regular_costs', ['from:', 'apply'], 'usage: php bin/seed_re
         foreach ($done as $l) {
             $cli->log($l);
         }
-        $cli->log("{$add} added, {$there} already there; every week in all " . ExpenseMoney::gbp($week) . ' with VAT, ' . ExpenseMoney::gbp($weekCost) . ' without VAT');
+        $cli->log("{$add} added, {$there} already there; {$total}");
         return Cli::OK;
-    }, true, true));
+    }, false, true));

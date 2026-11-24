@@ -20584,3 +20584,91 @@ all" sums each (the owner's list: £9,771.94, £1,628.66, £8,143.28); a line's 
 The seed marks all 16 lines as including the setting's rate (20%), and treats a line of the same name with another VAT choice as other
 figures (the whole run refused, as r1 H3: EX26). November 2026 for the whole list from 1 Nov: £34,899.77 without VAT (was £41,879.73 with it). A
 row put in around CW without the column gets 0: counted in full, never less (the nightly check EX-I2 compares the rate with the history).
+
+**The two final reviews of 70ab3d2 (Codex gpt-6.2-astra `cw_work/runs/expenses_final_astra_report.txt`: NO GO, 4 HIGH, 15 MEDIUM, 3 LOW; the
+Fable line-by-line review: M1, L1-L4) and the owner's answers of 24 Nov 2026 (~16:55 UK, through the lead). Each shown failing first on
+70ab3d2 + the tests (`tests/Integration/Expenses/ExpensesFinalReviewTest.php`, `runs/expenses_final_red.log`), then fixed (EX39-EX56).**
+
+**EX39. Each shop's real profit counts from its own first day (astra HIGH 1; the owner: "i need vape and go from nov 1. alt and vbig can
+start from dec ... or actual start date set them for dec 1").** Three date settings (0079, Settings > Profit, each change kept in
+config_change as every setting): `profit.real_from_vapeandgo` 2026-11-01, `profit.real_from_electrofag` 2026-12-01, `profit.real_from_vapebig`
+2026-12-01. Profit > Real profit and Profit by shop's three columns count a shop only from its day: days chosen wholly before it show "not
+started (from 1 Dec 2026)" in that shop's column, never a figure (November on 30 Nov: Vape and Go's figures, Electrofag and Vape Big "not
+started (from 1 Dec 2026)"); days across it are counted from it, and the page says so ("Electrofag is counted from 1 Dec 2026"; 15 Nov - 10 Dec:
+its £30.00 invoice of 5 Dec counts, its £50.00 of 20 Nov does not). A shop with no day set has not started. Nothing stored changes. The
+"not complete" mark for units with no buying price inside the counted days stays (EX35). (Why not the first reservation: the owner chose the
+days; CW holds Electrofag's and Vape Big's sales only from 17 Nov 2026, Vape and Go's from 29 Oct, so both days are inside what CW holds.)
+
+**EX40. Every file an expense named is in `expense_file` (0079), kept 7 years from THAT attachment (astra MEDIUM x2).** A row per version that
+named a file (the add with a file, each change with a new one): the expense, the file, the version, retain_until = the day + 7 years, who.
+The storage's retention is extended to that day (FileStore::retain, as an attachment to a document: a file stored in 2026 and attached in
+2028 is kept to 2035). The file rules (FilesController::refusal) ask `expense_file` by its file_id index (and expense.file_id), never the
+history's JSON: an ordinary document download no longer reads the expenses' history. Nightly EX-I4: the file an expense names is in it.
+
+**EX41. No undo release (astra HIGH 2 and the MEDIUM "grant convergence under rollback": moot).** The owner, 24 Nov 2026: "anything happnes
+with cw we dont undo we fix them and put another fixed version" and "if you already sstarted the fix leave it": the expenses-rollback branch
+had not been started, so it is not built (EXPENSES_STATE.md). EX17's undo (14c6e31 with 0079 added) would serve the expense PDFs on the old
+general file address and give the app login full rights on the new tables after a grant convergence: it must not be used; a fault is fixed
+forward. RollbackReleaseTest keeps its check of the migration recipe only.
+
+**EX42. A bill with its number left out is the same bill (astra HIGH 4).** The duplicate question (EX14) with no number on EITHER side: an
+expense with no number meets any expense (with a number or not) of the same supplier, shop, invoice date and total (signed: a credit note
+meets only a credit note); one with a number meets the same number of its kind, or a bill of no number of the same day and total. £64.20 +
+£12.84 as INV-42, then again with its number left out: asked, never £128.40 unseen; the other way round too. A change is asked again when
+its supplier, shop, number, kind, day or total changes.
+
+**EX43. A confirmation is for the records it was asked about (astra MEDIUM).** The 409 names the matching expenses (or regular cost lines) and
+the form carries them (same_ids); "It is another invoice" holds only while exactly those match, checked again under the supplier's lock (the
+groups' locks for a regular cost). Ticked for INV-101 and the number then changed to INV-102 (in already): asked again, nothing saved.
+
+**EX44. Only the three shops (astra MEDIUM).** Vape and Go, Electrofag and Vape Big (ExpenseViews::SHOP_CODES: vapeandgo, electrofag,
+vapebig) are offered and taken (422 choose_shop for any other channel, such as a test system's vpgproto); Real profit shows those three;
+Profit by shop shows "-" in the three columns of any other channel.
+
+**EX45. The change form keeps its supplier by id (astra MEDIUM).** It carries the supplier's id and the name it showed: a name left as it
+was keeps that supplier, even when another supplier has been given that name since; a name typed over it is looked up as before.
+
+**EX46. The same amount again changes nothing (astra MEDIUM).** "The amount changes" with the line's own amount at the VAT the new line would
+take (its choice, and the shops' rate of now) returns the line itself, unchanged ("Nothing changed"): never a split that moves a penny
+between its days (£100 a week from 1 Nov: £28.57 on 1-2 Nov, before and after).
+
+**EX47. The seed (astra HIGH 3, MEDIUM x2, LOW).** CW\Expenses\RegularCostSeed: plan() checks every line as the writer will (the group there
+and switched on, the days in CW's range), reads the VAT rate once; apply() in ONE transaction, under the groups' locks: the whole plan again
+(each name's live lines in the shop: none for a line to add; exactly the planned one, same group and figures, for one there; the same rate),
+then every line added with THAT rate; anything else refuses the whole run (409 seed_changed, nothing written). `--apply` takes the seed's
+lock and, held, exits 4 (Cli::BUSY: "busy ... nothing written"), never 0; the dry run takes no lock.
+
+**EX48. Expense figures for expenses.view only, re-read inside the read (astra MEDIUM).** ExpenseViews given the person (every screen gives
+it) checks expenses.view from their jobs NOW inside its own snapshot (ExpenseAccess::mayView); Real profit for a person without it (profit.view
+given on the Roles page) makes no expense read at all; a write the service refused for the person's jobs answers with a plain refusal, never
+the expense or its history.
+
+**EX49. A supplier's evidence by what names it (astra MEDIUM).** The file rules ask suppliers.view for a file kept as supplier_check OR named
+as a supplier's due-diligence or import-route evidence (both indexed), so the order of the uploads no longer matters.
+
+**EX50. Both content policies are sent (astra MEDIUM).** HtmlResponse sends every Content-Security-Policy set (as Set-Cookie): a download's
+`sandbox` and the pages' own policy are both enforced (before, header() replaced the first); HtmlResponse::emitted() is what a client gets.
+
+**EX51. Exact days on Profit > Expenses and Regular costs at most reports.sales_max_days (Fable L2).** As Real profit: a longer span keeps
+its last day, is cut at the front, and the page says "At most 366 days at once: shown from ...".
+
+**EX52. A download's name keeps its extension (astra MEDIUM).** Supplier + number (or date), cleaned, cut to leave room for the sniffed
+type's extension: at most 255 bytes with it, so the disposition's clean keeps ".pdf" in both of its names.
+
+**EX53. The help texts say the shops' VAT rate of the setting (Fable L3).** "includes VAT at the shops' rate (now 20%)" and "How it is
+shared out" with its example worked out at that rate; never a fixed 20% or "/ 6".
+
+**EX54. A regular cost's VAT choice is kept apart from its rate (astra MEDIUM).** `regular_cost.vat_included` (0/1; a CHECK: no VAT has rate
+0): a line including VAT while the shops' rate is 0% stays one; at 20% again a new amount of £120 includes £20 VAT (£100 counts, never £120).
+The history shows "VAT: Includes VAT → No VAT; VAT rate: 20% → 0%"; nightly EX-I2 compares both.
+
+**EX55. The rest (Fable M1, L1, L4; astra LOW x2).** M1: deleting a "new amount" line says, on its delete form and after, that the line before
+still ends the day before, with a link to it. L1: the change form's VAT choice says it changes every day of the line (a VAT change from a
+date: end the line and add a new one). L4: the tiles count credit notes apart ("1 invoice and 1 credit note, £64.54 with VAT"). LOW: a line's
+"new amount" is the next live line by date in its WHOLE chain (a backdated new amount links the later one); a monthly or yearly share is
+worked out directly (first and last calendar month or year, the whole ones between counted at once), the same fraction as day by day (20,000
+random cases checked against the loop it replaces), so a one-day report years after a line's first day costs no more than one in its first month.
+
+**EX56. Profit by shop's three columns are Real profit's own figures of the shop (astra MEDIUM).** Read in the row's snapshot from
+ExpenseViews::realProfit: counted from the shop's first day (EX39), marked "not complete" while any unit counted has no buying price or waits
+for it (one unpriced unit of 1,000 is marked, below the margin pages' 0.5%).

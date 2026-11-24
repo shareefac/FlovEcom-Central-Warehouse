@@ -16,7 +16,10 @@ use CW\Files\FileStore;
  * out; total = net + VAT), a note and its PDF or photo. Money in whole pence. A credit note (the owner, 24 Nov 2026: EX37) is ticked as one:
  * its amounts are typed as printed, without a minus, and kept and counted as minus (net and VAT), so it takes that much off its shop's
  * expenses on its date. The same supplier + invoice number + shop as an expense not deleted of the same kind (invoice or credit note) is
- * refused unless the person confirms it (with no number: the same supplier, shop, day and total). A change rewrites the row
+ * refused unless the person confirms it; with no number on either of the two, the same supplier, shop, day and total (signed) is the same bill
+ * (the final review of 70ab3d2, astra HIGH 4; EX42). A confirmation names the expenses it was asked about and holds for them only (astra
+ * MEDIUM; EX43). Only the three shops take an expense (ExpenseViews::SHOP_CODES; EX44). Every file an expense names is kept in expense_file
+ * by the version that named it, 7 years from then (EX40). A change rewrites the row
  * (version + 1) and keeps before and after; a delete is a mark with a reason; nothing is ever removed (ExpenseHistory, audit_log).
  * Only the Expenses job writes (ExpenseAccess), checked again inside each write.
  */
@@ -37,27 +40,29 @@ final class Expenses
     /**
      * Adds an expense. $in: shop (channel id), supplier (its name), new_supplier (add it when it is not on the list), type (expense_type id),
      * invoice_date (YYYY-MM-DD), invoice_no, net and vat (pounds as typed, never minus), credit (true, '1' or 'on': a credit note, kept as
-     * minus), note. $file: ['path', 'name'] or null. $sameOk: the person confirmed it is not the same invoice twice.
+     * minus), note. $file: ['path', 'name'] or null. $same: the confirmation the form carries ("it is another invoice"): the ids of the
+     * expenses it was asked about (the 409's detail.confirm); it holds only while exactly those are the same as this one.
      *
      * @param array<string, mixed> $in
      * @param array{path: string, name: string}|null $file
      * @return array{id: int, supplier_id: int, file_id: ?int}
      */
-    public function add(Caller $caller, array $in, ?array $file = null, bool $sameOk = false): array
+    public function add(Caller $caller, array $in, ?array $file = null, string $same = ''): array
     {
-        return $this->db->transaction(function (Db $db) use ($caller, $in, $file, $sameOk): array {
+        return $this->db->transaction(function (Db $db) use ($caller, $in, $file, $same): array {
             ExpenseAccess::mayEdit($db, $caller);
             $v = $this->fields($db, $in, null);
             $supplier = $this->supplierFor($db, $caller, $v['supplier'], (bool) ($in['new_supplier'] ?? false), null);
-            if (!$sameOk) {
-                $this->checkSame($db, $supplier, $v, null);
-            }
+            $this->checkSame($db, $supplier, $v, null, $same);
             $fileId = $file === null ? null : ExpenseFiles::store($this->files(), $caller, $file['path'], $file['name']);
             $now = Clock::db(Clock::now());
             $id = $db->insert('INSERT INTO expense (channel_id, supplier_id, type_id, invoice_date, invoice_no, net_pence, vat_pence, total_pence, note, file_id, version, '
                 . 'created_by, created_actor, created_at, updated_by, updated_actor, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)',
                 [$v['shop'], $supplier, $v['type'], $v['invoice_date'], $v['invoice_no'], $v['net'], $v['vat'], $v['net'] + $v['vat'], $v['note'], $fileId,
                     $caller->staffUserId, $caller->actor, $now, $caller->staffUserId, $caller->actor, $now]);
+            if ($fileId !== null) {
+                $this->attach($db, $caller, $id, $fileId, 1);
+            }
             ExpenseHistory::record($db, $caller, 'expense', $id, 1, 'add', null, self::state($db, $id), null);
             return ['id' => $id, 'supplier_id' => $supplier, 'file_id' => $fileId];
         });
@@ -65,32 +70,40 @@ final class Expenses
 
     /**
      * Changes an expense (every field the form has; a new file replaces the one it names, which stays in the store). $seen: the version the
-     * page showed (409 changed_meanwhile otherwise). Nothing different: no new version.
+     * page showed (409 changed_meanwhile otherwise). Nothing different: no new version. The form names its supplier by its id too
+     * (supplier_id, and supplier_was: the name it showed): a name left as it was keeps that supplier, whatever another supplier is called now
+     * (the final review of 70ab3d2, astra MEDIUM; EX45); a name typed over it is looked up.
      *
      * @param array<string, mixed> $in
      * @param array{path: string, name: string}|null $file
      * @return array{changed: bool, version: int}
      */
-    public function change(Caller $caller, int $id, int $seen, array $in, ?array $file = null, bool $sameOk = false): array
+    public function change(Caller $caller, int $id, int $seen, array $in, ?array $file = null, string $same = ''): array
     {
-        return $this->db->transaction(function (Db $db) use ($caller, $id, $seen, $in, $file, $sameOk): array {
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $seen, $in, $file, $same): array {
             ExpenseAccess::mayEdit($db, $caller);
             $row = $this->locked($db, $id, $seen);
             $v = $this->fields($db, $in, $row);
-            $supplier = $this->supplierFor($db, $caller, $v['supplier'], (bool) ($in['new_supplier'] ?? false), (int) $row['supplier_id']);
+            $kept = is_string($in['supplier_id'] ?? null) || is_int($in['supplier_id'] ?? null) ? (string) $in['supplier_id'] : '';
+            if ($kept === (string) $row['supplier_id'] && is_string($in['supplier_was'] ?? null) && self::plain($in['supplier_was']) === $v['supplier']) {
+                // The supplier as the form showed it: the same one, locked as a looked-up one is (two changes of its invoices one after the other).
+                $supplier = (int) $db->value('SELECT id FROM expense_supplier WHERE id = ? FOR UPDATE', [$row['supplier_id']]);
+            } else {
+                $supplier = $this->supplierFor($db, $caller, $v['supplier'], (bool) ($in['new_supplier'] ?? false), (int) $row['supplier_id']);
+            }
             $fileId = $row['file_id'] === null ? null : (int) $row['file_id'];
-            $same = $supplier === (int) $row['supplier_id'] && $v['shop'] === (int) $row['channel_id'] && $v['type'] === (int) $row['type_id']
+            $unchanged = $supplier === (int) $row['supplier_id'] && $v['shop'] === (int) $row['channel_id'] && $v['type'] === (int) $row['type_id']
                 && $v['invoice_date'] === (string) $row['invoice_date'] && $v['invoice_no'] === (string) $row['invoice_no'] && $v['net'] === (int) $row['net_pence']
                 && $v['vat'] === (int) $row['vat_pence'] && $v['note'] === ($row['note'] === null ? null : (string) $row['note']);
-            if ($same && $file === null) {
+            if ($unchanged && $file === null) {
                 return ['changed' => false, 'version' => (int) $row['version']];
             }
-            // Checked again when it would meet another of its kind: a new supplier, shop or number, an invoice made a credit note or back (EX37),
-            // or with no number a new day or total.
-            if (!$sameOk && ($supplier !== (int) $row['supplier_id'] || $v['shop'] !== (int) $row['channel_id'] || $v['invoice_no'] !== (string) $row['invoice_no']
-                || ($v['net'] < 0) !== ((int) $row['net_pence'] < 0)
-                || ($v['invoice_no'] === '' && ($v['invoice_date'] !== (string) $row['invoice_date'] || $v['net'] + $v['vat'] !== (int) $row['total_pence'])))) {
-                $this->checkSame($db, $supplier, $v, $id);
+            // Checked again when it could meet another: a new supplier, shop, number, day or total, an invoice made a credit note or back (EX37;
+            // a day or total too, since a bill of no number meets one of the same day and total: EX42).
+            if ($supplier !== (int) $row['supplier_id'] || $v['shop'] !== (int) $row['channel_id'] || $v['invoice_no'] !== (string) $row['invoice_no']
+                || ($v['net'] < 0) !== ((int) $row['net_pence'] < 0) || $v['invoice_date'] !== (string) $row['invoice_date']
+                || $v['net'] + $v['vat'] !== (int) $row['total_pence']) {
+                $this->checkSame($db, $supplier, $v, $id, $same);
             }
             if ($file !== null) {
                 $fileId = ExpenseFiles::store($this->files(), $caller, $file['path'], $file['name']);
@@ -101,6 +114,9 @@ final class Expenses
                 . 'note = ?, file_id = ?, version = ?, updated_by = ?, updated_actor = ?, updated_at = ? WHERE id = ?',
                 [$v['shop'], $supplier, $v['type'], $v['invoice_date'], $v['invoice_no'], $v['net'], $v['vat'], $v['net'] + $v['vat'], $v['note'], $fileId, $version,
                     $caller->staffUserId, $caller->actor, Clock::db(Clock::now()), $id]);
+            if ($file !== null && $fileId !== null) {
+                $this->attach($db, $caller, $id, $fileId, $version);
+            }
             ExpenseHistory::record($db, $caller, 'expense', $id, $version, 'change', $before, self::state($db, $id), null);
             return ['changed' => true, 'version' => $version];
         });
@@ -200,7 +216,7 @@ final class Expenses
     private function fields(Db $db, array $in, ?array $row): array
     {
         $shop = is_int($in['shop'] ?? null) ? $in['shop'] : (is_string($in['shop'] ?? null) && preg_match('/^[1-9]\d{0,5}$/D', $in['shop']) === 1 ? (int) $in['shop'] : null);
-        if ($shop === null || $db->value('SELECT id FROM channel WHERE id = ?', [$shop]) === null) {
+        if ($shop === null || !ExpenseViews::isBusinessShop($db, $shop)) {
             throw new CwException('choose_shop', 'choose the shop this expense is for', 422, ['field' => 'shop']);
         }
         $supplier = self::name((string) ($in['supplier'] ?? ''), 'bad_supplier', 'supplier');
@@ -280,24 +296,49 @@ final class Expenses
     }
 
     /**
-     * 409 same_invoice when an expense not deleted (other than $self) of the same kind (an invoice, or a credit note: the sign of its amount;
-     * EX37) has the same supplier, shop and invoice number; with no number, the same supplier, shop, invoice date and total. detail: the other's
-     * id and date, and whether it is a credit note.
+     * 409 same_invoice when this expense is the same as others not deleted (other than $self), unless $same confirms exactly those (their ids,
+     * ascending, comma-separated: detail.confirm of the 409 the person answered; the final review of 70ab3d2, astra MEDIUM: a confirmation is
+     * for the records it was asked about, checked again here under the supplier's lock; EX43). The same: the same supplier and shop and
+     *  - with a number: the same number and kind (an invoice, or a credit note: the sign of its amount; EX37), or a bill of NO number of the same
+     *    day and total (typed in first without its number);
+     *  - with no number: the same day and total (signed: a credit note meets only a credit note), with a number or not (astra HIGH 4; EX42).
+     * detail: the first one's id and date, whether this is a credit note, and the confirmation that would hold.
      *
      * @param array{shop: int, invoice_date: string, invoice_no: string, net: int, vat: int} $v
      */
-    private function checkSame(Db $db, int $supplier, array $v, ?int $self): void
+    private function checkSame(Db $db, int $supplier, array $v, ?int $self, string $same): void
     {
-        $other = $v['invoice_no'] !== ''
-            ? $db->one('SELECT id, invoice_date FROM expense WHERE supplier_id = ? AND channel_id = ? AND invoice_no = ? AND (net_pence < 0) = ? AND deleted_at IS NULL '
-                . 'AND id <> ? ORDER BY id LIMIT 1', [$supplier, $v['shop'], $v['invoice_no'], $v['net'] < 0 ? 1 : 0, $self ?? 0])
-            : $db->one("SELECT id, invoice_date FROM expense WHERE supplier_id = ? AND channel_id = ? AND invoice_no = '' AND invoice_date = ? AND total_pence = ? "
-                . 'AND deleted_at IS NULL AND id <> ? ORDER BY id LIMIT 1', [$supplier, $v['shop'], $v['invoice_date'], $v['net'] + $v['vat'], $self ?? 0]);
-        if ($other !== null) {
-            throw new CwException('same_invoice', $v['net'] < 0 ? 'this credit note is in already (the same supplier, number and shop)'
-                : 'this invoice is in already (the same supplier, invoice number and shop)', 409,
-                ['other' => (int) $other['id'], 'date' => (string) $other['invoice_date'], 'credit' => $v['net'] < 0]);
+        $total = $v['net'] + $v['vat'];
+        $ids = array_map('intval', $v['invoice_no'] !== ''
+            ? $db->column('SELECT id FROM expense WHERE supplier_id = ? AND channel_id = ? AND deleted_at IS NULL AND id <> ? '
+                . "AND ((invoice_no = ? AND (net_pence < 0) = ?) OR (invoice_no = '' AND invoice_date = ? AND total_pence = ?)) ORDER BY id LIMIT 20",
+                [$supplier, $v['shop'], $self ?? 0, $v['invoice_no'], $v['net'] < 0 ? 1 : 0, $v['invoice_date'], $total])
+            : $db->column('SELECT id FROM expense WHERE supplier_id = ? AND channel_id = ? AND invoice_date = ? AND total_pence = ? AND deleted_at IS NULL '
+                . 'AND id <> ? ORDER BY id LIMIT 20', [$supplier, $v['shop'], $v['invoice_date'], $total, $self ?? 0]));
+        if ($ids === []) {
+            return;
         }
+        $confirm = implode(',', $ids);
+        if (hash_equals($confirm, $same)) {
+            return;
+        }
+        $other = (string) $db->value('SELECT invoice_date FROM expense WHERE id = ?', [$ids[0]]);
+        throw new CwException('same_invoice', $v['net'] < 0 ? 'this credit note is in already (the same supplier, number and shop)'
+            : 'this invoice is in already (the same supplier, invoice number and shop)', 409,
+            ['other' => $ids[0], 'date' => $other, 'credit' => $v['net'] < 0, 'confirm' => $confirm]);
+    }
+
+    /**
+     * The file $fileId named by version $version of expense $id: kept in expense_file (the file rules ask it by its file_id index; EX24, EX40),
+     * 7 years from now, and the storage's retention extended to that day (a file stored years before is kept for this expense too; the final
+     * review of 70ab3d2, astra MEDIUM).
+     */
+    private function attach(Db $db, Caller $caller, int $id, int $fileId, int $version): void
+    {
+        $until = (string) $db->value('SELECT DATE_ADD(CURRENT_DATE(), INTERVAL ' . FileStore::RETENTION_YEARS . ' YEAR)');
+        $db->exec('INSERT INTO expense_file (expense_id, file_id, version, retain_until, attached_actor) VALUES (?, ?, ?, ?, ?)',
+            [$id, $fileId, $version, $until, $caller->actor]);
+        $this->files()->retain($fileId, $until);
     }
 
     /** @return array<string, mixed> the expense row, locked, at the version the page showed and not deleted */

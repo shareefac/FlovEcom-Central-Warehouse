@@ -21,6 +21,24 @@ final class ExpenseAccess
     public const PERM_VIEW = 'expenses.view';
     public const PERM_EDIT = 'expenses.edit';
 
+    /**
+     * Whether the caller sees the expenses (expenses.view: Finance and the Expenses job, LOCKED), re-read from their jobs now: the reads of
+     * expense figures ask it inside their own snapshot (ExpenseViews with a viewer), so a job taken away while a page is drawn shows nothing
+     * (the final review of 70ab3d2, astra MEDIUM; docs/decisions.md EX48). A server tool (system:...) may.
+     */
+    public static function mayView(Db $db, Caller $caller): void
+    {
+        if ($caller->staffUserId === null) {
+            if (!$caller->isChannel() && str_starts_with($caller->actor, 'system:')) {
+                return;
+            }
+            throw new CwException('staff_required', 'expenses are read by staff', 403);
+        }
+        if (!Permissions::can(StaffRoles::active($db, $caller->staffUserId), self::PERM_VIEW)) {
+            throw new CwException('role_not_allowed', 'your jobs do not see the expenses', 403);
+        }
+    }
+
     public static function mayEdit(Db $db, Caller $caller): void
     {
         if ($caller->staffUserId === null) {

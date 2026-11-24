@@ -9,12 +9,15 @@ $gbp = static fn (int $p): string => \CW\Expenses\ExpenseMoney::gbp($p);
 $t = $typed;
 $deleted = $r['deleted_at'] !== null;
 ?>
-<?= $head((string) $r['name'], intro: 'profit_regular_one', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_regular']), back: ['/ui/profit/regular', $R['back']]) ?>
+<?= $head((string) $r['name'], intro: 'profit_regular_one', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_regular'], [$vatPct]), back: ['/ui/profit/regular', $R['back']]) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
 <?php if ($deleted): ?>
 <p class="note" role="status"><?= $word('REGULAR', 'deleted_banner') ?> <?= $say('EXPENSES', 'deleted_by', (string) ($r['deleted_name'] ?? $r['deleted_actor']), \CW\Ui\Html::when((string) $r['deleted_at']), (string) $r['deleted_reason']) ?></p>
+<?php if ($before !== null): ?>
+<p class="note deleted-continues" role="status"><?= $say('REGULAR', 'deleted_continues', \CW\Ui\Html::day($before['until'])) ?> <a href="<?= $u('/ui/profit/regular/' . $before['id']) ?>"><?= $word('REGULAR', 'open_before') ?></a></p>
+<?php endif; ?>
 <?php endif; ?>
 <div class="table-wrap">
 <table class="stack rp-table regular-facts">
@@ -93,12 +96,13 @@ $deleted = $r['deleted_at'] !== null;
       </label>
     </fieldset>
     <fieldset class="vat-pick">
-      <legend><?= $word('REGULAR', 'vat_choice') ?> <span class="hint"><?= $word('REGULAR', 'vat_hint') ?></span></legend>
+      <legend><?= $word('REGULAR', 'vat_choice') ?> <span class="hint"><?= $word('REGULAR', 'vat_hint') ?> <?= $word('REGULAR', 'vat_change_hint') ?></span></legend>
       <label class="choice"><input type="radio" name="vat" value="inc"<?php if ((string) $t['vat'] !== 'none'): ?> checked<?php endif; ?><?php if ($errorField === 'vat'): ?> aria-invalid="true"<?php endif; ?>> <?= $say('REGULAR', 'vat_inc', $vatRate) ?></label>
       <label class="choice"><input type="radio" name="vat" value="none"<?php if ((string) $t['vat'] === 'none'): ?> checked<?php endif; ?>> <?= $word('REGULAR', 'vat_none') ?></label>
     </fieldset>
 <?php if ($sameAsk): ?>
     <label class="choice same-ok"><input type="checkbox" name="same_ok" value="1"> <?= $word('REGULAR', 'same_ok') ?></label>
+    <input type="hidden" name="same_ids" value="<?= $e($sameIds) ?>">
 <?php endif; ?>
     <p class="actions"><button type="submit" class="btn primary"><?= $word('EXPENSES', 'change_save') ?></button></p>
   </form>
@@ -109,6 +113,9 @@ $deleted = $r['deleted_at'] !== null;
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
     <p><?= $word('REGULAR', 'delete_text') ?></p>
+<?php if ($before !== null): ?>
+    <p class="note delete-continues"><?= $say('REGULAR', 'delete_continues', \CW\Ui\Html::day($before['until'])) ?> <a href="<?= $u('/ui/profit/regular/' . $before['id']) ?>"><?= $word('REGULAR', 'open_before') ?></a></p>
+<?php endif; ?>
     <label><?= $word('EXPENSES', 'delete_reason') ?>
       <input type="text" name="reason" value="" minlength="3" maxlength="500" required>
     </label>

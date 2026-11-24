@@ -3097,7 +3097,7 @@ final class Words
         // 0079 (docs/decisions.md EX5, EX6, EX15): Profit > Expenses, Regular costs, Real profit
         'expenses' => 'An **expense** is an invoice you add, for ONE shop: its amount without VAT and its VAT as printed (CW never works VAT out). '
             . 'It goes in the profit on its **invoice date**, without VAT. A **credit note** is ticked as one: typed as printed, it comes off that shop\'s '
-            . 'expenses. A **regular cost** has no invoice: it goes out every week, month or year, includes 20% VAT unless it is marked **No VAT**, and its '
+            . 'expenses. A **regular cost** has no invoice: it goes out every week, month or year, includes VAT at the shops\' rate (now %s) unless it is marked **No VAT**, and its '
             . 'cost without VAT is shared out **per day**: a weekly cost over its 7 days, a monthly cost over the days of its month, a yearly cost over the days of its year. '
             . 'Each line is rounded to the penny once per period, so the days of a month add up to the month exactly. **Real profit** is sales less '
             . 'refunds, less what the goods cost, plus delivery charged, less the carriers\' bills, payment fees, expenses and regular costs.',
@@ -10927,6 +10927,13 @@ final class Words
         'real_note' => 'All amounts without VAT. The line in grey is not built yet. Click a line to see what is in it.',
         'real_incomplete' => 'Some units sold have no buying price yet: the goods cost, and so the real profit, are not complete.',
         'real_incomplete_units' => 'Units without a buying price yet: %s.',
+        // Each shop's first day (0079 settings profit.real_from_<shop>; the owner, 24 Nov 2026; docs/decisions.md EX39).
+        'real_not_started' => 'not started (from %s)',
+        'real_not_set' => 'not started (no first day set)',
+        'real_counted_from' => '%s is counted from %s, its first day (Settings, Profit): the days before it are left out of its column.',
+        'real_cell_from' => 'from %s',
+        'real_cell_incomplete' => 'not complete',
+        'real_not_a_shop' => '-',
         'real_line' => 'Line',
         'real_hayati' => 'Vape Big\'s partner product (Hayati 4000) is not taken apart here.',
         'real_days' => 'From %s to %s.',
@@ -11104,6 +11111,13 @@ final class Words
         'tile' => '%s - %s',
         'tile_one' => '1 invoice, %s with VAT',
         'tile_many' => '%s invoices, %s with VAT',
+        // Credit notes counted apart (the Fable review of 70ab3d2, L4).
+        'tile_inv_one' => '1 invoice',
+        'tile_inv_many' => '%s invoices',
+        'tile_cn_one' => '1 credit note',
+        'tile_cn_many' => '%s credit notes',
+        'tile_parts' => '%s and %s, %s with VAT',
+        'tile_alone' => '%s, %s with VAT',
         'tile_note' => 'Without VAT, as in the profit. Regular costs are on their own line.',
         'list_limit' => 'Only the first %s are shown: choose a shop or search.',
         'none' => 'No expenses here yet.',
@@ -11195,7 +11209,8 @@ final class Words
         'f_name' => 'Name',
         'f_every' => 'How often',
         'f_amount_pence' => 'Amount',
-        'f_vat_rate_bp' => 'VAT',
+        'f_vat_included' => 'VAT',
+        'f_vat_rate_bp' => 'VAT rate',
         'f_from_day' => 'From',
         'f_until_day' => 'Until',
         'f_is_active' => 'In use',
@@ -11210,6 +11225,7 @@ final class Words
         'every_year' => 'Every year',
         'every_week_total' => 'Every week in all',
         'range_note' => 'The expenses from %s to %s (the days of the profit line you opened).',
+        'range_cut' => 'At most %s days at once: shown from %s.',
         'by_month' => 'Show by month',
         'file_again' => 'The file you chose was not kept, because the form was refused: choose it again.',
         'no_file_ok' => 'Save without a file',
@@ -11300,6 +11316,9 @@ final class Words
         'vat_inc' => 'Includes %s VAT',
         'vat_none' => 'No VAT',
         'vat_hint' => 'Most costs include VAT. Only the cost without VAT comes off the profit.',
+        // The change form (the Fable review of 70ab3d2, L1).
+        'vat_included' => 'Includes VAT',
+        'vat_change_hint' => 'Changing it changes every day of this line. If the VAT changed from a date, end this line and add a new one from that date.',
         'vat_amount' => '%s (%s)',
         'choose_group' => 'Choose the group',
         'which_shop' => 'Which shop is this cost for?',
@@ -11309,12 +11328,16 @@ final class Words
         'save' => 'Save regular cost',
         'ended_chip' => 'Ended',
         'also_in_force' => 'Also in force today: every month %s (%s without VAT), every year %s (%s without VAT).',
-        'how_counts' => 'How it is shared out: only the cost without VAT comes off the profit (for a line that includes 20% VAT, the VAT is the amount / 6). '
+        'how_counts' => 'How it is shared out: only the cost without VAT comes off the profit (a line that includes %1$s VAT holds amount x %1$s / (100%% + %1$s) of VAT). '
             . 'A weekly cost is shared over its 7 days, a monthly cost over the days of its month, a yearly cost over the days of its year (365, or 366). '
-            . 'Example: Unit 1 £207.69 a week includes £34.62 VAT, so its cost is £173.07 a week = about £24.72 a day, and November (30 days) shows £741.73.',
+            . 'Example: Unit 1 £207.69 a week includes %2$s VAT, so its cost is %3$s a week = about %4$s a day, and November (30 days) shows %5$s.',
         'invoice_note' => 'A cost with an invoice (Starlink, the Global Payments invoice) goes in Expenses with its PDF. When an amount changes, open its '
             . 'line and use "The amount changes": past days keep the old amount.',
         'deleted_banner' => 'This regular cost was deleted: it is in the profit on no day.',
+        // A line continuing another, deleted (the Fable review of 70ab3d2, M1).
+        'delete_continues' => 'This line follows the line before, which ends on %s. Deleting this line does not make the line before go on: if it should, open it and change its last day.',
+        'deleted_continues' => 'The line before still ends on %s: if it should go on, open it and change its last day.',
+        'open_before' => 'Open the line before',
         'a_day' => 'A day',
         'about_a_day' => 'about %s',
         'this_month' => 'In %s',

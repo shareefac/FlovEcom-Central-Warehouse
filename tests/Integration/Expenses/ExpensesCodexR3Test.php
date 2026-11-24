@@ -59,10 +59,10 @@ final class ExpensesCodexR3Test extends MappingTestCase
         $rc = new RegularCosts(self::$db);
         $rent = self::type('regular', 'Rent');
         $a = $rc->add($job, ['name' => 'Unit 5', 'shop' => $this->vpg, 'type' => $rent, 'vat' => 'none', 'every' => 'week', 'amount' => '140.00', 'from' => '2026-11-01', 'until' => '2026-11-07']);
-        $rc->add($job, ['name' => 'Unit 5', 'shop' => $this->vpg, 'type' => $rent, 'vat' => 'none', 'every' => 'week', 'amount' => '175.00', 'from' => '2026-11-08']);
+        $b = $rc->add($job, ['name' => 'Unit 5', 'shop' => $this->vpg, 'type' => $rent, 'vat' => 'none', 'every' => 'week', 'amount' => '175.00', 'from' => '2026-11-08']);
         self::refused(409, 'same_cost', fn () => $rc->change($job, $a, 1, ['name' => 'Unit 5', 'type' => $rent, 'until' => '2026-11-14', 'note' => '']));
         self::assertSame(17500, (new ExpenseViews(self::$db))->regularBy('2026-11-08', '2026-11-14', null)[$this->vpg], '£175.00, never £315.00');
-        self::assertTrue($rc->change($job, $a, 1, ['name' => 'Unit 5', 'type' => $rent, 'until' => '2026-11-14', 'note' => ''], true), 'confirmed: another cost');
+        self::assertTrue($rc->change($job, $a, 1, ['name' => 'Unit 5', 'type' => $rent, 'until' => '2026-11-14', 'note' => ''], (string) $b), 'confirmed: another cost');
     }
 
     /** M4: £140 from 1 Nov; £196 from 15 Nov; then £168 from 8 Nov on the first line: its "new amount" is the 8 Nov line. */

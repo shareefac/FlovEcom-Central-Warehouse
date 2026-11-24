@@ -38,7 +38,7 @@ final class ExpensesController
     /** GET: the list of a month (?month=YYYY-MM | all, ?shop=, ?q=, ?deleted=1). */
     public function list(Context $ctx): HtmlResponse
     {
-        $views = new ExpenseViews($ctx->db);
+        $views = new ExpenseViews($ctx->db, $ctx->caller());
         $today = ProfitViews::today();
         $m = (string) ($ctx->req->param('month') ?? '');
         $month = $m === 'all' ? null : (ExpenseViews::isMonth($m) ? $m : substr($today, 0, 7));
@@ -51,6 +51,7 @@ final class ExpensesController
         // Exact days (from Real profit's lines, the Codex check r1, M7): both real days, the first not after the last; else the month.
         [$from, $to] = [(string) ($ctx->req->param('from') ?? ''), (string) ($ctx->req->param('to') ?? '')];
         $range = RegularCostMath::isDay($from) && RegularCostMath::isDay($to) && $from <= $to ? [$from, $to] : null;
+        [$range, $cut] = self::capRange($ctx, $range);
         $data = $range !== null ? $views->days($range[0], $range[1], $shop, $q, $deleted) : $views->month($month, $shop, $q, $deleted);
         $months = $views->months($today, $deleted);
         if ($month !== null && !in_array($month, $months, true)) {
@@ -68,7 +69,58 @@ final class ExpensesController
             'deleted' => $deleted,
             'canEdit' => $ctx->me()->can(self::PERM_EDIT),
             'limit' => ExpenseViews::LIST_LIMIT,
+            'cut' => $cut,
+            'vatPct' => self::vatPct($ctx),
         ], 200, ['title' => Words::MENU['profit_expenses'], 'notice' => in_array($n, self::NOTICES, true) ? Words::EXPENSES['notice_' . $n] : null]);
+    }
+
+    /**
+     * Exact days asked for (from Real profit's lines) taken at most reports.sales_max_days at once, as Real profit takes them (the Fable review
+     * of 70ab3d2, L2; docs/decisions.md EX51): a longer span keeps its last day and is cut at the front, and the page says so.
+     *
+     * @param array{0: string, 1: string}|null $range
+     * @return array{0: array{0: string, 1: string}|null, 1: ?string} the days, and the words saying they were cut
+     */
+    public static function capRange(Context $ctx, ?array $range): array
+    {
+        if ($range === null) {
+            return [null, null];
+        }
+        $max = \CW\Settings::number($ctx->db, 'reports.sales_max_days', 366);
+        if (RegularCostMath::days($range[0], $range[1]) <= $max) {
+            return [$range, null];
+        }
+        $first = RegularCostMath::addDays($range[1], -($max - 1));
+        return [[$first, $range[1]], Words::say('EXPENSES', 'range_cut', $max, Html::day($first))];
+    }
+
+    /** The shops' VAT rate of now as the help texts say it ("20%"; the Fable review of 70ab3d2, L3). */
+    public static function vatPct(Context $ctx): string
+    {
+        return RegularCostMath::percent((new \CW\Profit\ProfitSettings($ctx->db))->vatBp());
+    }
+
+    /**
+     * Whether a write was refused for the person's jobs (taken away between the route's check and the service's: role_not_allowed,
+     * admin_cannot_post, staff_required): the answer is a plain refusal, never the expense or its history (the final review of 70ab3d2, astra
+     * MEDIUM; docs/decisions.md EX48).
+     */
+    public static function deniedWrite(CwException $e): bool
+    {
+        return $e->httpStatus === 403 && in_array($e->errorCode, ['role_not_allowed', 'admin_cannot_post', 'staff_required'], true);
+    }
+
+    /** The plain refusal deniedWrite() answers with. */
+    public static function denied(Context $ctx, CwException $e): HtmlResponse
+    {
+        return $ctx->error(403, $e->errorCode, Words::error($e->errorCode, $e->getMessage()));
+    }
+
+    /** The confirmation a form carries: the ids it was asked about (same_ids), when "it is another one" is ticked; else none (EX43). */
+    public static function same(Context $ctx): string
+    {
+        $ids = (string) ($ctx->req->field('same_ids') ?? '');
+        return $ctx->req->field('same_ok') === '1' && preg_match('/^[1-9]\d{0,19}(,[1-9]\d{0,19}){0,19}$/D', $ids) === 1 ? $ids : '';
     }
 
     /** GET new: the add form (empty; the shop never picked for you). */
@@ -85,19 +137,19 @@ final class ExpensesController
         try {
             $file = self::upload($ctx, false);
             self::fileAgain($ctx, $file);
-            $sameOk = $ctx->req->field('same_ok') === '1';
+            $same = self::same($ctx);
             $another = $ctx->req->field('then') === 'another';
             // One effect per form (FormOnce, I46; the Codex check r3, H1): the same form sent again (a lost answer, a retry), a confirmed second
             // invoice too, lands where the first did and adds nothing. What it keeps of the form: the fields and the file's fingerprint.
-            $request = $typed + ['same_ok' => $sameOk ? '1' : '', 'then' => $another ? 'another' : 'done',
+            $request = $typed + ['same_ok' => $same, 'then' => $another ? 'another' : 'done',
                 'file' => $file === null ? '' : (string) hash_file('sha256', $file['path'])];
-            $r = FormOnce::run($ctx, 'ui.expense.add', $request, static function (\CW\Db $db) use ($ctx, $typed, $file, $sameOk, $another): \CW\OpResult {
-                $x = (new Expenses($db, static fn (): FileStore => $ctx->files()))->add($ctx->caller(), $typed, $file, $sameOk);
+            $r = FormOnce::run($ctx, 'ui.expense.add', $request, static function (\CW\Db $db) use ($ctx, $typed, $file, $same, $another): \CW\OpResult {
+                $x = (new Expenses($db, static fn (): FileStore => $ctx->files()))->add($ctx->caller(), $typed, $file, $same);
                 return \CW\OpResult::of(303, ['redirect' => $another ? Html::url(self::PATH . '/new', ['notice' => 'added'])
                     : Html::url(self::PATH . '/' . $x['id'], ['notice' => 'added'])]);
             });
         } catch (CwException $e) {
-            return $this->form($ctx, $e->httpStatus, $e, $typed, null);
+            return self::deniedWrite($e) ? self::denied($ctx, $e) : $this->form($ctx, $e->httpStatus, $e, $typed, null);
         }
         return FormOnce::redirect($r);
     }
@@ -117,8 +169,7 @@ final class ExpensesController
         try {
             $file = self::upload($ctx, false);
             self::fileAgain($ctx, $file);
-            $r = (new Expenses($ctx->db, static fn (): FileStore => $ctx->files()))->change($ctx->caller(), $id, self::seen($ctx), $typed, $file,
-                $ctx->req->field('same_ok') === '1');
+            $r = (new Expenses($ctx->db, static fn (): FileStore => $ctx->files()))->change($ctx->caller(), $id, self::seen($ctx), $typed, $file, self::same($ctx));
         } catch (CwException $e) {
             return $this->refused($ctx, $id, $e, $typed);
         }
@@ -143,6 +194,11 @@ final class ExpensesController
     /** GET {id}/file: the invoice PDF or photo, as an attachment of its sniffed type (FilesController::download). */
     public function file(Context $ctx): HtmlResponse
     {
+        try {
+            ExpenseAccess::mayView($ctx->db, $ctx->caller()); // the jobs re-read now (EX48)
+        } catch (CwException $e) {
+            return self::denied($ctx, $e);
+        }
         $x = $ctx->db->one('SELECT e.file_id, e.invoice_no, e.invoice_date, s.name AS supplier FROM expense e JOIN expense_supplier s ON s.id = e.supplier_id '
             . 'WHERE e.id = ?', [$ctx->id()]);
         if ($x === null || $x['file_id'] === null) {
@@ -157,8 +213,21 @@ final class ExpensesController
         $file = $ctx->files()->read((int) $x['file_id']);
         $mime = (string) $file['meta']['mime'];
         // Named from the expense ("Viking Direct 58812290.pdf"); the store keeps a neutral name (EX23).
-        $name = trim((string) $x['supplier'] . ' ' . ((string) $x['invoice_no'] !== '' ? (string) $x['invoice_no'] : (string) $x['invoice_date']));
-        return FilesController::download($file['bytes'], $mime, FileStore::downloadName($name . '.' . (FileStore::EXTENSIONS[$mime][0] ?? 'bin'), $mime));
+        return FilesController::download($file['bytes'], $mime, self::downloadName((string) $x['supplier'],
+            (string) $x['invoice_no'] !== '' ? (string) $x['invoice_no'] : (string) $x['invoice_date'], $mime));
+    }
+
+    /**
+     * The download's name: the supplier and the invoice number (or date), cleaned and cut to leave room for the sniffed type's extension, so the
+     * name is at most 255 bytes WITH it and every later clean keeps it whole (the final review of 70ab3d2, astra MEDIUM: a long multibyte name
+     * lost its ".pdf"; docs/decisions.md EX52).
+     */
+    public static function downloadName(string $supplier, string $noOrDate, string $mime): string
+    {
+        $ext = FileStore::EXTENSIONS[$mime][0] ?? 'bin';
+        $base = FileStore::cleanName(trim($supplier . ' ' . $noOrDate));
+        $base = rtrim(mb_strcut($base, 0, 255 - strlen($ext) - 1, 'UTF-8'), ' ');
+        return ($base === '' ? 'expense' : $base) . '.' . $ext;
     }
 
     /** GET suppliers: the expenses' own suppliers. */
@@ -175,7 +244,7 @@ final class ExpensesController
         try {
             (new Expenses($ctx->db))->addSupplier($ctx->caller(), $name);
         } catch (CwException $e) {
-            return $this->suppliersPage($ctx, $e->httpStatus, $e, $name, null);
+            return self::deniedWrite($e) ? self::denied($ctx, $e) : $this->suppliersPage($ctx, $e->httpStatus, $e, $name, null);
         }
         return HtmlResponse::redirect(Html::url(self::PATH . '/suppliers', ['notice' => 'supplier_added']));
     }
@@ -191,7 +260,7 @@ final class ExpensesController
             (new Expenses($ctx->db))->changeSupplier($ctx->caller(), $ctx->id(), self::seen($ctx), $do === 'rename' ? (string) ($ctx->req->field('name') ?? '') : null,
                 $do === 'rename' ? null : $do === 'on');
         } catch (CwException $e) {
-            return $this->suppliersPage($ctx, $e->httpStatus, $e, null, null);
+            return self::deniedWrite($e) ? self::denied($ctx, $e) : $this->suppliersPage($ctx, $e->httpStatus, $e, null, null);
         }
         return HtmlResponse::redirect(Html::url(self::PATH . '/suppliers', ['notice' => 'supplier_changed']));
     }
@@ -213,7 +282,9 @@ final class ExpensesController
     private static function typed(Context $ctx): array
     {
         $f = static fn (string $k): string => (string) ($ctx->req->field($k) ?? '');
-        return ['shop' => $f('shop'), 'supplier' => $f('supplier'), 'new_supplier' => $ctx->req->field('new_supplier') === '1', 'type' => $f('type'),
+        // supplier_id / supplier_was: the supplier the change form showed, by its id and the name it showed (EX45).
+        return ['shop' => $f('shop'), 'supplier' => $f('supplier'), 'supplier_id' => $f('supplier_id'), 'supplier_was' => $f('supplier_was'),
+            'new_supplier' => $ctx->req->field('new_supplier') === '1', 'type' => $f('type'),
             'invoice_date' => $f('invoice_date'), 'invoice_no' => $f('invoice_no'), 'credit' => $ctx->req->field('credit') === '1', 'net' => $f('net'), 'vat' => $f('vat'),
             'note' => $f('note')];
     }
@@ -280,7 +351,7 @@ final class ExpensesController
      */
     private function form(Context $ctx, int $status, ?CwException $error, array $typed, ?string $notice): HtmlResponse
     {
-        $views = new ExpenseViews($ctx->db);
+        $views = new ExpenseViews($ctx->db, $ctx->caller());
         return $ctx->page('profit_expense_new', [
             'shops' => $views->shops(),
             'types' => (new ExpenseTypes($ctx->db))->active('expense'),
@@ -291,10 +362,13 @@ final class ExpensesController
             'errorCode' => $error?->errorCode,
             'errorField' => is_string($error?->detail['field'] ?? null) ? $error->detail['field'] : null,
             'sameAsk' => $error?->errorCode === 'same_invoice',
+            // What "it is another one" confirms: exactly the expenses it was asked about (EX43).
+            'sameIds' => is_string($error?->detail['confirm'] ?? null) ? $error->detail['confirm'] : '',
             'other' => is_int($error?->detail['other'] ?? null) ? self::PATH . '/' . $error->detail['other'] : null,
             'maxMb' => intdiv(ExpenseFiles::MAX_BYTES, 1_048_576),
             'fileAgain' => $error !== null && self::fileChosen($ctx),
             'formKey' => self::formKey($ctx, $error),
+            'vatPct' => self::vatPct($ctx),
         ], $status, ['title' => Words::EXPENSES['new_title'], 'notice' => $notice]);
     }
 
@@ -308,6 +382,9 @@ final class ExpensesController
      */
     private function refused(Context $ctx, int $id, CwException $e, ?array $typed): HtmlResponse
     {
+        if (self::deniedWrite($e)) {
+            return self::denied($ctx, $e);
+        }
         if ($e->errorCode === 'changed_meanwhile') {
             return $this->one($ctx, $id, $e->httpStatus, $e, null, null);
         }
@@ -321,7 +398,7 @@ final class ExpensesController
      */
     private function one(Context $ctx, int $id, int $status, ?CwException $error, ?array $typed, ?string $notice, ?int $seen = null): HtmlResponse
     {
-        $views = new ExpenseViews($ctx->db);
+        $views = new ExpenseViews($ctx->db, $ctx->caller());
         $x = $views->expense($id);
         if ($x === null) {
             return $ctx->error(404, 'not_found', Words::EXPENSES_ERROR['no_such_expense'], [self::PATH, Words::MENU['profit_expenses']]);
@@ -336,7 +413,8 @@ final class ExpensesController
             'shops' => $views->shops(),
             'types' => $types,
             'suppliers' => array_values(array_filter($views->suppliers(), static fn (array $s): bool => $s['is_active'] || $s['id'] === (int) $x['supplier_id'])),
-            'typed' => $typed ?? ['shop' => (string) $x['channel_id'], 'supplier' => (string) $x['supplier'], 'new_supplier' => false, 'type' => (string) $x['type_id'],
+            'typed' => $typed ?? ['shop' => (string) $x['channel_id'], 'supplier' => (string) $x['supplier'], 'supplier_id' => (string) $x['supplier_id'],
+                'supplier_was' => (string) $x['supplier'], 'new_supplier' => false, 'type' => (string) $x['type_id'],
                 // A credit note's amounts as printed, with its tick on (EX37).
                 'invoice_date' => (string) $x['invoice_date'], 'invoice_no' => (string) $x['invoice_no'], 'credit' => (int) $x['net_pence'] < 0,
                 'net' => ExpenseMoney::plain(abs((int) $x['net_pence'])), 'vat' => ExpenseMoney::plain(abs((int) $x['vat_pence'])), 'note' => (string) ($x['note'] ?? '')],
@@ -345,7 +423,9 @@ final class ExpensesController
             'errorCode' => $error?->errorCode,
             'errorField' => is_string($error?->detail['field'] ?? null) ? $error->detail['field'] : null,
             'sameAsk' => $error?->errorCode === 'same_invoice',
+            'sameIds' => is_string($error?->detail['confirm'] ?? null) ? $error->detail['confirm'] : '',
             'maxMb' => intdiv(ExpenseFiles::MAX_BYTES, 1_048_576),
+            'vatPct' => self::vatPct($ctx),
             'listHref' => Html::url(self::PATH, ['month' => substr((string) $x['invoice_date'], 0, 7)]),
             // A change refused because someone else changed it shows their figures and still asks for the file chosen (the Codex check r3, M8).
             'fileAgain' => $error !== null && self::fileChosen($ctx),
@@ -356,7 +436,7 @@ final class ExpensesController
     private function suppliersPage(Context $ctx, int $status, ?CwException $error, ?string $typed, ?string $notice): HtmlResponse
     {
         return $ctx->page('profit_expense_suppliers', [
-            'suppliers' => (new ExpenseViews($ctx->db))->suppliers(),
+            'suppliers' => (new ExpenseViews($ctx->db, $ctx->caller()))->suppliers(),
             'canEdit' => $ctx->me()->can(self::PERM_EDIT),
             'typed' => $typed ?? '',
             'error' => $error === null ? null : self::plain($error),

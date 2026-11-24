@@ -158,8 +158,8 @@ final class ExpensesTest extends MappingTestCase
         $this->service()->add($job, $this->form(['shop' => $this->ef]));
         $this->service()->add($job, $this->form(['invoice_no' => '58812291']));
         $this->service()->add($job, $this->form(['supplier' => 'Amazon']));
-        // Confirmed: kept as a second one.
-        $this->service()->add($job, $this->form(), null, true);
+        // Confirmed (for the one it was asked about: EX43): kept as a second one.
+        $second = $this->service()->add($job, $this->form(), null, (string) $first['id']);
         self::assertSame(2, (int) self::$db->value("SELECT COUNT(*) FROM expense WHERE invoice_no = '58812290' AND channel_id = ? AND supplier_id = ?",
             [$this->vpg, $first['supplier_id']]));
         // A bill with no number: the same supplier, shop, day and total is the same one.
@@ -170,7 +170,7 @@ final class ExpensesTest extends MappingTestCase
         $v = (int) self::$db->value('SELECT version FROM expense WHERE id = ?', [$first['id']]);
         $this->service()->delete($job, $first['id'], $v, 'entered twice by mistake');
         $this->service()->add($job, $this->form(['shop' => $this->vb]));
-        $this->service()->add($job, $this->form(), null, true);
+        $this->service()->add($job, $this->form(), null, (string) $second['id']);
     }
 
     public function testAChangeAndADeleteKeepWhoWhenBeforeAndAfter(): void
@@ -346,9 +346,9 @@ final class ExpensesTest extends MappingTestCase
         $s->delete($job, $gone['id'], 1, 'a test entry');
         $views = new ExpenseViews(self::$db);
         $by = $views->expensesBy('2026-11-01', '2026-11-30', null);
-        self::assertSame(['net' => 91667, 'vat' => 18333, 'total' => 110000, 'count' => 2], $by[$this->vpg], 'by invoice date, deleted ones out');
-        self::assertSame(['net' => 9600, 'vat' => 0, 'total' => 9600, 'count' => 1], $by[$this->ef]);
-        self::assertSame(['net' => 3900, 'vat' => 780, 'total' => 4680, 'count' => 1], $by[$this->vb]);
+        self::assertSame(['net' => 91667, 'vat' => 18333, 'total' => 110000, 'count' => 2, 'credits' => 0], $by[$this->vpg], 'by invoice date, deleted ones out');
+        self::assertSame(['net' => 9600, 'vat' => 0, 'total' => 9600, 'count' => 1, 'credits' => 0], $by[$this->ef]);
+        self::assertSame(['net' => 3900, 'vat' => 780, 'total' => 4680, 'count' => 1, 'credits' => 0], $by[$this->vb]);
         self::assertSame([$this->ef], array_keys($views->expensesBy('2026-11-01', '2026-11-30', $this->ef)));
         $list = $views->month('2026-11', null, '', false);
         self::assertSame(['Vape and Go', 'Electrofag', 'Vape Big'], array_column($list['groups'], 'shop'), 'grouped by shop in the shops\' order');

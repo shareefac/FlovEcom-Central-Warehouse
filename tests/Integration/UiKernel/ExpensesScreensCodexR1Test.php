@@ -41,6 +41,10 @@ final class ExpensesScreensCodexR1Test extends KernelUiTestCase
 
     protected function tearDown(): void
     {
+        // The three shops' first real profit days as 0079 sets them (a test that moves one puts it back here; EX39).
+        foreach (['vapeandgo' => '2026-11-01', 'electrofag' => '2026-12-01', 'vapebig' => '2026-12-01'] as $code => $day) {
+            self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key = ?', [json_encode($day), 'profit.real_from_' . $code]);
+        }
         putenv($this->prevStore === false ? 'CW_FILE_STORE_DIR' : 'CW_FILE_STORE_DIR=' . $this->prevStore);
         exec('rm -rf ' . escapeshellarg($this->dir));
         parent::tearDown();
@@ -153,6 +157,9 @@ final class ExpensesScreensCodexR1Test extends KernelUiTestCase
     /** M7: Electrofag 1-7 Nov with £40.00 on the 5th and £300.00 on the 20th: the expenses line opens those days of that shop (£40.00), the regular costs line too. */
     public function testRealProfitsLinesOpenExactlyItsDaysAndShop(): void
     {
+        // These figures are of November for every shop: all three counted from 1 Nov here (0079 has Electrofag and Vape Big from 1 Dec: EX39).
+        self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key IN (?, ?, ?)', ['"2026-11-01"', 'profit.real_from_vapeandgo',
+            'profit.real_from_electrofag', 'profit.real_from_vapebig']);
         $job = $this->signIn($this->uiUser('expenses'));
         $this->add($job, ['shop' => (string) $this->ef, 'net' => '40.00', 'vat' => '0', 'invoice_date' => '2026-11-05']);
         $this->add($job, ['shop' => (string) $this->ef, 'net' => '300.00', 'vat' => '0', 'invoice_date' => '2026-11-20']);

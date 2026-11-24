@@ -13,10 +13,11 @@ use CW\Db;
  *
  *  EX-I1. every expense, regular cost, supplier and type has its history: versions 1 to its own `version`, none missing, none after it.
  *  EX-I2. its latest version holds what the row holds now: an expense's shop, supplier, type, invoice date and number, money, note, file and
- *         delete's reason; a regular cost's name, shop, group, how often, amount, VAT rate, first and last day, note, the line it continues and delete's
+ *         delete's reason; a regular cost's name, shop, group, how often, amount, VAT choice and rate, first and last day, note, the line it continues and delete's
  *         reason; a supplier's name and whether it is in use; a type's kind, name, whether it is in use and its place (the Codex check r1, M14).
  *  EX-I3. a regular cost that continues another (replaces_id) is of the same shop and how often and starts after that one's first day; no two
  *         lines of one chain of new amounts (through deleted lines too), neither deleted, count on one day.
+ *  EX-I4. the file an expense names is in expense_file for that expense (the file rules ask expense_file: EX40).
  * Their cost: one pass over each table (a business's expenses: some hundreds a month).
  */
 final class ExpenseInvariants
@@ -45,7 +46,7 @@ final class ExpenseInvariants
         // rows too.
         $checked = ['expense' => ['expense', ['channel_id', 'supplier_id', 'type_id', 'invoice_date', 'invoice_no', 'net_pence', 'vat_pence', 'total_pence', 'note',
                 'file_id', 'deleted_reason', 'deleted_at', 'deleted_actor', 'deleted_by']],
-            'regular_cost' => ['regular_cost', ['name', 'channel_id', 'type_id', 'every', 'amount_pence', 'vat_rate_bp', 'from_day', 'until_day', 'note', 'replaces_id',
+            'regular_cost' => ['regular_cost', ['name', 'channel_id', 'type_id', 'every', 'amount_pence', 'vat_included', 'vat_rate_bp', 'from_day', 'until_day', 'note', 'replaces_id',
                 'deleted_reason', 'deleted_at', 'deleted_actor', 'deleted_by']],
             'expense_supplier' => ['supplier', ['name', 'is_active']],
             'expense_type' => ['type', ['kind', 'name', 'is_active', 'sort_order']]];
@@ -69,6 +70,10 @@ final class ExpenseInvariants
             . "AND a.from_day <= COALESCE(b.until_day, '9999-12-31') AND b.from_day <= COALESCE(a.until_day, '9999-12-31') ORDER BY b.id, a.id LIMIT "
             . self::MAX_PER_CHECK) as $r) {
             $v[] = "EX-I3 regular cost {$r['b']}: line {$r['a']} of the same cost counts on some of its days too";
+        }
+        foreach ($db->all('SELECT e.id FROM expense e WHERE e.file_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM expense_file f WHERE f.expense_id = e.id '
+            . 'AND f.file_id = e.file_id) ORDER BY e.id LIMIT ' . self::MAX_PER_CHECK) as $r) {
+            $v[] = "EX-I4 expense {$r['id']}: its file is not in expense_file (the file rules would not know it)";
         }
         return $v;
     }

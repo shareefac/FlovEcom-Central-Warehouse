@@ -33,7 +33,7 @@ namespace CW\Ui;
  *                           a "?" beside the heading (with `aside`'s help: its last line, one "?", DC34). Text arguments are escaped;
  *                           `chips`, `meta` and `aside` are helper output. Every page template draws it once (tests/Unit/UiTemplatesTest.php).
  *   $intro($page, $who)     the page's intro alone, in its two parts (Words::PAGE_INTRO; $who = "You can look; <who> change this.")
- *   $explain($key, $label)  a "?" that unfolds one Words::HELP text (a <details>: no script)
+ *   $explain($key, $label, $args)  a "?" that unfolds one Words::HELP text (a <details>: no script), its %s filled from $args when given
  *   $cards($cards, $notes)  Home's "Waiting for you": one row per job, ONE link (a box, its name, ONE short line, its count, its action
  *                           words; docs/decisions.md RD-H4); $notes: the quieter rows of the notes
  *   $empty($title, $text, $href, $button)   an empty state that says why and what to do next
@@ -126,7 +126,7 @@ final class View
                 ?string $lede = null, ?string $more = null, string $tag = '', ?string $eyebrow = null, ?string $side = null, ?array $back = null,
                 ?array $menu = null): string
                 => $this->head($title, $intro, $look, $chips, $meta, $aside, $lede, $more, $tag, $eyebrow, $side, $back, $menu),
-            'explain' => static fn (string $key, ?string $label = null): string => Html::help($key, $label),
+            'explain' => static fn (string $key, ?string $label = null, array $args = []): string => Html::help($key, $label, $args),
             // Home's "Waiting for you" (HM_Home, docs/decisions.md HV1; the checklist, RD-H4): one row per job; $notes: the notes after the jobs.
             'cards' => fn (array $cards, bool $notes = false): string => $this->render('cards', ['list' => $cards, 'notes' => $notes]),
             'empty' => static fn (string $title, string $text = '', ?string $href = null, ?string $button = null): string

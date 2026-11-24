@@ -6,7 +6,7 @@ $R = \CW\Ui\Words::REGULAR;
 $X = \CW\Ui\Words::EXPENSES;
 $t = $typed;
 ?>
-<?= $head($R['new_title'], intro: 'profit_regular_new', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_regular']), back: ['/ui/profit/regular', $R['back']]) ?>
+<?= $head($R['new_title'], intro: 'profit_regular_new', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_regular'], [$vatPct]), back: ['/ui/profit/regular', $R['back']]) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?><?php if ($other !== null): ?> <a href="<?= $e($other) ?>"><?= $word('REGULAR', 'open_other') ?></a><?php endif; ?></p>
 <?php endif; ?>
@@ -60,7 +60,8 @@ $t = $typed;
   </fieldset>
 <?php if ($sameAsk): ?>
   <label class="choice same-ok"><input type="checkbox" name="same_ok" value="1"> <?= $word('REGULAR', 'same_ok') ?></label>
+  <input type="hidden" name="same_ids" value="<?= $e($sameIds) ?>">
 <?php endif; ?>
   <p class="actions"><button type="submit" class="btn primary"><?= $word('REGULAR', 'save') ?></button></p>
 </form>
-<p class="muted"><?= $word('REGULAR', 'how_counts') ?></p>
+<p class="muted"><?= $e($howCounts) ?></p>

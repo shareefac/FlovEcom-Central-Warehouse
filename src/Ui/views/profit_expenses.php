@@ -8,8 +8,23 @@ $gbp = static fn (int $p): string => \CW\Expenses\ExpenseMoney::gbp($p);
 $monthName = static fn (string $m): string => (new \DateTimeImmutable($m . '-01'))->format('F Y');
 $shortMonth = static fn (string $m): string => (new \DateTimeImmutable($m . '-01'))->format('M');
 $cols = ['date', 'supplier', 'type', 'invoice_no', 'shop', 'net', 'total', 'pdf'];
+// How many: the invoices and the credit notes counted apart (the Fable review of 70ab3d2, L4), and the total with VAT.
+$tileCount = static function (array $t) use ($gbp): string {
+    $X = \CW\Ui\Words::EXPENSES;
+    $credits = (int) ($t['credits'] ?? 0);
+    $invoices = (int) $t['count'] - $credits;
+    if ($credits === 0) {
+        return $invoices === 1 ? \CW\Ui\Words::say('EXPENSES', 'tile_one', $gbp($t['total'])) : \CW\Ui\Words::say('EXPENSES', 'tile_many', (string) $invoices, $gbp($t['total']));
+    }
+    $cn = $credits === 1 ? $X['tile_cn_one'] : \CW\Ui\Words::say('EXPENSES', 'tile_cn_many', (string) $credits);
+    if ($invoices === 0) {
+        return \CW\Ui\Words::say('EXPENSES', 'tile_alone', $cn, $gbp($t['total']));
+    }
+    return \CW\Ui\Words::say('EXPENSES', 'tile_parts', $invoices === 1 ? $X['tile_inv_one'] : \CW\Ui\Words::say('EXPENSES', 'tile_inv_many', (string) $invoices), $cn,
+        $gbp($t['total']));
+};
 ?>
-<?= $head(\CW\Ui\Words::MENU['profit_expenses'], intro: 'profit_expenses', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_expenses'])) ?>
+<?= $head(\CW\Ui\Words::MENU['profit_expenses'], intro: 'profit_expenses', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_expenses'], [$vatPct])) ?>
 <form class="filters expenses-filters" method="get" action="/ui/profit/expenses" role="search">
 <?php if ($range !== null): ?>
   <input type="hidden" name="from" value="<?= $e($range[0]) ?>">
@@ -39,13 +54,16 @@ $cols = ['date', 'supplier', 'type', 'invoice_no', 'shop', 'net', 'total', 'pdf'
   <button type="submit" class="btn"><?= $word('EXPENSES', 'show') ?></button>
 </form>
 <p class="muted"><a href="/ui/profit/expenses/suppliers"><?= $word('EXPENSES', 'suppliers') ?></a> · <a href="/ui/profit/regular"><?= $word('EXPENSES', 'regular_link') ?></a> · <a href="/ui/reference/expense-types"><?= $word('EXPENSES', 'types_link') ?></a></p>
+<?php if ($cut !== null): ?>
+<p class="note" role="status"><?= $e($cut) ?></p>
+<?php endif; ?>
 <?php if ($range !== null): ?>
 <p class="note" role="status"><?= $say('EXPENSES', 'range_note', \CW\Ui\Html::day($range[0]), \CW\Ui\Html::day($range[1])) ?> <a href="<?= $u('/ui/profit/expenses', ['month' => substr($range[0], 0, 7), 'shop' => $shopId]) ?>"><?= $word('EXPENSES', 'by_month') ?></a></p>
 <?php endif; ?>
 <?php if ($tiles !== []): ?>
 <section class="doc-progress rp-figs rp-keep expense-figs" aria-label="<?= $word('EXPENSES', 'tiles') ?>">
 <?php foreach ($tiles as $t): ?>
-  <div class="doc-step expense-tile"><p class="doc-step-label"><?= $say('EXPENSES', 'tile', $t['shop'], $range !== null ? \CW\Ui\Html::day($range[0]) . ' to ' . \CW\Ui\Html::day($range[1]) : $monthName((string) $month)) ?></p><p class="doc-step-big"><?= $e($gbp($t['net'])) ?></p><p class="step-sub"><?php if ($t['count'] === 1): ?><?= $say('EXPENSES', 'tile_one', $gbp($t['total'])) ?><?php else: ?><?= $say('EXPENSES', 'tile_many', (string) $t['count'], $gbp($t['total'])) ?><?php endif; ?></p></div>
+  <div class="doc-step expense-tile"><p class="doc-step-label"><?= $say('EXPENSES', 'tile', $t['shop'], $range !== null ? \CW\Ui\Html::day($range[0]) . ' to ' . \CW\Ui\Html::day($range[1]) : $monthName((string) $month)) ?></p><p class="doc-step-big"><?= $e($gbp($t['net'])) ?></p><p class="step-sub"><?= $e($tileCount($t)) ?></p></div>
 <?php endforeach; ?>
 </section>
 <p class="muted"><?= $word('EXPENSES', 'tile_note') ?></p>

@@ -113,7 +113,7 @@ CREATE TABLE IF NOT EXISTS regular_cost (
   type_id        SMALLINT UNSIGNED NOT NULL COMMENT 'its group (expense_type of kind regular)',
   every          ENUM('week','month','year') NOT NULL,
   amount_pence   BIGINT            NOT NULL COMMENT 'a week''s, a calendar month''s or a calendar year''s amount as given (with its VAT, when it has VAT)',
-  vat_included   TINYINT(1)        NOT NULL DEFAULT 0 COMMENT '1: the amount includes VAT (at vat_rate_bp, which may be 0 while the shops'' rate is 0); 0: no VAT (EX38, EX39)',
+  vat_included   TINYINT(1)        NOT NULL DEFAULT 0 COMMENT '1: the amount includes VAT (at vat_rate_bp, which may be 0 while the shops'' rate is 0); 0: no VAT (EX38, EX54)',
   vat_rate_bp    SMALLINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'the VAT the amount includes, in basis points (2000 = 20%: the shops'' rate when it was set); 0 when it has none. Only the amount less its VAT counts (EX38)',
   from_day       DATE              NOT NULL COMMENT 'its first day',
   until_day      DATE              NULL COMMENT 'its last day; NULL: no end',

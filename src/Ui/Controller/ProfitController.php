@@ -62,12 +62,14 @@ final class ProfitController
         $sort = in_array($ctx->req->param('sort'), ProfitViews::SORTS, true) ? (string) $ctx->req->param('sort') : 'profit';
         $query = ['by' => $by, 'period' => $period, 'from' => $period === 'choose' ? $from : null, 'to' => $period === 'choose' ? $to : null, 'store' => $store];
         // By shop, each shop's expenses and regular costs of the days too, and its real profit (CW-1150, docs/decisions.md EX15), from the same moment;
-        // only for those who see the expenses (expenses.view: the Codex check r1, H10).
-        $exp = new \CW\Expenses\ExpenseViews($ctx->db);
+        // only for those who see the expenses (expenses.view: the Codex check r1, H10; checked again inside the read, EX48). The three columns are
+        // Real profit's own figures of the shop: counted from the shop's first day (EX39: "not started" before it, never a figure) and marked
+        // not complete while any unit counted has no buying price (the final review of 70ab3d2, astra MEDIUM).
+        $exp = new \CW\Expenses\ExpenseViews($ctx->db, $ctx->caller());
         $withExpenses = $by === 'shop' && $ctx->me()->can(ExpensesController::PERM_VIEW);
-        [$result, $orderRefunds, $pending, $expenses, $regular] = ProfitDays::snapshot($ctx->db, static fn (): array => [$views->breakdown($from, $to, $store, $by, $sort),
+        [$result, $orderRefunds, $pending, $real] = ProfitDays::snapshot($ctx->db, static fn (): array => [$views->breakdown($from, $to, $store, $by, $sort),
             $by === 'shop' ? 0 : $views->orderRefunds($from, $to, $store), array_sum($views->pending($from, $to, $store)),
-            $withExpenses ? $exp->expensesBy($from, $to, $store) : [], $withExpenses ? $exp->regularBy($from, $to, $store) : []]);
+            $withExpenses ? $exp->realProfit($from, $to, $store) : []]);
         $rows = array_map(static fn (array $r): array => $r + ['href' => match (true) {
             $by === 'product' && $r['id'] !== null && $r['id'] > 0 => '/ui/items/' . $r['id'],
             $by === 'shop' && $r['id'] !== null => Html::url(self::PATH . '/orders', ['period' => $query['period'], 'from' => $query['from'], 'to' => $query['to'],
@@ -78,8 +80,7 @@ final class ProfitController
             'orderRefunds' => $orderRefunds,
             'pending' => $pending,
             'withExpenses' => $withExpenses,
-            'expenses' => array_map(static fn (array $e): int => $e['net'], $expenses),
-            'regular' => $regular,
+            'real' => array_column($real, null, 'shop_id'),
             'sorts' => ProfitViews::SORTS, 'sortLinks' => array_map(static fn (string $s): array => ['key' => $s, 'href' => Html::url(self::PATH . '/by', $query + ['sort' => $s]),
                 'current' => $s === $sort], ProfitViews::SORTS),
             'period' => $period, 'periods' => ReportsController::PERIODS, 'from' => $from, 'to' => $to, 'warn' => $warn, 'stores' => $stores, 'storeId' => $store,
@@ -160,19 +161,22 @@ final class ProfitController
         // The expenses, the regular costs and the real profit only for those who see the expenses (expenses.view, LOCKED: Finance and the
         // Expenses job): profit.view may be given to another job on the Roles page (the Codex check r1, H10; docs/decisions.md EX22).
         $canExpenses = $ctx->me()->can(ExpensesController::PERM_VIEW);
-        $shops = (new \CW\Expenses\ExpenseViews($ctx->db))->realProfit($from, $to, $store);
+        // Without it the expense reads are not made at all (the final review of 70ab3d2, astra MEDIUM; EX48); with it they check it again inside.
+        $shops = (new \CW\Expenses\ExpenseViews($ctx->db, $ctx->caller()))->realProfit($from, $to, $store, $canExpenses);
         $query = ['period' => $period, 'from' => $period === 'choose' ? $from : null, 'to' => $period === 'choose' ? $to : null];
         $links = [];
         foreach ($shops as $s) {
-            // Each line opens exactly these days of this shop (the Codex check r1, M7).
+            // Each line opens exactly these days of this shop (the Codex check r1, M7): from its first day when it starts later (EX39).
+            $a = $s['counted_from'] ?? $from;
+            $q = $a === $from ? $query : ['period' => 'choose', 'from' => $a, 'to' => $to];
             $links[$s['shop_id']] = [
-                'goods' => Html::url(self::PATH . '/orders', $query + ['store' => $s['shop_id']]),
-                'delivery' => Html::url(self::PATH . '/by', $query + ['by' => 'shop', 'store' => $s['shop_id']]),
-                'expenses' => Html::url(ExpensesController::PATH, ['from' => $from, 'to' => $to, 'shop' => $s['shop_id']]),
-                'regular' => Html::url(RegularCostsController::PATH, ['from' => $from, 'to' => $to, 'shop' => $s['shop_id']]),
+                'goods' => Html::url(self::PATH . '/orders', $q + ['store' => $s['shop_id']]),
+                'delivery' => Html::url(self::PATH . '/by', $q + ['by' => 'shop', 'store' => $s['shop_id']]),
+                'expenses' => Html::url(ExpensesController::PATH, ['from' => $a, 'to' => $to, 'shop' => $s['shop_id']]),
+                'regular' => Html::url(RegularCostsController::PATH, ['from' => $a, 'to' => $to, 'shop' => $s['shop_id']]),
             ];
         }
-        return $ctx->page('profit_real', ['shops' => $shops, 'links' => $links, 'canExpenses' => $canExpenses,
+        return $ctx->page('profit_real', ['shops' => $shops, 'links' => $links, 'canExpenses' => $canExpenses, 'vatPct' => ExpensesController::vatPct($ctx),
             'period' => $period, 'periods' => ReportsController::PERIODS, 'from' => $from, 'to' => $to, 'warn' => $warn, 'stores' => $stores, 'storeId' => $store],
             200, ['title' => Words::MENU['profit_real']]);
     }

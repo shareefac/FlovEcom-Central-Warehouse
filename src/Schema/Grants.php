@@ -78,8 +78,9 @@ final class Grants
         'opening_replacement', 'relay_mode_seen',
         // 0074 (docs/decisions.md PR17): every move of an item's buying price is a row of its own, so the cost on a past day stays readable.
         'item_cost_event',
-        // 0079 (docs/decisions.md EX8): every add, change, end and delete of an expense, a regular cost, a supplier or a type of them.
-        'expense_history'];
+        // 0079 (docs/decisions.md EX8): every add, change, end and delete of an expense, a regular cost, a supplier or a type of them; and every
+        // file an expense named, by the version that named it, kept 7 years from then (EX40).
+        'expense_history', 'expense_file'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -139,7 +140,7 @@ final class Grants
         // deleted by a mark. A supplier and a type are renamed or switched off, never removed.
         'expense' => ['channel_id', 'supplier_id', 'type_id', 'invoice_date', 'invoice_no', 'net_pence', 'vat_pence', 'total_pence', 'note', 'file_id', 'version',
             'updated_by', 'updated_actor', 'updated_at', 'deleted_at', 'deleted_by', 'deleted_actor', 'deleted_reason'],
-        'regular_cost' => ['name', 'type_id', 'vat_rate_bp', 'until_day', 'note', 'version', 'updated_by', 'updated_actor', 'updated_at', 'deleted_at', 'deleted_by',
+        'regular_cost' => ['name', 'type_id', 'vat_included', 'vat_rate_bp', 'until_day', 'note', 'version', 'updated_by', 'updated_actor', 'updated_at', 'deleted_at', 'deleted_by',
             'deleted_actor', 'deleted_reason'],
         'expense_supplier' => ['name', 'is_active', 'version'],
         'expense_type' => ['name', 'is_active', 'sort_order', 'version'],

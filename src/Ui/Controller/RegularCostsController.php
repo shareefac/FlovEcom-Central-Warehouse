@@ -31,12 +31,13 @@ final class RegularCostsController
 
     public function list(Context $ctx): HtmlResponse
     {
-        $views = new ExpenseViews($ctx->db);
+        $views = new ExpenseViews($ctx->db, $ctx->caller());
         $today = ProfitViews::today();
         $n = (string) ($ctx->req->param('notice') ?? '');
         // Exact days and a shop (from Real profit's lines, the Codex check r1, M7): each line's share of those days, and their total.
         [$from, $to] = [(string) ($ctx->req->param('from') ?? ''), (string) ($ctx->req->param('to') ?? '')];
         $range = RegularCostMath::isDay($from) && RegularCostMath::isDay($to) && $from <= $to ? [$from, $to] : null;
+        [$range, $cut] = ExpensesController::capRange($ctx, $range);
         $shop = \CW\Ui\UiRequest::id($ctx->req->param('shop'));
         $shop = in_array($shop, array_column($views->shops(), 'id'), true) ? $shop : null;
         // The lines and their shares from ONE moment of the database (the Codex check r2, H5).
@@ -57,7 +58,23 @@ final class RegularCostsController
             'range' => $range,
             'shares' => $shares,
             'shopName' => $shop === null ? null : (string) $ctx->db->value('SELECT name FROM channel WHERE id = ?', [$shop]),
+            'cut' => $cut,
+            'vatPct' => ExpensesController::vatPct($ctx),
+            'howCounts' => self::howCounts($ctx),
         ], 200, ['title' => Words::MENU['profit_regular'], 'notice' => in_array($n, self::NOTICES, true) ? Words::REGULAR['notice_' . $n] : null]);
+    }
+
+    /**
+     * "How it is shared out" with the shops' VAT rate of the setting and its example worked out at that rate (Unit 1 £207.69 a week; the
+     * Fable review of 70ab3d2, L3: never a fixed 20% or "/ 6").
+     */
+    public static function howCounts(Context $ctx): string
+    {
+        $rate = (new ProfitSettings($ctx->db))->vatBp();
+        $vat = RegularCostMath::vat(20769, $rate);
+        $cost = 20769 - $vat;
+        return Words::say('REGULAR', 'how_counts', RegularCostMath::percent($rate), ExpenseMoney::gbp($vat), ExpenseMoney::gbp($cost),
+            ExpenseMoney::gbp(intdiv(2 * $cost + 7, 14)), ExpenseMoney::gbp(RegularCostMath::share('week', $cost, '2026-11-01', null, '2026-11-01', '2026-11-30')));
     }
 
     public function newForm(Context $ctx): HtmlResponse
@@ -71,15 +88,15 @@ final class RegularCostsController
         $typed = ['name' => $f('name'), 'shop' => $f('shop'), 'type' => $f('type'), 'vat' => $f('vat'), 'every' => $f('every'), 'amount' => $f('amount'),
             'from' => $f('from'), 'until' => $f('until'), 'note' => $f('note')];
         try {
-            $sameOk = $ctx->req->field('same_ok') === '1';
+            $same = ExpensesController::same($ctx);
             // One effect per form (FormOnce, I46; the Codex check r3, H1): the same form sent again, a confirmed second one too, adds nothing more.
-            $r = \CW\Ui\FormOnce::run($ctx, 'ui.regular_cost.add', $typed + ['same_ok' => $sameOk ? '1' : ''],
-                static function (\CW\Db $db) use ($ctx, $typed, $sameOk): \CW\OpResult {
-                    $id = (new RegularCosts($db))->add($ctx->caller(), $typed, $sameOk);
+            $r = \CW\Ui\FormOnce::run($ctx, 'ui.regular_cost.add', $typed + ['same_ok' => $same],
+                static function (\CW\Db $db) use ($ctx, $typed, $same): \CW\OpResult {
+                    $id = (new RegularCosts($db))->add($ctx->caller(), $typed, $same);
                     return \CW\OpResult::of(303, ['redirect' => Html::url(self::PATH . '/' . $id, ['notice' => 'added'])]);
                 });
         } catch (CwException $e) {
-            return $this->form($ctx, $e->httpStatus, $e, $typed);
+            return ExpensesController::deniedWrite($e) ? ExpensesController::denied($ctx, $e) : $this->form($ctx, $e->httpStatus, $e, $typed);
         }
         return \CW\Ui\FormOnce::redirect($r);
     }
@@ -97,7 +114,7 @@ final class RegularCostsController
         $f = static fn (string $k): string => (string) ($ctx->req->field($k) ?? '');
         $typed = ['name' => $f('name'), 'type' => $f('type'), 'vat' => $f('vat'), 'until' => $f('until'), 'note' => $f('note'), 'form' => 'change'];
         try {
-            $changed = (new RegularCosts($ctx->db))->change($ctx->caller(), $id, self::seen($ctx), $typed, $ctx->req->field('same_ok') === '1');
+            $changed = (new RegularCosts($ctx->db))->change($ctx->caller(), $id, self::seen($ctx), $typed, ExpensesController::same($ctx));
         } catch (CwException $e) {
             return $this->refused($ctx, $id, $e, $typed);
         }
@@ -114,7 +131,8 @@ final class RegularCostsController
         } catch (CwException $e) {
             return $this->refused($ctx, $id, $e, $typed);
         }
-        return HtmlResponse::redirect(Html::url(self::PATH . '/' . $new, ['notice' => 'amount']));
+        // The same amount at the same VAT: nothing changed, the same line (EX46).
+        return HtmlResponse::redirect(Html::url(self::PATH . '/' . $new, ['notice' => $new === $id ? 'unchanged' : 'amount']));
     }
 
     /** POST {id}/delete: a line put in by mistake, with its box ticked and a reason. */
@@ -164,8 +182,11 @@ final class RegularCostsController
             'error' => $error === null ? null : ExpensesController::plain($error),
             'errorField' => is_string($error?->detail['field'] ?? null) ? $error->detail['field'] : null,
             'sameAsk' => $error?->errorCode === 'same_cost',
+            'sameIds' => is_string($error?->detail['confirm'] ?? null) ? $error->detail['confirm'] : '',
             'other' => is_int($error?->detail['other'] ?? null) ? self::PATH . '/' . $error->detail['other'] : null,
             'formKey' => ExpensesController::formKey($ctx, $error),
+            'vatPct' => ExpensesController::vatPct($ctx),
+            'howCounts' => self::howCounts($ctx),
         ], $status, ['title' => Words::REGULAR['new_title']]);
     }
 
@@ -177,6 +198,9 @@ final class RegularCostsController
      */
     private function refused(Context $ctx, int $id, CwException $e, array $typed): HtmlResponse
     {
+        if (ExpensesController::deniedWrite($e)) {
+            return ExpensesController::denied($ctx, $e);
+        }
         if ($e->errorCode === 'changed_meanwhile') {
             return $this->one($ctx, $id, $e->httpStatus, $e, null, null);
         }
@@ -190,7 +214,7 @@ final class RegularCostsController
      */
     private function one(Context $ctx, int $id, int $status, ?CwException $error, ?array $typed, ?string $notice, ?int $seen = null): HtmlResponse
     {
-        $r = (new ExpenseViews($ctx->db))->regular($id);
+        $r = (new ExpenseViews($ctx->db, $ctx->caller()))->regular($id);
         if ($r === null) {
             return $ctx->error(404, 'not_found', Words::EXPENSES_ERROR['no_such_regular'], [self::PATH, Words::MENU['profit_regular']]);
         }
@@ -203,13 +227,17 @@ final class RegularCostsController
         $until = $r['until_day'] === null ? null : (string) $r['until_day'];
         $form = $typed['form'] ?? null;
         $rate = (int) $r['vat_rate_bp'];
+        $included = (int) $r['vat_included'] === 1;
         [$vat, $cost] = ExpenseViews::vatAndCost((int) $r['amount_pence'], $rate);
+        // A line continuing another (a new amount): the line before ends the day before this one starts, and stays so when this one is deleted
+        // (the Fable review of 70ab3d2, M1): its page says so on the delete form and once deleted.
+        $before = $r['replaces_id'] === null ? null : $ctx->db->one('SELECT id, until_day, deleted_at FROM regular_cost WHERE id = ?', [$r['replaces_id']]);
         return $ctx->page('profit_regular_one', [
             'r' => $r,
             'types' => $types,
             'typed' => ['name' => $form === 'change' ? $typed['name'] : (string) $r['name'], 'type' => $form === 'change' ? $typed['type'] : (string) $r['type_id'],
                 'until' => $form === 'change' ? $typed['until'] : (string) ($until ?? ''), 'note' => $form === 'change' ? $typed['note'] : (string) ($r['note'] ?? ''),
-                'vat' => $form === 'change' && in_array($typed['vat'], ['inc', 'none'], true) ? $typed['vat'] : ($rate > 0 ? 'inc' : 'none'),
+                'vat' => $form === 'change' && in_array($typed['vat'], ['inc', 'none'], true) ? $typed['vat'] : ($included ? 'inc' : 'none'),
                 'amount' => $form === 'amount' ? $typed['amount'] : '', 'from' => $form === 'amount' ? $typed['from'] : ''],
             'form' => $form,
             // Shared out without VAT (EX38).
@@ -220,12 +248,16 @@ final class RegularCostsController
             'error' => $error === null ? null : ExpensesController::plain($error),
             'errorField' => is_string($error?->detail['field'] ?? null) ? $error->detail['field'] : null,
             'amountText' => ExpenseMoney::gbp((int) $r['amount_pence']),
-            'vatText' => $rate > 0 ? Words::say('REGULAR', 'vat_amount', ExpenseMoney::gbp($vat), RegularCostMath::percent($rate)) : Words::REGULAR['vat_none'],
+            'vatText' => $included ? Words::say('REGULAR', 'vat_amount', ExpenseMoney::gbp($vat), RegularCostMath::percent($rate)) : Words::REGULAR['vat_none'],
             'costText' => ExpenseMoney::gbp($cost),
             // The rate "Includes ... VAT" names: the line's own, or the shops' rate of today for a line with none.
-            'vatRate' => RegularCostMath::percent($rate > 0 ? $rate : (new ProfitSettings($ctx->db))->vatBp()),
+            'vatRate' => RegularCostMath::percent($included ? $rate : (new ProfitSettings($ctx->db))->vatBp()),
             'seen' => $seen ?? (int) $r['version'],
             'sameAsk' => $error?->errorCode === 'same_cost',
+            'sameIds' => is_string($error?->detail['confirm'] ?? null) ? $error->detail['confirm'] : '',
+            'before' => $before === null || $before['deleted_at'] !== null || $before['until_day'] === null ? null
+                : ['id' => (int) $before['id'], 'until' => (string) $before['until_day']],
+            'vatPct' => ExpensesController::vatPct($ctx),
         ], $status, ['title' => (string) $r['name'], 'notice' => $notice]);
     }
 }

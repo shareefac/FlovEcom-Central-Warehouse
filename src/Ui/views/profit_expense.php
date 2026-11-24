@@ -10,7 +10,7 @@ $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
 $deleted = $x['deleted_at'] !== null;
 ?>
 <?= $head(\CW\Ui\Words::say('EXPENSES', 'one_title', (string) $x['supplier'], (string) $x['invoice_no'] !== '' ? (string) $x['invoice_no'] : \CW\Ui\Html::day((string) $x['invoice_date'])),
-    intro: 'profit_expense', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_expenses']), back: [$listHref, $X['back']]) ?>
+    intro: 'profit_expense', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_expenses'], [$vatPct]), back: [$listHref, $X['back']]) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -45,6 +45,8 @@ $deleted = $x['deleted_at'] !== null;
   <form class="record expense-form" method="post" enctype="multipart/form-data" action="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/change') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
+    <input type="hidden" name="supplier_id" value="<?= $e((string) ($t['supplier_id'] ?? '')) ?>">
+    <input type="hidden" name="supplier_was" value="<?= $e((string) ($t['supplier_was'] ?? '')) ?>">
     <div class="expense-main">
       <fieldset class="shop-pick">
         <legend><?= $word('EXPENSES', 'which_shop') ?></legend>
@@ -55,6 +57,7 @@ $deleted = $x['deleted_at'] !== null;
 <?= $partial('expense_fields', ['t' => $t, 'types' => $types, 'suppliers' => $suppliers, 'errorField' => $errorField, 'net' => $net, 'vat' => $vat, 'newSupplier' => true]) ?>
 <?php if ($sameAsk): ?>
       <label class="choice same-ok"><input type="checkbox" name="same_ok" value="1"> <?= $word('EXPENSES', 'same_ok') ?></label>
+      <input type="hidden" name="same_ids" value="<?= $e($sameIds) ?>">
 <?php endif; ?>
       <p class="actions"><button type="submit" class="btn primary"><?= $word('EXPENSES', 'change_save') ?></button></p>
     </div>

@@ -400,7 +400,6 @@ final class ExpensesFinalReviewTest extends KernelUiTestCase
         $job = $this->staffUser('expenses');
         $s = $this->service();
         $x = $s->add($job, $this->form(), $this->pdf('a.pdf', 'a'));
-        self::$db->exec("UPDATE stored_file SET retain_until = '2030-01-01' WHERE id = ?", [$x['file_id']]);
         $s->change($job, $x['id'], 1, $this->form(['note' => 'new PDF']), $this->pdf('b.pdf', 'b'));
         $until = (string) self::$db->value('SELECT DATE_ADD(CURRENT_DATE(), INTERVAL 7 YEAR)');
         $rows = self::$db->all('SELECT file_id, version, retain_until FROM expense_file WHERE expense_id = ? ORDER BY version', [$x['id']]);

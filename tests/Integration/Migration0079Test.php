@@ -37,8 +37,8 @@ final class Migration0079Test extends IntegrationTestCase
         $statements = SqlSplitter::split($sql);
         self::assertDoesNotMatchRegularExpression('/\bDELETE\s+FROM\b|\bUPDATE\s+\w+\s+SET\b|\bDROP\b/i', $sql, 'nothing is deleted, changed or dropped');
         foreach ($statements as $st) {
-            self::assertMatchesRegularExpression('/^(CREATE TABLE IF NOT EXISTS (expense_type|expense_supplier|expense|regular_cost|expense_history) |INSERT INTO '
-                . '(expense_type|expense_history|config_change|role_permission) |ALTER TABLE staff_role MODIFY COLUMN role )/', $st);
+            self::assertMatchesRegularExpression('/^(CREATE TABLE IF NOT EXISTS (expense_type|expense_supplier|expense|regular_cost|expense_history|expense_file) |INSERT INTO '
+                . '(expense_type|expense_history|config_change|role_permission|app_setting) |ALTER TABLE staff_role MODIFY COLUMN role )/', $st);
         }
         self::assertSame(['Select', 'Insert'], Grants::desired('expense'), 'an expense is never removed: deleted by a mark');
         self::assertSame(['Select', 'Insert'], Grants::desired('regular_cost'));
@@ -46,6 +46,9 @@ final class Migration0079Test extends IntegrationTestCase
         self::assertSame(['Select', 'Insert'], Grants::desired('expense_type'));
         self::assertSame(['Select', 'Insert'], Grants::desired('expense_history'));
         self::assertSame([], Grants::desiredColumns('expense_history'), 'the history is append-only');
+        self::assertSame(['Select', 'Insert'], Grants::desired('expense_file'));
+        self::assertSame([], Grants::desiredColumns('expense_file'), 'every file an expense named, append-only (EX40)');
+        self::assertArrayHasKey('vat_included', Grants::desiredColumns('regular_cost'), 'the VAT choice is set on the line (EX54)');
         foreach (['id', 'created_by', 'created_actor', 'created_at'] as $frozen) {
             self::assertArrayNotHasKey($frozen, Grants::desiredColumns('expense'), $frozen);
             self::assertArrayNotHasKey($frozen, Grants::desiredColumns('regular_cost'), $frozen);
@@ -70,7 +73,13 @@ final class Migration0079Test extends IntegrationTestCase
         self::assertSame([self::FILE], MigrationFixture::migrateRest($db, $this->dir, self::FILE));
         $new = array_values(array_diff($db->column('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()'), $tables));
         sort($new);
-        self::assertSame(['expense', 'expense_history', 'expense_supplier', 'expense_type', 'regular_cost'], $new);
+        self::assertSame(['expense', 'expense_file', 'expense_history', 'expense_supplier', 'expense_type', 'regular_cost'], $new);
+        // Each shop's first real profit day (the owner, 24 Nov 2026: EX39), with its baseline.
+        self::assertSame(['profit.real_from_electrofag' => '"2026-12-01"', 'profit.real_from_vapeandgo' => '"2026-11-01"', 'profit.real_from_vapebig' => '"2026-12-01"'],
+            array_column($db->all("SELECT setting_key, CAST(value_json AS CHAR) AS v FROM app_setting WHERE setting_key LIKE 'profit.real\\_from\\_%' ORDER BY setting_key"),
+                'v', 'setting_key'));
+        self::assertSame(3, (int) $db->value("SELECT COUNT(*) FROM config_change WHERE subject_type = 'setting' AND subject_key LIKE 'profit.real\\_from\\_%' "
+            . "AND action = 'baseline'"));
         self::assertSame([['expense', 'Stationery and packaging'], ['expense', 'Software and AI'], ['expense', 'Developer'], ['expense', 'Fees'], ['expense', 'Other'],
             ['regular', 'Rent'], ['regular', 'Running the business'], ['regular', 'Marketing, website and people'], ['regular', 'Other']],
             array_map(static fn (array $r): array => [$r['kind'], $r['name']], $db->all('SELECT kind, name FROM expense_type ORDER BY kind, sort_order')));
@@ -108,16 +117,22 @@ final class Migration0079Test extends IntegrationTestCase
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $expense(['del_at' => '2026-11-20 10:00:00', 'del_actor' => 'system:x'])), 'a delete says why');
         $expense(['del_at' => '2026-11-20 10:00:00', 'del_actor' => 'system:x', 'del_why' => 'twice']);
         $cost = static fn (array $over = []): int => $db->insert('INSERT INTO regular_cost (name, channel_id, type_id, every, amount_pence, vat_rate_bp, from_day, until_day, '
-            . 'created_actor, created_at, updated_actor, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(6), ?, NOW(6))',
+            . 'created_actor, created_at, updated_actor, updated_at, vat_included) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(6), ?, NOW(6), ?)',
             array_values(array_replace(['name' => 'Unit 1', 'ch' => $ch, 'type' => $type, 'every' => 'week', 'amount' => 20769, 'vat' => 2000, 'from' => '2026-11-01',
-                'until' => null, 'actor' => 'system:x', 'up' => 'system:x'], $over)));
+                'until' => null, 'actor' => 'system:x', 'up' => 'system:x', 'inc' => 1], $over)));
         $cost();
         // Its VAT (the owner, 24 Nov 2026: EX38): the rate it includes, in basis points (2000 = 20%), 0 = no VAT; never minus, never above 100%.
-        $cost(['name' => 'Bin', 'vat' => 0]);
+        $cost(['name' => 'Bin', 'vat' => 0, 'inc' => 0]);
+        // The choice apart from its rate (EX54): including VAT at a rate of 0 is a choice of its own; "no VAT" never has a rate.
+        $cost(['name' => 'Hub Box', 'vat' => 0, 'inc' => 1]);
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $cost(['name' => 'Verisure', 'vat' => 2000, 'inc' => 0])), 'no VAT has no rate');
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $cost(['name' => 'Verisure', 'inc' => 2])));
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $cost(['vat' => 10001])));
         self::assertSame(1264, self::err(static fn () => $cost(['vat' => -1])), 'never minus');
         self::assertSame('0', (string) $db->value("SELECT COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'regular_cost' "
             . "AND COLUMN_NAME = 'vat_rate_bp'"), 'a row put in by hand includes no VAT: counted in full, never less');
+        self::assertSame('0', (string) $db->value("SELECT COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'regular_cost' "
+            . "AND COLUMN_NAME = 'vat_included'"));
         self::assertArrayHasKey('vat_rate_bp', Grants::desiredColumns('regular_cost'), 'the VAT choice is set on the line');
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $cost(['until' => '2026-10-31'])), 'its last day after its first');
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $cost(['amount' => 0])));
@@ -128,6 +143,7 @@ final class Migration0079Test extends IntegrationTestCase
         // Every statement again: nothing changes (a holder given on the roles screen meanwhile stays; a renamed start type is not added again).
         $db->exec("UPDATE role_permission SET roles = 'finance' WHERE permission = 'expenses.view'");
         $db->exec("UPDATE expense_type SET name = 'Bank and card fees' WHERE kind = 'expense' AND name = 'Fees'");
+        $db->exec("UPDATE app_setting SET value_json = CAST('\"2026-11-15\"' AS JSON) WHERE setting_key = 'profit.real_from_vapebig'");
         foreach ($statements as $st) {
             $db->pdo()->exec($st);
         }
@@ -136,6 +152,9 @@ final class Migration0079Test extends IntegrationTestCase
         self::assertSame(9, (int) $db->value('SELECT COUNT(*) FROM expense_type'));
         self::assertSame(9, (int) $db->value("SELECT COUNT(*) FROM expense_history WHERE subject = 'type'"));
         self::assertSame(4, (int) $db->value('SELECT COUNT(*) FROM expense'));
+        self::assertSame('"2026-11-15"', (string) $db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'profit.real_from_vapebig'"),
+            'a first day changed on Settings stays');
+        self::assertSame(3, (int) $db->value("SELECT COUNT(*) FROM config_change WHERE subject_type = 'setting' AND subject_key LIKE 'profit.real\\_from\\_%'"));
     }
 
     private static function err(callable $fn): int
