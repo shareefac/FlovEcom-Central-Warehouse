@@ -13,17 +13,20 @@
 --    in a web directory). A credit note (EX37) is a row of minus amounts (net below 0, VAT 0 or below). Changed in place (version + 1) or
 --    deleted by a mark with a reason; never removed (Grants: no DELETE; the creation columns frozen).
 --  * regular_cost: a cost with no invoice that goes out every week, month or year: its shop, group, how often, the amount as given, the VAT
---    rate it includes (EX38: 20% unless marked no VAT; only the cost without VAT counts), from and until (its last day; none: no end). Its amount, shop, how often and first day are frozen: a new amount ends the line and starts
+--    VAT choice and the rate it includes (EX38: 20% unless marked no VAT; only the cost without VAT counts), from and until (its last day; none: no end). Its amount, shop, how often and first day are frozen: a new amount ends the line and starts
 --    another (replaces_id), so the old days keep the old amount; a mistake is deleted by a mark with a reason.
 --  * expense_history: every add, change, end and delete of the four, with the row before and after, the reason, who and when (append-only).
+--  * expense_file: every file an expense named (its PDF or photo, and each one a change replaced), by the version that named it, kept 7 years
+--    from that attachment (append-only): the file rules ask it by its file_id index (docs/decisions.md EX24, EX40), never the history's JSON.
 --  * staff_role.role gets `expenses` at the END of its list (the stored number of every grant stays what it was); the two new permissions
 --    expenses.view (Finance and the new job) and expenses.edit (the new job) are rows of the stored map, each with its baseline; nobody
 --    holds the new job until the owner says who (the go-live kit gives it to staff 1 and staff 2 together; bin/grant_role.php).
 --
--- HOW IT IS APPLIED: five CREATE TABLE IF NOT EXISTS (new, empty), the start lists of expense_type with their history only while the list
--- has none of them, the two permission rows ON DUPLICATE KEY with their baselines only when missing, and ONE ALTER of staff_role (tiny;
+-- HOW IT IS APPLIED: six CREATE TABLE IF NOT EXISTS (new, empty), the start lists of expense_type with their history only while the list
+-- has none of them, the two permission rows and the three "real profit from" settings ON DUPLICATE KEY with their baselines only when missing, and ONE ALTER of staff_role (tiny;
 -- ALGORITHM = COPY, LOCK = SHARED, as 0069, 0074 and 0077). Every statement can run again and changes nothing the second time.
--- Rollback: the release before (14c6e31) with this file added byte for byte (RollbackReleaseTest); the new tables and rows stay, unused.
+-- No undo release (the owner, 24 Nov 2026: "anything happnes with cw we dont undo we fix them and put another fixed version"; docs/decisions.md
+-- EX41): a fault is fixed forward. RollbackReleaseTest still holds the old recipe's check (14c6e31 with this file added byte for byte).
 
 CREATE TABLE IF NOT EXISTS expense_type (
   id            SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -110,7 +113,8 @@ CREATE TABLE IF NOT EXISTS regular_cost (
   type_id        SMALLINT UNSIGNED NOT NULL COMMENT 'its group (expense_type of kind regular)',
   every          ENUM('week','month','year') NOT NULL,
   amount_pence   BIGINT            NOT NULL COMMENT 'a week''s, a calendar month''s or a calendar year''s amount as given (with its VAT, when it has VAT)',
-  vat_rate_bp    SMALLINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'the VAT the amount includes, in basis points (2000 = 20%: the shops'' rate when it was set); 0: no VAT. Only the amount less its VAT counts (EX38)',
+  vat_included   TINYINT(1)        NOT NULL DEFAULT 0 COMMENT '1: the amount includes VAT (at vat_rate_bp, which may be 0 while the shops'' rate is 0); 0: no VAT (EX38, EX39)',
+  vat_rate_bp    SMALLINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'the VAT the amount includes, in basis points (2000 = 20%: the shops'' rate when it was set); 0 when it has none. Only the amount less its VAT counts (EX38)',
   from_day       DATE              NOT NULL COMMENT 'its first day',
   until_day      DATE              NULL COMMENT 'its last day; NULL: no end',
   note           VARCHAR(500)      NULL,
@@ -140,7 +144,7 @@ CREATE TABLE IF NOT EXISTS regular_cost (
   CONSTRAINT fk_regular_cost_updated_by FOREIGN KEY (updated_by) REFERENCES staff_user (id),
   CONSTRAINT fk_regular_cost_deleted_by FOREIGN KEY (deleted_by) REFERENCES staff_user (id),
   CONSTRAINT ck_regular_cost_amount CHECK (amount_pence BETWEEN 1 AND 999999999),
-  CONSTRAINT ck_regular_cost_vat CHECK (vat_rate_bp <= 10000),
+  CONSTRAINT ck_regular_cost_vat CHECK (vat_rate_bp <= 10000 AND vat_included IN (0, 1) AND (vat_included = 1 OR vat_rate_bp = 0)),
   CONSTRAINT ck_regular_cost_days CHECK (until_day IS NULL OR until_day >= from_day),
   CONSTRAINT ck_regular_cost_deleted CHECK ((deleted_at IS NULL) = (deleted_actor IS NULL) AND (deleted_at IS NULL) = (deleted_reason IS NULL)
     AND (deleted_at IS NOT NULL OR deleted_by IS NULL)),
@@ -168,6 +172,22 @@ CREATE TABLE IF NOT EXISTS expense_history (
   CONSTRAINT ck_expense_history_state CHECK (JSON_TYPE(state) = 'OBJECT' AND (before_state IS NULL OR JSON_TYPE(before_state) = 'OBJECT'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='who added, changed, ended or deleted an expense, a regular cost, a supplier or a type, when, why, before and after (append-only)';
+
+CREATE TABLE IF NOT EXISTS expense_file (
+  id             BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+  expense_id     BIGINT UNSIGNED   NOT NULL,
+  file_id        BIGINT UNSIGNED   NOT NULL COMMENT 'the PDF or photo this version of the expense named (stored_file)',
+  version        INT UNSIGNED      NOT NULL COMMENT 'the expense''s version that named it',
+  retain_until   DATE              NOT NULL COMMENT 'kept until: 7 years from this attachment (the storage''s retention is extended to it)',
+  attached_actor VARCHAR(64)       NOT NULL,
+  attached_at    DATETIME(6)       NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_expense_file_version (expense_id, version),
+  KEY ix_expense_file_file (file_id),
+  CONSTRAINT fk_expense_file_expense FOREIGN KEY (expense_id) REFERENCES expense (id),
+  CONSTRAINT fk_expense_file_file FOREIGN KEY (file_id) REFERENCES stored_file (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='every file an expense named, by the version that named it, kept 7 years from then (EX24, EX40): the downloads ask it (indexed), never the history';
 
 -- The start lists (the lead's brief, 24 Nov 2026): the expense types, and the regular costs' groups as the approved drawing groups them.
 -- Only those not there yet (a run again adds nothing; a name the owner changed later is not his start name, and is not added again while
@@ -201,6 +221,20 @@ INSERT INTO config_change (subject_type, subject_key, version, action, state, ac
   SELECT 'permission', p.permission, 1, 'baseline', JSON_OBJECT('roles', p.roles), 'system:migrate'
   FROM role_permission p WHERE p.permission IN ('expenses.view', 'expenses.edit')
     AND NOT EXISTS (SELECT 1 FROM config_change c WHERE c.subject_type = 'permission' AND c.subject_key = p.permission);
+
+-- The first day each shop's real profit counts (the owner, 24 Nov 2026: "i need vape and go from nov 1. alt and vbig can start from dec";
+-- docs/decisions.md EX39): three date settings (Settings > Profit, each change kept with its history, as every setting); before its day a
+-- shop's real profit says "not started (from <day>)", never a figure; nothing stored is changed. Run again: the rows as they are then.
+INSERT INTO app_setting (setting_key, value_type, value_json, provisional, decision, description) VALUES
+ ('profit.real_from_vapeandgo','date','"2026-11-01"',0,'EX39','The first day Vape and Go''s real profit counts (Profit > Real profit, Profit by shop); before it: not started'),
+ ('profit.real_from_electrofag','date','"2026-12-01"',0,'EX39','The first day Electrofag''s real profit counts (Profit > Real profit, Profit by shop); before it: not started'),
+ ('profit.real_from_vapebig','date','"2026-12-01"',0,'EX39','The first day Vape Big''s real profit counts (Profit > Real profit, Profit by shop); before it: not started')
+ ON DUPLICATE KEY UPDATE setting_key = setting_key;
+
+INSERT INTO config_change (subject_type, subject_key, version, action, state, actor)
+  SELECT 'setting', s.setting_key, 1, 'baseline', JSON_OBJECT('value', CAST(s.value_json AS CHAR), 'provisional', s.provisional), 'system:migrate'
+  FROM app_setting s WHERE s.setting_key IN ('profit.real_from_vapeandgo', 'profit.real_from_electrofag', 'profit.real_from_vapebig')
+    AND NOT EXISTS (SELECT 1 FROM config_change c WHERE c.subject_type = 'setting' AND c.subject_key = s.setting_key);
 
 ALTER TABLE staff_role MODIFY COLUMN role ENUM('viewer','mapper','mapping_lead','warehouse','manager','admin','buyer','purchasing_manager',
     'goods_in','purchasing_desk','stock_controller','reviewer','accountant','auditor','people_manager','finance','delivery_bills','expenses') NOT NULL,
