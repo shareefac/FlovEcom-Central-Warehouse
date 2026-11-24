@@ -62,6 +62,8 @@ namespace CW;
  *     claim (CW\Invoices\InvoiceInvariants V1-V7, PC11).
  *   - the carriers' bills (0077): one state per line pointing at what CW holds, each live bill adding up to its net, one live bill per key,
  *     one shop per account, a replaced bill replaced once (CW\Profit\DeliveryInvariants DB1-DB6, DL20).
+ *   - the expenses and regular costs (0079): each row with its whole history, the row what its latest version says, a new amount's line
+ *     continuing one of its own shop (CW\Expenses\ExpenseInvariants EX-I1-EX-I3, EX18).
  *
  * Returns human-readable violations; an empty list means consistent. Read-only.
  *
@@ -207,6 +209,8 @@ final class Invariants
         // 0077 (docs/decisions.md DL20): the carriers' bills: one state per line, pointing at what CW holds, each live bill adding up to its net
         // (DB1-DB6).
         array_push($v, ...Profit\DeliveryInvariants::check($db));
+        // 0079 (docs/decisions.md EX18): the expenses and regular costs: each row with its whole history, the row what its latest version says.
+        array_push($v, ...Expenses\ExpenseInvariants::check($db));
         return $v;
     }
 

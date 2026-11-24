@@ -4138,3 +4138,21 @@ details.live-fold ul { margin: 4px 0 0; padding-left: 14px; font-size: 12px; col
   .live-choice .btn { min-height: 44px; }
 }
 /* ==== end live ==================================================================================================================== */
+/* ==== Expenses and regular costs (CW-1150; docs/decisions.md EX13, EX14; the drawings Main and AddExpense of 24 Nov 2026) ================ */
+/* The shop as three big buttons (the whole label is the tap target; the chosen one in the accent); the form beside its file panel on a wide
+   screen, under it on a phone; the total box; the dollar hint in the info tint. */
+fieldset.shop-pick { display: flex; flex-wrap: wrap; gap: 10px; grid-template-columns: none; }
+fieldset.shop-pick > legend { width: 100%; margin-bottom: 8px; color: var(--ink); font: 600 14px/20px var(--font); }
+fieldset.shop-pick label.shop-choice { flex: 1 1 10rem; justify-content: center; min-height: 48px; font: 600 15px/20px var(--font); }
+form.expense-form { max-width: 1120px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 960px) { form.expense-form { grid-template-columns: minmax(0, 1fr) 340px; align-items: start; } }
+form.expense-form .expense-main { display: grid; gap: 14px; min-width: 0; }
+form.expense-form fieldset.expense-file { display: grid; gap: 10px; grid-template-columns: none; padding: 16px; border: 2px dashed var(--accent-soft);
+  border-radius: var(--r-10); background: var(--card); }
+form.record fieldset.expense-fields > p.expense-total, form.record fieldset.expense-fields > p.expense-dollar { grid-column: 1 / -1; margin: 0; }
+p.expense-total { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border: 1px solid var(--hairline);
+  border-radius: var(--r-8); background: var(--page-alt); }
+p.expense-total output { font-weight: 600; }
+.btn.danger { border-color: var(--block-ink); color: var(--block-ink); }
+section.expense-figs .doc-step-big { font-variant-numeric: tabular-nums; }
+/* ==== end expenses ================================================================================================================= */

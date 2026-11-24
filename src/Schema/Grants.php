@@ -77,7 +77,9 @@ final class Grants
         // XA2, XA7: replacement ancestry is immutable; mode watermarks only advance their timestamp.
         'opening_replacement', 'relay_mode_seen',
         // 0074 (docs/decisions.md PR17): every move of an item's buying price is a row of its own, so the cost on a past day stays readable.
-        'item_cost_event'];
+        'item_cost_event',
+        // 0079 (docs/decisions.md EX8): every add, change, end and delete of an expense, a regular cost, a supplier or a type of them.
+        'expense_history'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -131,6 +133,16 @@ final class Grants
         // not matched yet is put on its parcel or order later, never moved off one).
         'carrier_invoice' => ['status', 'ended_by', 'ended_actor', 'ended_at'],
         'carrier_invoice_line' => ['match_state', 'channel_id', 'order_ref', 'parcel_ref', 'candidates', 'matched_at'],
+        // 0079 (docs/decisions.md EX8): an expense is changed in place (version + 1, its history keeps before and after) and deleted by a mark
+        // with a reason, never removed; who added it and when are frozen. A regular cost's amount, shop, how often and first day never change
+        // (a new amount is a new line); its name, group, note and last day do, and it is deleted by a mark. A supplier and a type are renamed or
+        // switched off, never removed.
+        'expense' => ['channel_id', 'supplier_id', 'type_id', 'invoice_date', 'invoice_no', 'net_pence', 'vat_pence', 'total_pence', 'note', 'file_id', 'version',
+            'updated_by', 'updated_actor', 'updated_at', 'deleted_at', 'deleted_by', 'deleted_actor', 'deleted_reason'],
+        'regular_cost' => ['name', 'type_id', 'until_day', 'note', 'version', 'updated_by', 'updated_actor', 'updated_at', 'deleted_at', 'deleted_by', 'deleted_actor',
+            'deleted_reason'],
+        'expense_supplier' => ['name', 'is_active', 'version'],
+        'expense_type' => ['name', 'is_active', 'sort_order', 'version'],
     ];
     /**
      * Tables the app login may INSERT into naming only the listed columns (column-level INSERT instead of a table-level one; the

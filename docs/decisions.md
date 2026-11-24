@@ -20295,3 +20295,149 @@ once the page has loaded (`load` and `pageshow`, the next frame, then a turn, an
 still on the page itself (BODY or none) and nobody has clicked or tapped the page meanwhile; a cursor the person put elsewhere (the product
 box, another field) is never taken. Without the script the page is as before (the server's `autofocus`). Shown failing first in the node
 harness, the browser's order played by hand (`runs/countpick2_cp21red.js.log`: 3 FAIL), passing after (`runs/countpick2_cp21fix.js.log`).
+
+## Expenses (CW-1150): expenses, regular costs and the real profit (branch `expenses`, 24 Nov 2026; EX1-EX20; migration 0079)
+
+<!-- ---- CW-1150 (0079): EX1-EX20. Brief: cw_work/runs/expenses_brief.txt; drawings: cw_work/expenses_design_20261124/project/ ---- -->
+The owner's words (CW chat), kept as he wrote them:
+- 21 Nov 2026: NO Sage at all (never read, check or connect Sage). CW holds the costs itself. He uploads expense invoices with the PDF and
+  enters every purchase invoice from 1 November; Global Payments' fees are its monthly invoice entered as an expense.
+- 24 Nov ~11:50: "no i will add it seperate like vape and go expense vapebig eexpense alectrofag expense like that".
+- 24 Nov ~12:05 (his weekly list, from the business owner, no invoices): "thesee all aree weekly ... i wont be able to give invoice. it is
+  from the owner. startlink dont worry i can add invoice monthly ... then theree are some like cloudflare that wee do yearly".
+- 24 Nov ~12:10: "Yes, per day".
+- 24 Nov 12:15: "Yes, build it" on the drawings (Main = the expenses list, AddExpense, MonthlyCosts = Regular costs, ProfitMonth = the real
+  profit). The drawings are the spec for the parts, their order and their words; CW's own look (app.css) is the style.
+Code: `src/Expenses/{ExpenseMoney, RegularCostMath, ExpenseHistory, ExpenseAccess, ExpenseFiles, Expenses, ExpenseTypes, RegularCosts,
+ExpenseViews}.php` (new), `Ui/Controller/{ExpensesController, RegularCostsController, ExpenseTypesController}.php` (new),
+`ProfitController::real`, the views `profit_expense*`, `expense_*`, `profit_regular*`, `profit_real`, `bin/seed_regular_costs.php` (new), and
+one marked block each in `Permissions`, `Grants`, `FileStore::KINDS`, `FilesController::show`, `Words`, `Sections`, `Kernel`,
+`ReferenceController::SETTINGS_SECTIONS`, app.css and app.js. Every test file is made up (no real invoice, no customer data).
+
+**EX1. Each expense belongs to ONE shop, the one the person picks (the owner, 24 Nov).** Vape and Go, Electrofag or Vape Big: three big
+buttons on the form, NONE picked for you (the form never fills it, not even after "Save and add another"); no shared cost is split by CW.
+
+**EX2. An expense (`expense`, 0079).** Its shop, supplier (EX11), type (EX10), invoice date (the day it counts), invoice number (as printed;
+empty allowed when a bill has none), the amount without VAT and the VAT as printed, the total = net + VAT (a CHECK), a note, its file (EX9).
+The amount without VAT is above 0 (an expense of nothing is refused), the VAT 0 or more; both at most £9,999,999.99. A bill in dollars is
+typed as the pounds the card was charged (the form says so; CW keeps no currency). A credit note (a negative amount) is NOT taken in this
+version: the open question Q1. The invoice date is a real day from 1 Jan 2020 to a year after today (a typo guard only).
+
+**EX3. The VAT is never worked out by CW.** It is typed as printed, 0 when none; the total is net + VAT. The profit counts the amount WITHOUT
+VAT (every Profit page is without VAT; the drawing's tiles and the ProfitMonth Expenses line show the net).
+
+**EX4. Money in whole pence (BIGINT), never a float.** Typed as pounds and pence ("64.20", "£1,234.56", "12.5", "200"; at most two decimals;
+`ExpenseMoney::pence`), shown by integer arithmetic (`ExpenseMoney::gbp`). app.js shows the total as it is typed (whole pence too); the server
+works it out again on save.
+
+**EX5. A regular cost (`regular_cost`, 0079; the owner, 24 Nov: "Yes, per day").** Its name, shop (one of the three, picked each time), group
+(EX10), how often (every week, every month, every year), the amount as given (the owner's figures: CW takes no VAT off them), its first day
+and its last day (none: no end; both days count). Per day: a weekly amount / 7; a monthly amount / the days of THAT calendar month (28-31); a
+yearly amount / the days of THAT calendar year (365 or 366). The brief's example holds: Unit 1 £207.69 a week = £29.67 a day, November
+(30 days) £890.10.
+
+**EX6. The rounding rule: cumulative, once per line and period (`RegularCostMath`).** What a line accrued from its first day to the end of
+day D is an exact fraction A(D) (integers: whole pence + numerator / denominator, never a float); its share of days a..b is round(A(b)) -
+round(A(a - 1)), half up. Therefore: the days of a month add up to the month EXACTLY, the months to the year, any two following periods to
+the whole; 7 days of a weekly line are its amount exactly (any 28 days of £207.69 a week = £830.76, wherever they start); a whole calendar
+month of a monthly line is its amount, a whole calendar year of a yearly one too; a period's share is within a penny of its own exact value
+(March 2027 of Unit 3, £923.08 a week from 1 Nov 2026, is £4,087.92: 31 x 923.08 / 7 = 4,087.926, the penny went to the earlier days). A
+shop's figure is the SUM of its lines' shares, so the lines shown always add up to the shop's line: the owner's weekly list in November is
+£41,879.73 (each line rounded once; rounding the week's total once, as the drawing did, gives £41,879.74). Tests:
+`tests/Unit/RegularCostMathTest.php`.
+
+**EX7. A new amount ends the line and starts a new one (the brief: "old days keep the old amount").** "The amount changes" on a line's page
+takes the new amount and its first day (after the line's own first day, on or before its last day): the line ends the day before and a new
+line starts that day with the rest of the old one (name, shop, group, how often, note, last day), naming it (`replaces_id`). A line's amount,
+shop, how often and first day never change in place (Grants: no UPDATE of those columns); its name, group, note and last day do (an end put
+on, moved or taken off). A line put in by mistake is deleted by a mark with a reason: out of the profit on every day.
+
+**EX8. Every change and delete keeps who, when, old -> new (`expense_history`, append-only; and audit_log).** One row per version of an
+expense, a regular cost, a supplier or a type: what it was before and after (with the shop's, supplier's and type's names beside their ids,
+so the trail reads in words), the reason when one is asked for (a delete, a type's change), who and when; the row's own `version` is the
+trail's latest, and a form drawn before another person's change is refused ("changed meanwhile"). A delete is a MARK with a reason (deleted
+at, by, why): out of every list and of the profit, kept with its history and file, never removed (Grants: no DELETE on any of the five
+tables; the creation columns frozen). The expense page and the regular cost page show the history ("Without VAT: £64.20 → £65.00; Shop:
+Vape and Go → Electrofag").
+
+**EX9. The invoice file: a PDF, JPEG or PNG, at most 10 MB, checked by its FIRST BYTES (`ExpenseFiles`).** `%PDF-`, `FF D8 FF`, `89 PNG
+0D 0A 1A 0A`, and the content sniffer (finfo) must agree; the name and what the browser said play no part (a text file named .pdf, HTML, SVG,
+GIF, a ZIP: refused, "nothing was saved"). The bytes are read once (at most 10 MB + 1) and stored from a private copy of exactly those bytes.
+WHERE: CW's existing document store (`FileStore`, I23, I36), not a new folder: app.env `file_store_dir`, which is `/srv/cw-docs` on the CW
+servers (`deploy/production/install_file_store.sh`): outside every web directory and every code directory (LocalFileStorage refuses
+otherwise), file name = its sha256, mode 0440 and immutable once the minute's seal has run (stricter than the brief's 0640), kept 7 years,
+re-hashed on every read; kind `expense_invoice`. The brief's own example (a new /var/lib/cw/expense_files/) would have been a second store
+without the seal, the re-hash or the retention: the house store already does all of it. Served only by `GET /ui/profit/expenses/{id}/file`
+(signed in, expenses.view: Finance and the Expenses job) as an ATTACHMENT of its sniffed type with `Content-Security-Policy: sandbox`,
+nosniff and no-store (FilesController::download); never listed, never run. The general `/ui/files/{id}` refuses a file an expense names (or
+of kind expense_invoice) to anyone without expenses.view, whatever else they may read. **BACKUPS (CW-701):** `/srv/cw-docs` on the
+production box must be in the server's backups; the expense PDFs are the only copy CW keeps (the owner is told; it was already true for the
+supplier invoice copies and the purchase orders' PDFs).
+
+**EX10. The types: a settable list, Settings > Expense types (`expense_type`, 0079).** Changed like CW's other settable lists: an admin or a
+reviewer (settings.manage, re-read inside the write: ConfigHistory::authorise), each change with its reason (3-500 characters) and kept in
+expense_history; renamed or switched off, never deleted (what names it keeps it). Start list (the brief): Stationery and packaging, Software
+and AI, Developer, Fees, Other. The regular costs' groups are the SAME list, kind `regular` ("keep it simple": one list, one page): Rent,
+Running the business, Marketing, website and people, Other (the drawing MonthlyCosts' groups; its "Yearly" heading is a frequency, not a
+group: a yearly cost is put in its own group and its row says "Every year"). The list's order: the start order, a new type before Other.
+
+**EX11. The expenses' suppliers: their OWN list (`expense_supplier`), not the stock suppliers (`supplier`).** Found on the form by typing
+(a datalist of the suppliers in use, any case); a name not on the list is refused unless "Add it as a new supplier" is ticked (a typo never
+makes a second supplier unseen); renamed or switched off on Profit > Expenses > Suppliers (the Expenses job), never deleted.
+
+**EX12. Who: a new job `expenses` (0079: the 18th of the staff_role ENUM, at its end) and two permissions, as the delivery bills (DL15,
+DL31).** `expenses.view` (Finance and the new job: Profit > Expenses, Regular costs, the PDFs) and `expenses.edit` (the new job: add, change,
+delete expenses, regular costs and suppliers). Why a job of its own and not Finance: Finance only LOOKS (LOOK_ONLY, PR111: "changes
+nothing") and the delivery bills, the other money you upload, went the same way (a job of its own that acts, Finance looks). Both are LOCKED
+(the Roles page cannot give them to another job, as DL31); the service also requires the job itself among the person's jobs, re-read inside
+each write; never admin (I12). The new job sees no profit (the real profit is Finance's, profit.view). Nobody holds the job after the
+migration: the go-live kit gives it to staff 1 AND staff 2 together (the owner's rule), not the migration.
+
+**EX13. Profit > Expenses (the drawing Main).** A month (newest first; "Every month" too), a shop (or all), ONE search (the supplier's name or
+the invoice number), "Show deleted ones too", Show; the three shops' month totals (without VAT, how many, with VAT), whatever the search; the
+expenses grouped by shop in the shops' order, newest first: date, supplier, type, invoice no., shop, net, total, PDF; each shop's regular
+costs of the month on their own line (as the drawing: "Regular costs (rent, leases, Netcore, ...)", added by CW; not when searching); a row
+opens the expense (its PDF, Change, Delete, its history). "Add expense" (the job only): the drawing AddExpense's fields in its order; "Save
+expense" opens the saved expense, "Save and add another" comes back to an empty form.
+
+**EX14. The same invoice twice: refused unless confirmed (the brief's duplicate guard).** The same supplier + invoice number (any case, spaces
+trimmed) + shop as an expense not deleted is refused with "This invoice is in already ... (dated ...)" and a link to it; ticking "It is
+another invoice: save it all the same" saves it. A bill with no number: the same supplier, shop, invoice date and total. A change is checked
+the same way when it changes the supplier, the shop or the number. Two adds of one supplier at the same moment are checked one after the
+other (the supplier's row is locked).
+
+**EX15. Profit > Real profit (the brief's point 4; the drawing ProfitMonth).** For the days chosen (this month unless asked; the Profit
+pages' choices and From/To), a column per shop (the one chosen, or the three): Sales (less refunds) = goods sold as the other Profit pages
+show them; − What the goods cost us; + Delivery charged (without VAT, less delivery refunded); − Delivery (the carriers' bills: on the orders
+and not on one, DL11); − Payment fees (greyed: not built yet, 0; a Global Payments invoice added as an expense is in the Expenses line);
+− Expenses (invoices added, without VAT, by invoice date); − Regular costs (per day, EX5-EX6); = Real profit. The "+ Delivery charged" line is
+not on the drawing: it is added so delivery after its cost counts as the other Profit pages count it (Q2). Summed on READ from profit_day,
+expense and regular_cost in ONE snapshot of the database: profit_day, its rebuild and every other Profit page are unchanged. A line opens
+what is in it (the orders, the shops' delivery, that month's expenses of the shop, the regular costs). Vape Big's partner product (Hayati
+4000) is not taken apart here (out of scope, unchanged).
+
+**EX16. The seed: `bin/seed_regular_costs.php` (the brief's point 6).** The owner's weekly list (16 lines, £9,771.94 a week) as regular costs of
+Vape and Go, every week, from 1 Nov 2026 (`--from` for the day the owner confirms before go-live), in the drawing's groups; Unit 3 rent ends
+31 Mar 2027, Reboot 28 Feb 2027. A dry run by default (every line said, nothing written); `--apply` adds the lines not there yet as
+system:seed_regular_costs, each with its history; a line of the same name in the shop that is not deleted is "already there" whatever its
+amount, so a second run adds nothing. Starlink (a monthly invoice: an expense) and Cloudflare (yearly: the owner adds it) are not seeded.
+
+**EX17. Go-live and undo.** Migrate 0079 (it only adds: five new tables, nine type rows with their history, two permission rows with their
+baselines, one ALTER of staff_role: the new job at the END of the ENUM, every stored grant keeps its number), then the release. Undo: the
+release before (14c6e31) with 0079 added byte for byte (RollbackReleaseTest); the tables and rows stay, unused (nothing else reads them).
+The kit gives the `expenses` job to staff 1 and staff 2 together and checks `/srv/cw-docs` is in the backups.
+
+**EX18. The nightly checks (`ExpenseInvariants`, in CW\Invariants: bin/invariants.php and every stock test).** The app login may UPDATE
+these rows (in place, with their history), so a change made around the services is found: EX-I1 every expense, regular cost, supplier and
+type has its whole history (versions 1 to its own); EX-I2 the latest version holds what an expense (shop, supplier, type, invoice date and
+number, money, file, deleted or not) and a regular cost (shop, group, how often, amount, first and last day, deleted or not) hold now; EX-I3
+a line continuing another (a new amount) is of the same shop and how often, starts after it and (both not deleted) after its last day.
+
+**EX19. Never two amounts of one cost on one day.** A line continued by a new amount keeps its last day before the new line's first day:
+moving it onto those days or taking it off is refused ("A new amount follows this line"); a new amount on such a line again ends it the day
+before and the new line takes its last day. Two lines of the same name added by hand both count (the person's choice; the seed never adds a
+name twice: EX16).
+
+**EX20. Profit by product, by shop: the same three after delivery (EX15).** Expenses, Regular costs and Real profit (its profit + delivery
+after its cost - expenses - regular costs) as three columns at the end of each shop's row, for the days chosen, from the same moment of the
+database as the row (a shop with no sale in those days has no row there; Profit > Real profit shows every shop).

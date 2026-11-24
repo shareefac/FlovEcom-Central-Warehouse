@@ -39,7 +39,8 @@ final class FileStore
     public const ALLOWED_MIME = ['application/pdf', 'image/jpeg', 'image/png', 'text/csv', 'text/plain',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
     /** supplier_check (I-2): a supplier's due-diligence or import-route evidence, uploaded on the supplier card (I46). */
-    public const KINDS = ['supplier_invoice', 'delivery_note', 'packing_list', 'photo', 'duty_evidence', 'generated_pdf', 'supplier_check', 'other'];
+    /** expense_invoice (0079, docs/decisions.md EX9): an expense's invoice PDF or photo, served only through Profit > Expenses (expenses.view). */
+    public const KINDS = ['supplier_invoice', 'delivery_note', 'packing_list', 'photo', 'duty_evidence', 'generated_pdf', 'supplier_check', 'other', 'expense_invoice'];
     /** document_file.role */
     public const ROLES = ['supplier_invoice', 'delivery_note', 'photo', 'evidence', 'generated_pdf'];
     public const RETENTION_YEARS = 7;

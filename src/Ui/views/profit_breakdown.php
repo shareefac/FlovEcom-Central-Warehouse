@@ -1,7 +1,8 @@
 <?php
 // Profit › Profit by product (docs/decisions.md PR26): by shop, product, brand or main supplier, the biggest first by the measure chosen
 // (a column head is a link that sorts by it), each with its margin; at most $limit rows. On a phone each row is a card. By shop, its delivery
-// too (0077, DL23): charged, its cost on the orders, the carriers' charges not on an order, delivery after its cost.
+// too (0077, DL23): charged, its cost on the orders, the carriers' charges not on an order, delivery after its cost; then its expenses, regular
+// costs and real profit (0079, EX15: profit + delivery after its cost - expenses - regular costs).
 $byWords = ['shop' => \CW\Ui\Words::PROFIT['by_shop'], 'product' => \CW\Ui\Words::PROFIT['by_product'], 'brand' => \CW\Ui\Words::PROFIT['by_brand'],
     'supplier' => \CW\Ui\Words::PROFIT['by_supplier']];
 $sortWords = [];
@@ -44,6 +45,9 @@ foreach ($sortLinks as $sl) {
       <th scope="col" class="num"><?= $word('PROFIT', 'delivery_cost') ?></th>
       <th scope="col" class="num"><?= $word('PROFIT', 'delivery_other') ?></th>
       <th scope="col" class="num"><?= $word('PROFIT', 'delivery_result') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'col_expenses') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'col_regular') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'col_real') ?></th>
 <?php endif; ?>
     </tr>
   </thead>
@@ -62,6 +66,10 @@ foreach ($sortLinks as $sl) {
       <td class="num" data-label="<?= $word('PROFIT', 'delivery_cost') ?>"><?= $money($r['f']['delivery_cost'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'delivery_other') ?>"><?= $money($r['f']['delivery_other'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'delivery_result') ?>"><?= $money($r['f']['delivery_result'] / 100) ?></td>
+<?php $ex = (int) ($expenses[(int) $r['id']] ?? 0); $rg = (int) ($regular[(int) $r['id']] ?? 0); ?>
+      <td class="num" data-label="<?= $word('PROFIT', 'col_expenses') ?>"><?= $e(\CW\Expenses\ExpenseMoney::gbp($ex)) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'col_regular') ?>"><?= $e(\CW\Expenses\ExpenseMoney::gbp($rg)) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'col_real') ?>"><?= $e(\CW\Expenses\ExpenseMoney::gbp((int) $r['f']['profit'] + (int) $r['f']['delivery_result'] - $ex - $rg)) ?></td>
 <?php endif; ?>
     </tr>
 <?php endforeach; ?>

@@ -83,9 +83,11 @@ final class ProfitScreensTest extends KernelUiTestCase
         $home = $fin->get('/ui/profit');
         self::assertSame(200, $home->status, $home->describe() . ' ' . implode(' | ', self::$log));
         self::assertSame([Words::SECTION['profit'], Words::MENU['profit_summary']], [self::currentSection($home), self::currentTab($home)]);
-        // 0077 (docs/decisions.md DL23): the carriers' bills, which Finance looks at too, last.
-        self::assertSame([Words::MENU['profit_summary'], Words::MENU['profit_periods'], Words::MENU['profit_breakdown'], Words::MENU['profit_orders'],
-            Words::MENU['profit_no_cost'], Words::MENU['profit_delivery']], array_column(self::sectionTabs($home), 'label'));
+        // 0077 (docs/decisions.md DL23): the carriers' bills, which Finance looks at too, last. 0079 (EX13-EX15): the real profit after the summary;
+        // the expenses and the regular costs, which Finance looks at too, after the bills.
+        self::assertSame([Words::MENU['profit_summary'], Words::MENU['profit_real'], Words::MENU['profit_periods'], Words::MENU['profit_breakdown'],
+            Words::MENU['profit_orders'], Words::MENU['profit_no_cost'], Words::MENU['profit_delivery'], Words::MENU['profit_expenses'], Words::MENU['profit_regular']],
+            array_column(self::sectionTabs($home), 'label'));
         $rev = $this->signIn($this->uiUser('reviewer'));
         foreach (['/ui/profit' => [], '/ui/profit/periods' => [], '/ui/profit/by' => [], '/ui/profit/orders' => [], '/ui/profit/no-cost' => [],
             '/ui/profit/orders/view' => ['store' => '1', 'ref' => '100']] as $path => $query) {

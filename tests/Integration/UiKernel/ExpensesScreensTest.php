@@ -358,5 +358,9 @@ final class ExpensesScreensTest extends KernelUiTestCase
         $one = $fin->get('/ui/profit/real', ['period' => 'choose', 'from' => '2026-11-01', 'to' => '2026-11-30', 'store' => $this->shops['ef']]);
         self::assertCount(2, self::rows($one, 'real-profit')[0]);
         self::assertContains('/ui/profit/expenses?month=2026-11&shop=' . $this->shops['vpg'], $page->hrefs());
+        // Profit by product, by shop: the same three after delivery (expenses, regular costs, real profit).
+        $by = self::rows($fin->get('/ui/profit/by', ['by' => 'shop', 'period' => 'choose', 'from' => '2026-11-01', 'to' => '2026-11-30']), 'profit-breakdown');
+        self::assertSame(['Vape and Go', '£750.00', '£890.10', '-£1,153.10'], [$by[0][0], ...array_slice($by[0], 11, 3)]);
+        self::assertSame(['Electrofag', '£0.00', '£0.00', '£110.00'], [$by[1][0], ...array_slice($by[1], 11, 3)]);
     }
 }

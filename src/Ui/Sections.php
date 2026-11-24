@@ -224,12 +224,20 @@ final class Sections
         // ---- Profit step 1 (0074; docs/decisions.md PR23): what each order sold for, cost to buy and the margin. Read only, the Finance job.
         'profit' => ['tabs' => [
             'profit_summary' => ['pages' => [['perm' => 'profit.view', 'path' => '/ui/profit', 'match' => ['/ui/profit']]]],
+            // CW-1150 (0079; docs/decisions.md EX15): the real profit per shop (the drawing ProfitMonth), Finance's.
+            'profit_real' => ['pages' => [['perm' => 'profit.view', 'path' => '/ui/profit/real', 'match' => ['/ui/profit/real*']]]],
             'profit_periods' => ['pages' => [['perm' => 'profit.view', 'path' => '/ui/profit/periods', 'match' => ['/ui/profit/periods*']]]],
             'profit_breakdown' => ['pages' => [['perm' => 'profit.view', 'path' => '/ui/profit/by', 'match' => ['/ui/profit/by*']]]],
             'profit_orders' => ['pages' => [['perm' => 'profit.view', 'path' => '/ui/profit/orders', 'match' => ['/ui/profit/orders*']]]],
             'profit_no_cost' => ['pages' => [['perm' => 'profit.view', 'path' => '/ui/profit/no-cost', 'match' => ['/ui/profit/no-cost*']]]],
             // 0077 (docs/decisions.md DL23): the carriers' bills, looked at by Finance and the Delivery bills job (who also uploads).
             'profit_delivery' => ['pages' => [['perm' => 'delivery.view', 'path' => '/ui/profit/delivery', 'match' => ['/ui/profit/delivery', '/ui/profit/delivery/*']]]],
+            // CW-1150 (0079; docs/decisions.md EX13, EX14): the expenses and the regular costs, looked at by Finance and the Expenses job (who also
+            // adds, changes and deletes them: its "Add" buttons).
+            'profit_expenses' => ['pages' => [['perm' => 'expenses.view', 'path' => '/ui/profit/expenses', 'match' => ['/ui/profit/expenses', '/ui/profit/expenses/*'],
+                'new' => ['perm' => 'expenses.edit', 'href' => '/ui/profit/expenses/new', 'label' => 'profit_expenses']]]],
+            'profit_regular' => ['pages' => [['perm' => 'expenses.view', 'path' => '/ui/profit/regular', 'match' => ['/ui/profit/regular', '/ui/profit/regular/*'],
+                'new' => ['perm' => 'expenses.edit', 'href' => '/ui/profit/regular/new', 'label' => 'profit_regular']]]],
         ]],
         // Settings: ONE entry for every settings page (no sub-items); each page one of its choices, the audit log last (docs/decisions.md RD7).
         'settings' => ['tabs' => [
@@ -246,6 +254,9 @@ final class Sections
                 ['key' => 'approvals', 'perm' => 'reference.view', 'path' => '/ui/reference/approvals', 'match' => ['/ui/reference/approvals*']],
                 ['key' => 'reasons', 'perm' => 'reference.view', 'path' => '/ui/reference/reasons', 'match' => ['/ui/reference/reasons*'],
                     'new' => ['perm' => 'settings.manage', 'href' => '/ui/reference/reasons#new', 'label' => 'reasons']],
+                // CW-1150 (0079; docs/decisions.md EX10): the expense types and the regular costs' groups.
+                ['key' => 'expense_types', 'perm' => 'reference.view', 'path' => '/ui/reference/expense-types', 'match' => ['/ui/reference/expense-types*'],
+                    'new' => ['perm' => 'settings.manage', 'href' => '/ui/reference/expense-types#new', 'label' => 'expense_types']],
                 ['key' => 'settings', 'perm' => 'reference.view', 'path' => '/ui/reference/settings', 'match' => ['/ui/reference/settings*']],
                 ['key' => 'series', 'perm' => 'reference.view', 'path' => '/ui/reference/series', 'match' => ['/ui/reference/series*']],
                 ['key' => 'integrity', 'perm' => 'system.view', 'path' => '/ui/system/checks', 'match' => ['/ui/system/checks*']],

@@ -30,6 +30,12 @@ final class ExpensesTest extends MappingTestCase
 
     private const PDF = "%PDF-1.4\n% made-up test invoice\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n";
 
+    /** A made-up 1 x 1 PNG (a whole, valid image, so the content sniffer reads it as one). */
+    private static function png(): string
+    {
+        return (string) base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', true);
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -190,7 +196,7 @@ final class ExpensesTest extends MappingTestCase
         self::refused(409, 'changed_meanwhile', fn () => $this->service()->change($job, $r['id'], 1, $this->form(['net' => '1.00'])));
         // A file added later.
         $this->service()->change($job, $r['id'], 2, $this->form(['net' => '65.00', 'vat' => '13.00', 'shop' => $this->ef, 'new_supplier' => false]),
-            $this->file('scan.png', "\x89PNG\r\n\x1a\n" . str_repeat("\0", 64)));
+            $this->file('scan.png', self::png()));
         self::assertSame('image/png', self::$db->value('SELECT f.mime FROM expense e JOIN stored_file f ON f.id = e.file_id WHERE e.id = ?', [$r['id']]));
         // A delete needs a reason; it is a mark, never a removal.
         self::refused(400, 'bad_reason', fn () => $this->service()->delete($job, $r['id'], 3, 'x'));
@@ -290,6 +296,9 @@ final class ExpensesTest extends MappingTestCase
         self::refused(422, 'bad_from', fn () => $rc->newAmount($job, $new, 1, '220.00', '2026-11-11'), 'a new amount starts after the line\'s first day');
         self::refused(409, 'changed_meanwhile', fn () => $rc->newAmount($job, $id, 1, '220.00', '2026-11-20'));
         self::refused(409, 'ended', fn () => $rc->newAmount($job, $id, 2, '220.00', '2026-11-20'), 'an ended line takes no new amount');
+        // The old line's end cannot be moved onto the new amount's days (two amounts on one day), nor taken off.
+        self::refused(422, 'overlaps', fn () => $rc->change($job, $id, 2, ['name' => 'Unit 1 rent', 'type' => $rent, 'until' => '2026-11-11', 'note' => '']));
+        self::refused(422, 'overlaps', fn () => $rc->change($job, $id, 2, ['name' => 'Unit 1 rent', 'type' => $rent, 'until' => '', 'note' => '']));
         // Its name, group, note and end change in place, with the history.
         self::assertTrue($rc->change($job, $new, 1, ['name' => 'Unit 1 rent', 'type' => $rent, 'until' => '2027-03-31', 'note' => 'lease to March']));
         self::assertSame('2027-03-31', self::$db->value('SELECT until_day FROM regular_cost WHERE id = ?', [$new]));
@@ -301,6 +310,27 @@ final class ExpensesTest extends MappingTestCase
         self::assertSame(['add', 'end'], self::$db->column("SELECT action FROM expense_history WHERE subject = 'regular_cost' AND subject_id = ? ORDER BY version", [$id]));
         self::assertSame(['Select', 'Insert'], \CW\Schema\Grants::desired('regular_cost'));
         self::assertNotContains('amount_pence', \CW\Schema\Grants::UPDATE_COLUMNS['regular_cost'], 'an amount is never rewritten: a new line');
+    }
+
+    /** EX18: the nightly checks find a row changed around the services (the app login may UPDATE these rows; the history is the record). */
+    public function testTheNightlyChecksFindARowChangedAroundCw(): void
+    {
+        $job = $this->staffUser('expenses');
+        $r = $this->service()->add($job, $this->form(), $this->file('v.pdf', self::PDF));
+        $rc = (new RegularCosts(self::$db))->add($job, ['name' => 'Unit 1 rent', 'shop' => $this->vpg, 'type' => self::type('Rent', 'regular'), 'every' => 'week',
+            'amount' => '207.69', 'from' => '2026-11-01']);
+        self::assertSame([], \CW\Expenses\ExpenseInvariants::check(self::$db));
+        self::$db->exec('UPDATE expense SET net_pence = 100, total_pence = 1384 WHERE id = ?', [$r['id']]);
+        self::assertSame(["EX-I2 expense {$r['id']}: the row is not what its latest history version says (changed around CW)"], \CW\Expenses\ExpenseInvariants::check(self::$db));
+        self::$db->exec('UPDATE expense SET net_pence = 6420, total_pence = 7704, version = 2 WHERE id = ?', [$r['id']]);
+        self::assertSame(["EX-I1 expense {$r['id']}: version 2, its history has 1 versions up to 1"], \CW\Expenses\ExpenseInvariants::check(self::$db));
+        self::$db->exec('UPDATE expense SET version = 1, deleted_at = NOW(6), deleted_actor = \'x\', deleted_reason = \'around\' WHERE id = ?', [$r['id']]);
+        self::assertCount(1, \CW\Expenses\ExpenseInvariants::check(self::$db), 'deleted around CW');
+        self::$db->exec('UPDATE expense SET deleted_at = NULL, deleted_actor = NULL, deleted_reason = NULL WHERE id = ?', [$r['id']]);
+        self::$db->exec("UPDATE regular_cost SET until_day = '2026-12-31' WHERE id = ?", [$rc]);
+        self::assertSame(["EX-I2 regular_cost {$rc}: the row is not what its latest history version says (changed around CW)"], \CW\Expenses\ExpenseInvariants::check(self::$db));
+        self::$db->exec('UPDATE regular_cost SET until_day = NULL WHERE id = ?', [$rc]);
+        self::assertSame([], \CW\Expenses\ExpenseInvariants::check(self::$db));
     }
 
     public function testTheMonthsExpensesAndRegularCostsPerShop(): void

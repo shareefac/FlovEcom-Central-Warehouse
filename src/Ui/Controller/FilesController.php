@@ -42,6 +42,12 @@ final class FilesController
             && $ctx->db->value("SELECT 1 FROM document_file df JOIN document d ON d.id = df.document_id WHERE df.file_id = ? AND d.doc_type <> 'PO' LIMIT 1", [$id]) === null) {
             return $ctx->error(403, 'role_not_allowed', Words::say('ERROR', 'file_orders', Words::whoCan('purchasing.view')));
         }
+        // An expense's invoice (0079, docs/decisions.md EX9) only for those who see the expenses (expenses.view), whatever else the file is:
+        // kept as one, or named by an expense (the same bytes kept first as something else are one row of that first kind).
+        if (!$me->can(\CW\Expenses\ExpenseAccess::PERM_VIEW) && ($kind === \CW\Expenses\ExpenseFiles::KIND
+            || $ctx->db->value('SELECT 1 FROM expense WHERE file_id = ? LIMIT 1', [$id]) !== null)) {
+            return $ctx->error(403, 'role_not_allowed', Words::say('ERROR', 'file_expenses', Words::whoCan(\CW\Expenses\ExpenseAccess::PERM_VIEW)));
+        }
         $file = $ctx->files()->read($id);
         $mime = (string) $file['meta']['mime'];
         return self::download($file['bytes'], $mime, FileStore::downloadName((string) $file['meta']['original_name'], $mime));
