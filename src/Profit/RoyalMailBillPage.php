@@ -42,6 +42,8 @@ final class RoyalMailBillPage
     /** The line table's 8 headings, in order. */
     public const LINE_HEADINGS = ['Service Rendered Date', 'Product Number', 'Quantity', 'Product Description', 'Sales Order/Your Reference', 'Net Price',
         'Gross Price', 'VAT Code'];
+    /** A note the bill prints under its lines with an amount (not a line, not money of its own). */
+    public const SURCHARGE_NOTE = 'Surcharge included on Invoice';
     /** A VAT code with no summary row on the bill: CW's rate for it, in percent. */
     public const VAT_RATES = ['T' => '20', 'Z' => '0'];
 
@@ -112,6 +114,11 @@ final class RoyalMailBillPage
         foreach (iterator_to_array($x->query('//script|//style|//noscript|//template|//input[not(@type="submit" or @type="button")]') ?: []) as $n) {
             $n->parentNode?->removeChild($n);
         }
+        // ... nor anything the page hides (the hidden attribute, aria-hidden, display: none, visibility: hidden): the Codex check r1, MEDIUM 13
+        foreach (iterator_to_array($x->query('//*[@hidden or @aria-hidden="true" or contains(translate(translate(@style, " ", ""), "DISPLAYNOEVSBTH", "displaynoevsbth"), '
+            . '"display:none") or contains(translate(translate(@style, " ", ""), "VISIBLTYHDN", "visibltyhdn"), "visibility:hidden")]') ?: []) as $n) {
+            $n->parentNode?->removeChild($n);
+        }
         $table = null;
         foreach ($x->query('//tr') ?: [] as $tr) {
             if (!$tr instanceof \DOMElement) {
@@ -139,7 +146,8 @@ final class RoyalMailBillPage
             $table[] = self::cells($tr);
         }
         $body = $doc->getElementsByTagName('body')->item(0) ?? $doc->documentElement;
-        return [self::text($body), $table];
+        // the top block from the page's text only: a button's label is read only in a row of the lines (the Codex check r1, MEDIUM 13)
+        return [self::text($body, false), $table];
     }
 
     /**
@@ -161,7 +169,71 @@ final class RoyalMailBillPage
             }
             $table[] = $cells;
         }
-        return [self::squash(str_replace("\t", ' ', $bytes)), $table];
+        return [self::squash(str_replace("\t", ' ', $bytes)), $table ?? self::fromSpaced($lines)];
+    }
+
+    /**
+     * The page's text as a browser's page reader gives it (the owner's bills of 2, 9 and 16 Nov 2026; DL73): no tabs, the heading on one line
+     * with its words joined by spaces, each line of the bill on two lines ("05:11:2026 SD1 5.000 SD GUARANTEED BY 1PM" then "/ CLICK AND DROP
+     * M2281 GBP 53.08 GBP 63.70 T"; a reference may be empty: "/ GBP 7.63 GBP 9.16 T"), then the VAT summary ("T Std Rated 20% GBP ... GBP ...
+     * GBP ...") and the total. Each line made into the cells the table gives (date, product, quantity, description, reference, net, gross, VAT
+     * code); the description is what follows the quantity on the first line, the reference what precedes the amounts on the next.
+     *
+     * @param list<string> $lines
+     * @return list<list<string>>|null null: no heading
+     */
+    private static function fromSpaced(array $lines): ?array
+    {
+        $heading = strtolower(implode(' ', self::LINE_HEADINGS));
+        $table = null;
+        $row = null;
+        $amount = 'GBP\s*-?\s*[0-9][0-9,]*\.[0-9]{2}';
+        $tail = '/^(.*?)\s*(' . $amount . ')\s+(' . $amount . ')\s+([A-Z])$/D';
+        foreach ($lines as $line) {
+            $line = self::squash($line);
+            if ($table === null) {
+                if (strtolower($line) === $heading) {
+                    $table = [];
+                }
+                continue;
+            }
+            if (preg_match('/^(\d{2}[:.\/]\d{2}[:.\/]\d{4})\s+(\S+)\s+(\S+)\s*(.*)$/D', $line, $m) === 1) {
+                if ($row !== null) {
+                    $table[] = [$row[0], $row[1], $row[2], $row[3], '']; // a line with no amounts: refused as a line (fewer than 7 cells)
+                }
+                $row = [$m[1], $m[2], $m[3], $m[4]];
+                if (preg_match($tail, $m[4], $t) === 1) {
+                    // the whole line on one: its description and reference parted at " / "
+                    [$desc, $ref] = array_pad(explode(' / ', $t[1], 2), 2, '');
+                    $table[] = [$m[1], $m[2], $m[3], $desc, $ref === '' ? '' : '/ ' . $ref, $t[2], $t[3], $t[4]];
+                    $row = null;
+                }
+                continue;
+            }
+            if ($row !== null) {
+                if (preg_match($tail, $line, $t) === 1) {
+                    $table[] = [$row[0], $row[1], $row[2], $row[3], $t[1], $t[2], $t[3], $t[4]];
+                    $row = null;
+                    continue;
+                }
+                $row[3] .= ' ' . $line; // a description over more lines
+                continue;
+            }
+            // after the lines: the VAT summary ("T Std Rated 20% GBP a GBP b GBP c"), the total, and words
+            if (preg_match('/^([A-Z])\s+(.*?[0-9]{1,2}(?:\.[0-9]{1,2})?\s*%)\s+(' . $amount . ')\s+(' . $amount . ')\s+(' . $amount . ')$/D', $line, $t) === 1) {
+                $table[] = [$t[1], $t[2], $t[3], $t[4], $t[5]];
+                continue;
+            }
+            if (preg_match('/^(.*?)\s*(' . $amount . ')$/D', $line, $t) === 1) {
+                $table[] = [$t[1], $t[2]];
+                continue;
+            }
+            $table[] = [$line];
+        }
+        if ($row !== null && $table !== null) {
+            $table[] = [$row[0], $row[1], $row[2], $row[3], ''];
+        }
+        return $table;
     }
 
     /** @param list<string> $cells */
@@ -201,18 +273,23 @@ final class RoyalMailBillPage
         return $out;
     }
 
-    /** An element's visible text: its text nodes and its buttons' labels, spaces squashed. */
-    private static function text(\DOMNode $n): string
+    /** An element's visible text: its text nodes and (unless $buttons is false) its buttons' labels, spaces squashed. */
+    private static function text(\DOMNode $n, bool $buttons = true): string
     {
         $parts = [];
-        $walk = static function (\DOMNode $n) use (&$walk, &$parts): void {
+        $walk = static function (\DOMNode $n) use (&$walk, &$parts, $buttons): void {
             foreach ($n->childNodes as $c) {
                 if ($c instanceof \DOMText) {
                     $parts[] = $c->textContent;
                 } elseif ($c instanceof \DOMElement) {
                     $name = strtolower($c->nodeName);
                     if ($name === 'input') {
-                        $parts[] = ' ' . $c->getAttribute('value') . ' '; // a button's label (every other input was dropped)
+                        if ($buttons) {
+                            $parts[] = ' ' . $c->getAttribute('value') . ' '; // a button's label (every other input was dropped)
+                        }
+                        continue;
+                    }
+                    if ($name === 'button' && !$buttons) {
                         continue;
                     }
                     $block = in_array($name, ['td', 'th', 'tr', 'div', 'p', 'br', 'table', 'li', 'form', 'h1', 'h2', 'h3', 'h4'], true);
@@ -227,7 +304,7 @@ final class RoyalMailBillPage
             }
         };
         if ($n instanceof \DOMElement && strtolower($n->nodeName) === 'input') {
-            return self::squash($n->getAttribute('value'));
+            return $buttons ? self::squash($n->getAttribute('value')) : '';
         }
         $walk($n);
         return self::squash(implode('', $parts));
@@ -254,11 +331,14 @@ final class RoyalMailBillPage
         $account = $find('/Customer Account Number:?\s*([A-Za-z0-9-]{1,32})\b/i', 'customer account number');
         $invoice = $find('/\bInvoice:?\s*([0-9]{6,16})\b/i', 'invoice number');
         $date = $find('/(?<!Due )(?<!Due)\bDate:?\s*([A-Za-z]{3,9}\.?\s+[0-9]{1,2},?\s+[0-9]{4})/i', 'date');
-        $day = \DateTimeImmutable::createFromFormat('!M j Y', (string) preg_replace('/[.,]/', '', $date), new \DateTimeZone('UTC'))
-            ?: \DateTimeImmutable::createFromFormat('!F j Y', (string) preg_replace('/[.,]/', '', $date), new \DateTimeZone('UTC'));
-        if ($day === false) {
+        // a calendar day only ("Feb 31" is refused, never read as 3 March: the Codex check r1, LOW 17)
+        $months = ['jan' => 1, 'feb' => 2, 'mar' => 3, 'apr' => 4, 'may' => 5, 'jun' => 6, 'jul' => 7, 'aug' => 8, 'sep' => 9, 'oct' => 10, 'nov' => 11, 'dec' => 12];
+        $parts = preg_split('/\s+/', trim((string) preg_replace('/[.,]/', ' ', $date))) ?: [];
+        $mon = $months[strtolower(substr($parts[0] ?? '', 0, 3))] ?? 0;
+        if (count($parts) !== 3 || $mon === 0 || !checkdate($mon, (int) $parts[1], (int) $parts[2])) {
             throw self::refuse('the bill\'s date is not a day');
         }
+        $day = new \DateTimeImmutable(sprintf('%04d-%02d-%02d', (int) $parts[2], $mon, (int) $parts[1]), new \DateTimeZone('UTC'));
         $money = static function (string $label, string $what) use ($text): int {
             if (preg_match('/' . $label . ':?\s*(-?\s*[A-Z]{3}\s*-?\s*[0-9][0-9,]*\.[0-9]{2})/i', $text, $m) !== 1) {
                 throw self::refuse("the bill does not show its {$what}: save or copy the whole page of the bill");
@@ -323,6 +403,9 @@ final class RoyalMailBillPage
             if (strcasecmp($first[0] ?? '', 'Total') === 0) {
                 continue; // the total row: the gross again (checked against the top)
             }
+            if (count($first) === 2 && strcasecmp($first[0], self::SURCHARGE_NOTE) === 0) {
+                continue; // "Surcharge included on Invoice GBP 2,382.79": a note of the bill's, not a line (its meaning is Royal Mail's; DL73)
+            }
             // a VAT summary row: a one-letter code, then its rate ("Std Rated 20%"), then net, VAT and gross
             $code = null;
             foreach ($first as $k => $c) {
@@ -372,7 +455,8 @@ final class RoyalMailBillPage
             throw self::refuse("row {$at}: its Product Number is not a product code");
         }
         if (!in_array($product, $products, true)) {
-            throw self::refuse(preg_match('/^[A-Z][A-Z0-9]{1,3}$/D', $product) === 1
+            // named only in a code's shape: three letters and digits (a longer word may be a name: the Codex check r1, LOW 16)
+            throw self::refuse(preg_match('/^[A-Z0-9]{3}$/D', $product) === 1
                 ? "row {$at}: product {$product} is one CW does not know: tell the CW team (it must be added before this bill can be read)"
                 : "row {$at}: its product is one CW does not know: tell the CW team");
         }
@@ -389,8 +473,15 @@ final class RoyalMailBillPage
         if (preg_match('/^[A-Z]$/D', $vat) !== 1) {
             throw self::refuse("row {$at}: its VAT Code is not a code");
         }
+        $middle = array_slice($cells, 4, max(0, $c - 7));
+        foreach ($middle as $cell) {
+            // an amount where the reference is: refused (two such cells could move cost between rows unseen: the Codex check r1, MEDIUM 12)
+            if (preg_match('/GBP\s*-?\s*[0-9][0-9,]*\.[0-9]{2}/i', $cell) === 1) {
+                throw self::refuse("row {$at}: an amount where the reference is (column " . (5 + (int) array_search($cell, $middle, true)) . ')');
+            }
+        }
         return ['row_no' => $n, 'service_date' => sprintf('%04d-%02d-%02d', (int) $y, (int) $mo, (int) $d), 'product_code' => $product, 'qty' => $qty, 'net' => $net,
-            'gross' => $gross, 'vat_code' => $vat] + self::reference(implode(' ', array_slice($cells, 4, max(0, $c - 7))));
+            'gross' => $gross, 'vat_code' => $vat] + self::reference(implode(' ', $middle));
     }
 
     /**
@@ -457,7 +548,8 @@ final class RoyalMailBillPage
             $vat = $gross[$code] - $p;
             // |vat - net x rate| <= rows / 2 + 1 pence, in hundredths of a penny (bcmath: no float)
             $off = bcsub(bcmul((string) $vat, '100', 0), bcmul((string) $p, $rate, 2), 2);
-            $slack = bcadd(bcmul((string) $count[$code], '50', 0), '100', 0);
+            // half a penny a row and a penny; a zero rate: no VAT at all (the Codex check r1, LOW 18)
+            $slack = bccomp($rate, '0', 2) === 0 ? '0' : bcadd(bcmul((string) $count[$code], '50', 0), '100', 0);
             if (bccomp(ltrim($off, '-'), $slack, 2) > 0) {
                 throw self::refuse("the VAT of the lines of code {$code} does not follow from the lines at its rate ({$rate}%)");
             }

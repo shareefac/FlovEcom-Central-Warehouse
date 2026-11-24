@@ -362,12 +362,12 @@ final class RoyalMailBillsTest extends StockTestCase
         $calls = [];
         $clock2 = static fn (): \DateTimeImmutable => new \DateTimeImmutable('2026-11-11 02:20:00', new \DateTimeZone('UTC'));
         $r = (new RoyalMailBills(self::$db, $clock2))->pull(self::system(), $this->acct['account'], self::cnd($byDay, $calls));
-        self::assertSame(['2026-11-06', '2026-11-10', 1], [$r['from'], $r['to'], $r['filled']]);
+        self::assertSame(['2026-10-28', '2026-11-10', 1], [$r['from'], $r['to'], $r['filled']], 'the last 14 days at least (r1 MEDIUM 10)');
         self::assertSame('2026-11-10', (string) self::$db->value("SELECT manifest_day FROM carrier_label WHERE tracking_no = 'OX000000002GB'"), 'filled when manifested');
         foreach ($calls as $url) {
             self::assertStringStartsWith(ClickAndDropClient::BASE . '/orders', $url);
         }
-        self::assertCount(5 + 1, $calls, 'five days listed, one call for the orders by number');
+        self::assertCount(14 + 1, $calls, 'fourteen days listed, one call for the orders by number');
         // a key Click & Drop refuses: said in CW's words, never the key; the checkpoint stays
         $calls = [];
         try {

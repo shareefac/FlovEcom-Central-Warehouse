@@ -69,6 +69,28 @@ final class RoyalMailBillPageTest extends TestCase
         self::assertNotSame($page['sha256'], RoyalMailBillPage::parse(RmBill::page([...$lines, RmBill::line('2026-11-09', 'TPL', 1, 254, '1')]), RmBill::PRODUCTS)['sha256']);
     }
 
+    /**
+     * The page's text as a browser's page reader gives it (the coordinator's real bills of 2, 9 and 16 Nov 2026 are in this shape; DL73): each
+     * line over two lines, cells joined by spaces, an empty reference ("/ GBP 7.63 ..."), the surcharge note, the summary: read the same.
+     */
+    public function testThePagesReaderTextReadsTheSame(): void
+    {
+        // (the page's text does not show the sales order button of a Special Delivery line: the lines here have none, so both read the same)
+        $lines = array_map(static fn (array $l): array => ['sales' => null] + $l, [...self::week(), RmBill::line('2026-07-17', 'TPM', 1, 316, ''),
+            RmBill::line('2026-10-31', 'TRN', 1, 250, '4239')]);
+        $page = RoyalMailBillPage::parse(RmBill::page($lines), RmBill::PRODUCTS);
+        self::assertSame($page['rows'], RoyalMailBillPage::parse(RmBill::spaced($lines), RmBill::PRODUCTS)['rows']);
+        self::assertSame($page, RoyalMailBillPage::parse(RmBill::spaced($lines), RmBill::PRODUCTS));
+        // a line cut short (its amounts lost) is refused, never read as something else
+        $cut = str_replace("/ 943 GBP 1,096.12 GBP 1,315.34 T\n", '', RmBill::spaced($lines));
+        try {
+            RoyalMailBillPage::parse($cut, RmBill::PRODUCTS);
+            self::fail('a line with no amounts');
+        } catch (CwException $e) {
+            self::assertSame('bad_file', $e->errorCode);
+        }
+    }
+
     public function testThousandsAndZeroRatedLinesAndNoSummary(): void
     {
         $lines = [RmBill::line('2026-11-09', 'TPL', 703, 178_524, '943'), RmBill::line('2026-11-09', 'TSS', 2, 539, '', null, 'Z', 539)];

@@ -14,8 +14,8 @@ use CW\CwException;
  * address lines, city, postcode, country, notification email and mobile, department and tags: those columns are never read into anything
  * (their cells are dropped as they are met, XlsFile hands each cell over one by one) and nothing of them is returned or kept.
  *
- * Kept per label, each only in its known shape (anything else is kept as nothing): the tracking number (upper case, 8-32 letters and
- * digits; a row without one is skipped), Click & Drop's order number, the channel reference (digits, or # and digits: the shop order the
+ * Kept per label, each only in its known shape (anything else is kept as nothing): the tracking number (upper case, in Royal Mail's shape: two letters,
+ * nine digits, GB; a row without one is skipped), Click & Drop's order number, the channel reference (up to 9 digits, or # and digits: the shop order the
  * label carried), the channel as the code of one of the account's known channels ("other" for any other name), the service code, the package
  * size (letter, large_letter, parcel, other), the declared weight in grams, the manifest number and its time and UK day (an Excel date: Click
  * & Drop's own clock, UK time), and the Royal Mail sales order of a Special Delivery manifest (10 digits; the Tracked labels carry a long id
@@ -117,7 +117,7 @@ final class ClickAndDropReport
     private static function label(array $r, array $channels): ?array
     {
         $tracking = strtoupper(trim(self::text($r['tracking_no'] ?? null)));
-        if (preg_match('/^[A-Z0-9]{8,32}$/D', $tracking) !== 1) {
+        if (preg_match('/^[A-Z]{2}[0-9]{9}GB$/D', $tracking) !== 1) { // Royal Mail's shape only (a phone number is never kept: DL72)
             return null;
         }
         $ref = trim(self::text($r['reference'] ?? null));
@@ -137,7 +137,7 @@ final class ClickAndDropReport
         return [
             'tracking_no' => $tracking,
             'source_id' => preg_match('/^[1-9][0-9]{0,17}$/D', $source) === 1 ? (int) $source : null,
-            'reference' => preg_match('/^#?[0-9]{1,10}$/D', $ref) === 1 ? $ref : null,
+            'reference' => preg_match('/^#?[0-9]{1,9}$/D', $ref) === 1 ? $ref : null,
             'channel_code' => $channel === '' ? null : ($channels[$channel] ?? 'other'),
             'service_code' => preg_match('/^[A-Z0-9]{1,16}$/D', $service) === 1 ? $service : null,
             'package' => $package === '' ? null : (self::PACKAGES[$package] ?? 'other'),

@@ -16,8 +16,10 @@ declare(strict_types=1);
 
 use CW\Audit;
 use CW\Caller;
+use CW\CwException;
 use CW\Db;
 use CW\Ops\Cli;
+use CW\Profit\DeliveryBills;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
@@ -32,29 +34,42 @@ exit(Cli::main('carrier_account', ['list', 'account:', 'number:', 'switch-on', '
             return Cli::OK;
         }
         $no = is_string($opts['account'] ?? null) ? $opts['account'] : throw new InvalidArgumentException('--account=<number> is needed');
-        $a = $cli->db->one('SELECT * FROM carrier_account WHERE account_no = ?', [$no]) ?? throw new InvalidArgumentException('no carrier account of that number');
-        $caller = Caller::system('carrier_account');
-        if (is_string($opts['number'] ?? null)) {
-            $new = $opts['number'];
-            if (preg_match('/^[0-9]{6,16}$/D', $new) !== 1) {
-                throw new InvalidArgumentException('--number must be the account number as the carrier prints it (digits)');
-            }
-            if ($cli->db->value('SELECT 1 FROM carrier_invoice WHERE carrier = ? AND account = ? LIMIT 1', [$a['carrier'], $a['account_no']]) !== null) {
-                $cli->error('a bill of this account is stored already: its number stays');
-                return Cli::PROBLEM;
-            }
-            $cli->db->transaction(static function (Db $db) use ($a, $new, $caller): void {
-                $db->exec('UPDATE carrier_account SET account_no = ? WHERE id = ?', [$new, (int) $a['id']]);
-                Audit::write($db, $caller, 'carrier_account.set', 'carrier_account', (string) $a['id'], null, ['account_no' => [$a['account_no'], $new]]);
-            });
-            $cli->log("account {$a['account_no']} is now {$new} (still {$a['state']})");
-            return Cli::OK;
+        // Under the delivery bills' lock, the account read again inside it: a bill of the account being stored meanwhile waits, or this does (the
+        // Codex check r1, HIGH 4: a number changed while a first bill was being stored would strand that bill).
+        try {
+            return (new DeliveryBills($cli->db))->inLock(static fn (): int => carrier_account_change($cli, $opts, $no));
+        } catch (CwException $e) {
+            $cli->error(($e->errorCode === 'busy' ? 'busy: ' : '') . $e->getMessage());
+            return Cli::PROBLEM;
         }
-        $state = array_key_exists('switch-on', $opts) ? 'active' : (array_key_exists('switch-off', $opts) ? 'off' : throw new InvalidArgumentException('nothing to do'));
-        $cli->db->transaction(static function (Db $db) use ($a, $state, $caller): void {
-            $db->exec('UPDATE carrier_account SET state = ? WHERE id = ?', [$state, (int) $a['id']]);
-            Audit::write($db, $caller, 'carrier_account.set', 'carrier_account', (string) $a['id'], null, ['state' => [$a['state'], $state]]);
-        });
-        $cli->log("account {$a['account_no']}: {$state}");
-        return Cli::OK;
     }, true, true));
+
+/** @param array<string, mixed> $opts */
+function carrier_account_change(Cli $cli, array $opts, string $no): int
+{
+    $a = $cli->db->one('SELECT * FROM carrier_account WHERE account_no = ?', [$no]) ?? throw new InvalidArgumentException('no carrier account of that number');
+    $caller = Caller::system('carrier_account');
+    if (is_string($opts['number'] ?? null)) {
+        $new = $opts['number'];
+        if (preg_match('/^[0-9]{6,16}$/D', $new) !== 1) {
+            throw new InvalidArgumentException('--number must be the account number as the carrier prints it (digits)');
+        }
+        if ($cli->db->value('SELECT 1 FROM carrier_invoice WHERE carrier = ? AND account = ? LIMIT 1', [$a['carrier'], $a['account_no']]) !== null) {
+            $cli->error('a bill of this account is stored already: its number stays');
+            return Cli::PROBLEM;
+        }
+        $cli->db->transaction(static function (Db $db) use ($a, $new, $caller): void {
+            $db->exec('UPDATE carrier_account SET account_no = ? WHERE id = ?', [$new, (int) $a['id']]);
+            Audit::write($db, $caller, 'carrier_account.set', 'carrier_account', (string) $a['id'], null, ['account_no' => [$a['account_no'], $new]]);
+        });
+        $cli->log("account {$a['account_no']} is now {$new} (still {$a['state']})");
+        return Cli::OK;
+    }
+    $state = array_key_exists('switch-on', $opts) ? 'active' : (array_key_exists('switch-off', $opts) ? 'off' : throw new InvalidArgumentException('nothing to do'));
+    $cli->db->transaction(static function (Db $db) use ($a, $state, $caller): void {
+        $db->exec('UPDATE carrier_account SET state = ? WHERE id = ?', [$state, (int) $a['id']]);
+        Audit::write($db, $caller, 'carrier_account.set', 'carrier_account', (string) $a['id'], null, ['state' => [$a['state'], $state]]);
+    });
+    $cli->log("account {$a['account_no']}: {$state}");
+    return Cli::OK;
+}

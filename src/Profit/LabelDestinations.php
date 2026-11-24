@@ -28,6 +28,8 @@ final class LabelDestinations
 {
     /** The reasons a label is held (a fixed list: shown on the bill's page). */
     public const HELD = ['two_parcels', 'other_shop', 'carrier', 'ref_differs', 'shop_differs', 'shop_unknown', 'not_served'];
+    /** What a plan names for an order it saw at two snapshots: no write passes with it (it is tried again). */
+    public const CONFLICT = 'conflict';
     /** A Royal Mail tracking number's shape (a manual label in CW with one may be a Royal Mail label of the account: check d). */
     public const RM_TRACKING = '/^[A-Z]{2}[0-9]{9}GB$/D';
 
@@ -84,8 +86,10 @@ final class LabelDestinations
                 $carrier = strtolower((string) $p['carrier']);
                 $out[$id] = match (true) {
                     $pid === null || !self::serves($parties[$pid], $day) => self::held('other_shop'),
-                    !($carrier === 'royal_mail' || (($carrier === 'manual' || (int) $p['is_manual'] === 1) && preg_match(self::RM_TRACKING, (string) $l['tracking_no']) === 1))
-                        => self::held('carrier'),
+                    // royal_mail; or a label made by hand (carrier manual, or none given with the manual flag) with a Royal Mail number; never
+                    // another carrier's parcel, manual flag or not (the Codex check r1, MEDIUM 9)
+                    !($carrier === 'royal_mail' || (($carrier === 'manual' || ($carrier === '' && (int) $p['is_manual'] === 1))
+                        && preg_match(self::RM_TRACKING, (string) $l['tracking_no']) === 1)) => self::held('carrier'),
                     $ref !== null && (str_starts_with((string) $ref, '#') || DeliveryBills::orderNumber((string) $ref) !== DeliveryBills::orderNumber((string) $p['order_no']))
                         => self::held('ref_differs'),
                     ($l['channel_code'] ?? null) !== null && $ruled !== null && $ruled !== $pid => self::held('shop_differs'),
@@ -93,7 +97,11 @@ final class LabelDestinations
                         'party_id' => null, 'held_reason' => null],
                 };
                 if ($out[$id]['dest'] === 'order') {
-                    $versions[(int) $p['channel_id'] . '|' . strtolower((string) $p['order_ref'])] = $p['snapshot_version'] . '|' . $p['updated_at'];
+                    // an order seen at two snapshots in one plan (its parcels are read 500 numbers a statement, it was stored again in between)
+                    // names no snapshot a write could pass with: CONFLICT (the Codex check r1, HIGH 3)
+                    $vk = (int) $p['channel_id'] . '|' . strtolower((string) $p['order_ref']);
+                    $seen = $p['snapshot_version'] . '|' . $p['updated_at'];
+                    $versions[$vk] = isset($versions[$vk]) && $versions[$vk] !== $seen ? self::CONFLICT : $seen;
                 }
                 continue;
             }

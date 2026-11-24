@@ -150,11 +150,11 @@ final class ClickAndDropClient
             $at = self::time($o['manifestedOn'] ?? null);
             foreach ($numbers as $n) {
                 $t = strtoupper(trim($n));
-                if (preg_match('/^[A-Z0-9]{8,32}$/D', $t) !== 1 || isset($seen[$t])) {
+                if (preg_match('/^[A-Z]{2}[0-9]{9}GB$/D', $t) !== 1 || isset($seen[$t])) { // Royal Mail's shape only (a phone number is never kept: DL72)
                     continue;
                 }
                 $seen[$t] = true;
-                $out[] = ['tracking_no' => $t, 'source_id' => (int) $o['orderIdentifier'], 'reference' => preg_match('/^#?[0-9]{1,10}$/D', $ref) === 1 ? $ref : null,
+                $out[] = ['tracking_no' => $t, 'source_id' => (int) $o['orderIdentifier'], 'reference' => preg_match('/^#?[0-9]{1,9}$/D', $ref) === 1 ? $ref : null,
                     'created_on' => self::time($o['createdOn'] ?? null), 'manifested_at' => $at, 'manifest_day' => $at === null ? null : substr($at, 0, 10)];
             }
         }

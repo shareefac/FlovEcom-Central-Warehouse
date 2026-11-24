@@ -177,8 +177,12 @@ final class RoyalMailViews
         if ($ids === []) {
             return $out;
         }
-        foreach ($this->db->all('SELECT a.invoice_id, a.dest, COUNT(*) AS n, SUM(a.pence) AS p FROM carrier_allocation a WHERE a.ended_at IS NULL AND a.invoice_id IN ('
-            . implode(', ', array_fill(0, count($ids), '?')) . ') GROUP BY a.invoice_id, a.dest', $ids) as $r) {
+        // a live bill: its live allocations; a replaced or undone one: what it had when it stopped counting (its allocations ended last); a bill
+        // loading or not stored: nothing (the Codex check r1, LOW 20)
+        foreach ($this->db->all("SELECT a.invoice_id, a.dest, COUNT(*) AS n, SUM(a.pence) AS p FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id "
+            . "WHERE a.invoice_id IN (" . implode(', ', array_fill(0, count($ids), '?')) . ") AND ((i.status = 'live' AND a.ended_at IS NULL) OR (i.status IN "
+            . "('superseded', 'undone') AND i.ended_actor <> ? AND a.ended_at = (SELECT MAX(x.ended_at) FROM carrier_allocation x WHERE x.invoice_id = a.invoice_id))) "
+            . 'GROUP BY a.invoice_id, a.dest', [...$ids, RoyalMailBills::NOT_STORED]) as $r) {
             $id = (int) $r['invoice_id'];
             $out[$id] ??= ['order' => ['n' => 0, 'p' => 0], 'shop' => ['n' => 0, 'p' => 0], 'outside' => ['n' => 0, 'p' => 0], 'before_start' => ['n' => 0, 'p' => 0]];
             $k = match ((string) $r['dest']) {

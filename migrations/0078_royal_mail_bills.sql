@@ -105,9 +105,11 @@ INSERT INTO carrier_account (carrier, account_no, name, bill_format, label_sourc
   FROM delivery_party p WHERE p.code = 'vapeandgo'
   ON DUPLICATE KEY UPDATE carrier = carrier_account.carrier;
 -- Vape Big's own Royal Mail account: its number is not known yet (the owner sends its first bill); off until that bill ties by the day rule.
+-- Only while Vape Big has no Royal Mail account (its number set later by bin/carrier_account.php: a run again never makes a second one).
 INSERT INTO carrier_account (carrier, account_no, name, bill_format, label_source, key_name, main_party_id, state)
   SELECT 'royal_mail', 'vapebig-pending', 'Royal Mail OBA (Vape Big)', 'rm_oba_page', 'click_and_drop', 'click_and_drop_vapebig', p.id, 'off'
   FROM delivery_party p WHERE p.code = 'vapebig'
+    AND NOT EXISTS (SELECT 1 FROM carrier_account a WHERE a.carrier = 'royal_mail' AND a.main_party_id = p.id)
   ON DUPLICATE KEY UPDATE carrier = carrier_account.carrier;
 
 CREATE TABLE IF NOT EXISTS carrier_account_party (
@@ -224,7 +226,7 @@ CREATE TABLE IF NOT EXISTS carrier_label (
   tracking_no    VARCHAR(32)       NOT NULL,
   source         ENUM('api','report') NOT NULL COMMENT 'what brought it first; the other only fills empty fields',
   source_id      BIGINT UNSIGNED   NULL COMMENT 'Click & Drop''s order identifier',
-  reference      VARCHAR(12)       NULL COMMENT 'the shop order number the label carried: digits, or # and digits; anything else not kept',
+  reference      VARCHAR(12)       NULL COMMENT 'the shop order number the label carried: up to 9 digits, or # and digits; anything else (a phone number) not kept',
   channel_code   VARCHAR(16)       NULL COMMENT 'its Click & Drop channel as the code of one of the account''s (carrier_channel), else other',
   service_code   VARCHAR(16)       NULL,
   package        VARCHAR(16)       NULL COMMENT 'letter, large_letter, parcel, other',
@@ -245,7 +247,7 @@ CREATE TABLE IF NOT EXISTS carrier_label (
   KEY ix_carrier_label_source (account_id, source_id),
   CONSTRAINT fk_carrier_label_account FOREIGN KEY (account_id) REFERENCES carrier_account (id),
   CONSTRAINT ck_carrier_label_shapes CHECK (REGEXP_LIKE(tracking_no, '^[A-Z0-9]{8,32}$', 'c')
-    AND (reference IS NULL OR REGEXP_LIKE(reference, '^#?[0-9]{1,10}$', 'c'))
+    AND (reference IS NULL OR REGEXP_LIKE(reference, '^#?[0-9]{1,9}$', 'c'))
     AND (channel_code IS NULL OR REGEXP_LIKE(channel_code, '^[a-z][a-z0-9_]{1,15}$', 'c'))
     AND (service_code IS NULL OR REGEXP_LIKE(service_code, '^[A-Z0-9]{1,16}$', 'c'))
     AND (package IS NULL OR package IN ('letter', 'large_letter', 'parcel', 'other'))

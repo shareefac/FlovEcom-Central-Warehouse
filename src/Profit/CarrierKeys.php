@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace CW\Profit;
 
-use CW\Config;
-use CW\ConfigException;
 use CW\CwException;
 
 /**
@@ -25,17 +23,39 @@ final class CarrierKeys
             throw new CwException('no_key', 'the account\'s key name is not one CW accepts (lower-case letters, digits and _): fix the account\'s settings', 500);
         }
         clearstatcache(true, $path);
-        if (!is_file($path)) {
-            throw new CwException('no_key', "CW's key file {$path} is not there: the key {$name} cannot be read", 500);
+        // A link, a file another user owns (the cron runs as root: root's file only) or one others may read is refused; the file is opened once
+        // and its checks made on what was opened (the Codex check r1, LOW 15).
+        if (is_link($path) || !is_file($path)) {
+            throw new CwException('no_key', "CW's key file {$path} is not there (or is a link): the key {$name} cannot be read", 500);
         }
-        $mode = @fileperms($path);
-        if ($mode === false || ($mode & 0077) !== 0) {
-            throw new CwException('no_key', "CW's key file {$path} may be read by others than its owner: make it root's only (chmod 600) before CW uses it", 500);
+        $h = @fopen($path, 'rb');
+        if ($h === false) {
+            throw new CwException('no_key', "CW's key file {$path} could not be opened: the key {$name} cannot be read", 500);
         }
         try {
-            $keys = Config::parseEnvFile($path);
-        } catch (ConfigException) {
-            throw new CwException('no_key', "CW's key file {$path} could not be read (one name=key a line)", 500);
+            $st = fstat($h);
+            $me = function_exists('posix_geteuid') ? posix_geteuid() : null;
+            if ($st === false || ($st['mode'] & 0170000) !== 0100000 || ($st['mode'] & 0077) !== 0 || ($me !== null && $st['uid'] !== $me)) {
+                throw new CwException('no_key', "CW's key file {$path} must be a file of the user CW runs as, readable by it only (chmod 600) before CW uses it", 500);
+            }
+            $text = (string) stream_get_contents($h, 1_048_576);
+        } finally {
+            fclose($h);
+        }
+        $keys = [];
+        foreach (preg_split('/\r\n|\n|\r/', $text) ?: [] as $no => $line) {
+            $line = trim($line);
+            if ($line === '' || $line[0] === '#' || $line[0] === ';') {
+                continue;
+            }
+            if (preg_match('/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/D', $line, $m) !== 1) {
+                throw new CwException('no_key', "CW's key file {$path} could not be read (line " . ($no + 1) . ' is not one name=key)', 500);
+            }
+            $v = $m[2];
+            if (strlen($v) >= 2 && ($v[0] === '"' || $v[0] === "'") && $v[strlen($v) - 1] === $v[0]) {
+                $v = substr($v, 1, -1);
+            }
+            $keys[strtolower($m[1])] = $v;
         }
         $key = trim($keys[$name] ?? '');
         if ($key === '') {

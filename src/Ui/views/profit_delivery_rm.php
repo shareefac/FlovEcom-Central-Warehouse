@@ -111,7 +111,7 @@ $groupText = static function (array $w) use ($W): string {
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_billed') ?>"><?= $n($d['billed']) ?></td>
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_priced') ?>"><?= $n($d['priced']) ?></td>
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_line') ?>"><?= $e($gbp($d['line_pence'])) ?> <span class="muted"><?= $e($d['difference'] > 0 ? sprintf($W['rm_not_charged'], number_format($d['difference'])) : ($d['difference'] < 0 ? sprintf($W['rm_no_label'], number_format(-$d['difference'])) : $W['rm_equal'])) ?></span></td>
-      <td data-label="<?= $word('DELIVERY', 'status') ?>"><?= $d['look'] ? $chip('needs', $W['rm_look']) : ($d['closed'] ? $e($W['rm_closed']) : $e($W['rm_open'])) ?></td>
+      <td data-label="<?= $word('DELIVERY', 'status') ?>"><?php if ($d['look']): ?><?= $chip('needs', $W['rm_look']) ?><?php else: ?><?= $e($d['closed'] ? $W['rm_closed'] : $W['rm_open']) ?><?php endif; ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>

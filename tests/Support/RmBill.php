@@ -129,6 +129,36 @@ final class RmBill
         return $out;
     }
 
+    /**
+     * The page's text as a browser's page reader gives it (the shape of the owner's three bills of Nov 2026, made-up numbers): no tabs, the
+     * top block's labels and values on lines of their own, the heading's words joined by spaces, each bill line on two lines (the second
+     * starting "/ " and ending with the amounts and the VAT code), the surcharge note, the VAT summary and the total.
+     *
+     * @param list<array<string, mixed>> $lines
+     * @param array<string, mixed> $over as page()
+     */
+    public static function spaced(array $lines, array $over = []): string
+    {
+        $t = self::totals($lines);
+        $net = $over['net'] ?? $t['net'];
+        $vat = $over['vat'] ?? $t['vat'];
+        $gross = $over['gross'] ?? $net + $vat;
+        $out = "Invoice\n\nRoyal Mail Group Ltd.\n1 Made Up Walk,\nNOWHERETON\nZZ1 1ZZ\nCustomer Account Number: " . ($over['account'] ?? '0706703000')
+            . "\nLegal Entity Number: 1000000000\nCustomer VAT Reg No:\n\nDate:\n" . ($over['date'] ?? 'Nov 16, 2026') . "\nTotal Price Net:\n" . self::gbp($net) . "\nVAT:\n"
+            . self::gbp($vat) . "\nTotal Gross Price:\n" . self::gbp($gross) . "\n\nVAT Reg Number GB 000 0000 00\n\nTEST SHOP LIMITED\n1 Imaginary Road\n\nInvoice: "
+            . ($over['invoice'] ?? '9070000001') . "\n" . implode(' ', \CW\Profit\RoyalMailBillPage::LINE_HEADINGS) . "\n";
+        foreach ($lines as $l) {
+            [$y, $m, $d] = explode('-', $l['day']);
+            $out .= "{$d}:{$m}:{$y} {$l['product']} " . number_format($l['qty'], 3, '.', '') . " A DESCRIPTION OF THE PRODUCT\n/ " . ($l['ref'] === '' ? '' : $l['ref'] . ' ')
+                . self::gbp($l['net']) . ' ' . self::gbp($l['gross']) . ' ' . $l['vat'] . "\n";
+        }
+        $out .= "\nSurcharge included on Invoice GBP 1,234.56\n\nVAT Summary\nVAT Code VAT Description Net Total VAT Total Gross Total\n";
+        foreach ($t['by_code'] as $code => $f) {
+            $out .= "{$code} " . ($code === 'T' ? 'Std Rated 20%' : 'Zero Rated 0%') . ' ' . self::gbp($f['net']) . ' ' . self::gbp($f['vat']) . ' ' . self::gbp($f['net'] + $f['vat']) . "\n";
+        }
+        return $out . 'Total ' . self::gbp($gross) . "\n\nPlease Pay By: Nov 23, 2026 Terms of payment: 7 Days\n";
+    }
+
     /** Royal Mail's product codes (carrier_product's seed). */
     public const PRODUCTS = ['TPL', 'TPM', 'TRN', 'SD1', 'RX1', 'RXA', 'RW4', 'TSS'];
 }

@@ -77,7 +77,9 @@ final class PooledPlanner
                         'band', 'wrong_weight' => 'no_batch',
                         default => 'unknown',
                     };
-                    self::push($out, self::alloc($r, 'row', $how, null, self::mainDest($ctx), (int) $r['net']));
+                    // a row of no batch on a day whose labels are not all in yet: held until they are (the Codex check r1, HIGH 1; DL71)
+                    $dest = $how === 'no_batch' && self::waiting($r, $ctx) ? self::held('no_report') : self::mainDest($ctx, (string) $r['service_date']);
+                    self::push($out, self::alloc($r, 'row', $dest['dest'] === 'held' ? 'no_report' : $how, null, $dest, (int) $r['net']));
                 }
             }
         }
@@ -147,6 +149,14 @@ final class PooledPlanner
     private static function flat(array $rows, array $labels, array $ctx): array
     {
         $out = [];
+        if (self::waiting($rows[0], $ctx)) {
+            // the day's labels are not all in (Click & Drop's report not read yet: a label with no service, or none at all): the whole day held,
+            // priced once they are (the Codex check r1, HIGH 1; DL71)
+            foreach ($rows as $r) {
+                self::push($out, self::alloc($r, 'row', 'no_report', null, self::held('no_report'), (int) $r['net']));
+            }
+            return $out;
+        }
         $first = (int) $rows[0]['invoice_id'];
         $firstRows = array_values(array_filter($rows, static fn (array $r): bool => (int) $r['invoice_id'] === $first));
         $cap = array_values(array_filter($firstRows, static fn (array $r): bool => (int) $r['qty'] > 0));
@@ -179,7 +189,7 @@ final class PooledPlanner
                 $rest = (int) $r['net'];
                 $how = 'tail';
             }
-            foreach (self::split($rest, $shares, $ctx) as [$dest, $p]) {
+            foreach (self::split($rest, $shares, $ctx, (string) $r['service_date']) as [$dest, $p]) {
                 self::push($out, self::alloc($r, 'day_line', $how, null, $dest, $p));
             }
         }
@@ -198,7 +208,9 @@ final class PooledPlanner
         $out = [];
         if ($labels === []) {
             foreach ($rows as $r) {
-                self::push($out, self::alloc($r, 'row', 'no_label', null, self::mainDest($ctx), (int) $r['net']));
+                $wait = self::waiting($r, $ctx);
+                self::push($out, self::alloc($r, 'row', $wait ? 'no_report' : 'no_label', null, $wait ? self::held('no_report')
+                    : self::mainDest($ctx, (string) $r['service_date']), (int) $r['net']));
             }
             return $out;
         }
@@ -285,14 +297,16 @@ final class PooledPlanner
         foreach ($rows as $r) {
             $net = (int) $r['net'];
             if ($labels === []) {
-                self::push($out, self::alloc($r, 'row', 'no_batch', null, self::mainDest($ctx), $net));
+                $wait = self::waiting($r, $ctx);
+                self::push($out, self::alloc($r, 'row', $wait ? 'no_report' : 'no_batch', null, $wait ? self::held('no_report')
+                    : self::mainDest($ctx, (string) $r['service_date']), $net));
                 continue;
             }
             $each = intdiv($net, count($labels));
             foreach ($labels as $l) {
                 self::push($out, self::alloc($r, 'wrong_weight', 'shared', (int) $l['id'], $l['dest'], $each));
             }
-            self::push($out, self::alloc($r, 'row', 'left_over', null, self::mainDest($ctx), $net - $each * count($labels)));
+            self::push($out, self::alloc($r, 'row', 'left_over', null, self::mainDest($ctx, (string) $r['service_date']), $net - $each * count($labels)));
         }
         return $out;
     }
@@ -330,12 +344,12 @@ final class PooledPlanner
      * @param array<string, array{dest: array<string, mixed>, n: int}> $holders
      * @return list<array{0: array<string, mixed>, 1: int}>
      */
-    private static function split(int $amount, array $holders, array $ctx): array
+    private static function split(int $amount, array $holders, array $ctx, string $day): array
     {
         if ($amount === 0) {
             return [];
         }
-        $main = self::mainDest($ctx);
+        $main = self::mainDest($ctx, $day);
         $mainKey = self::destKey($main);
         $total = array_sum(array_column($holders, 'n'));
         $out = [];
@@ -381,10 +395,32 @@ final class PooledPlanner
         return ['dest' => $dest, 'channel_id' => $channel, 'order_ref' => null, 'parcel_ref' => null, 'party_id' => $party, 'held_reason' => $reason];
     }
 
-    /** The main shop's "not on an order". */
-    private static function mainDest(array $ctx): array
+    /**
+     * The main shop's "not on an order" on a day; on or before its first day in CW (ctx main_start; none yet: every day), before CW start, as
+     * DPD's lines (DL10; DL71).
+     */
+    private static function mainDest(array $ctx, string $day): array
     {
-        return self::dest('shop', channel: (int) $ctx['main']);
+        $start = $ctx['main_start'] ?? null;
+        $before = array_key_exists('main_start', $ctx) && ($start === null || $day <= $start);
+        return self::dest($before ? 'before_start' : 'shop', channel: (int) $ctx['main']);
+    }
+
+    /** @return array<string, mixed> held, for a reason */
+    private static function held(string $reason): array
+    {
+        return self::dest('held', reason: $reason);
+    }
+
+    /**
+     * Whether a row's day waits for its labels (ctx waiting: the days of the account whose labels are not all in: one with no service yet,
+     * or none at all on a day after the account's first label; DL71).
+     *
+     * @param array<string, mixed> $r
+     */
+    private static function waiting(array $r, array $ctx): bool
+    {
+        return isset($ctx['waiting'][(string) $r['service_date']]);
     }
 
     /** @param array<string, mixed> $d */

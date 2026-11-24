@@ -72,8 +72,8 @@ $gbp = static fn (int $p): string => \CW\Profit\DpdInvoiceFile::gbp($p);
       <th scope="row"><?= $e((string) $a['account_no']) ?> <span class="muted"><?= $e((string) $a['name']) ?></span></th>
       <td data-label="<?= $word('DELIVERY', 'status') ?>"><?= $word('DELIVERY', 'rm_state_' . ((string) $a['state'] === 'active' ? 'active' : 'off')) ?></td>
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_labels_held') ?>"><?= $n((int) $a['labels']) ?></td>
-      <td data-label="<?= $word('DELIVERY', 'rm_read_to') ?>"><?= $a['read_to'] === null ? '-' : $day((string) $a['read_to']) ?></td>
-      <td data-label="<?= $word('DELIVERY', 'rm_last_ok') ?>"><?= $a['last_ok_at'] === null ? '-' : $when((string) $a['last_ok_at']) ?></td>
+      <td data-label="<?= $word('DELIVERY', 'rm_read_to') ?>"><?php if ($a['read_to'] === null): ?>-<?php else: ?><?= $day((string) $a['read_to']) ?><?php endif; ?></td>
+      <td data-label="<?= $word('DELIVERY', 'rm_last_ok') ?>"><?php if ($a['last_ok_at'] === null): ?>-<?php else: ?><?= $when((string) $a['last_ok_at']) ?><?php endif; ?></td>
       <td data-label="<?= $word('DELIVERY', 'rm_last_error') ?>"><?= $e((string) ($a['last_error'] ?? '')) ?></td>
     </tr>
 <?php endforeach; ?>

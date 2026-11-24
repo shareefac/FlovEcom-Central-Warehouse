@@ -129,7 +129,7 @@ final class DeliveryBillsController
             return $this->listPage($ctx, $e->httpStatus, $e, ['account' => $account, 'carrier' => 'royal_mail']);
         }
         $said = Words::say('DELIVERY', 'rm_labels_read', number_format($r['labels']), number_format($r['added']), number_format($r['filled']), number_format($r['skipped']))
-            . ($r['differs'] > 0 ? Words::say('DELIVERY', 'rm_labels_differ', number_format($r['differs'])) : '')
+            . ($r['differs'] > 0 ? ' ' . Words::say('DELIVERY', 'rm_labels_differ', number_format($r['differs'])) : '')
             . ($r['replan_error'] !== null ? ' ' . $r['replan_error'] : '');
         return $this->listPage($ctx, 200, null, [], $said);
     }

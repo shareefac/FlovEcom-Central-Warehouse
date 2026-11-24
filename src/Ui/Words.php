@@ -11174,7 +11174,7 @@ final class Words
         'rm_report_hint' => 'Click & Drop > Reports > Manifested Orders, the days you need. CW reads only the label fields: never a name, an address or the file.',
         'rm_report_upload' => 'Read the labels',
         'rm_labels_read' => 'Labels read: %s (%s new, %s with empty fields filled, %s rows skipped).',
-        'rm_labels_differ' => ' %s labels say something else than CW holds already: CW keeps what it read first.',
+        'rm_labels_differ' => '%s labels say something else than CW holds already: CW keeps what it read first.',
     ];
 
     public const RD_REPORTS = [
