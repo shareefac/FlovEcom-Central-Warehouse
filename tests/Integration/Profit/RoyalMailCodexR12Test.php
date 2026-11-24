@@ -190,4 +190,28 @@ final class RoyalMailCodexR12Test extends StockTestCase
         self::assertSame(["order|{$this->vpg}|" => 930], self::where($id));
         self::assertSame([], RoyalMailLook::forDays(self::$db, $this->acct['account'], ['2026-11-12']), 'its one label is usable: 1 billed, 1 label, nothing to look at');
     }
+
+    /** The lead's final review, M2: a plan reads a shop's CW start day once, never once per label (15.65 ms a read on live: ~75 s a plan). */
+    public function testM2TheStartDayIsReadOncePerShopPerPlan(): void
+    {
+        $labels = [];
+        for ($i = 1; $i <= 6; $i++) {
+            // on no CW parcel, 7 digits: Vape and Go's "not on an order" or before CW start (each asks the shop's start day)
+            $labels[$i] = ['id' => $i, 'tracking_no' => sprintf('JX%09dGB', 3450 + $i), 'reference' => (string) (1394500 + $i), 'channel_code' => 'api',
+                'manifest_day' => '2026-11-1' . ($i % 3)];
+        }
+        $conn = TestDb::connect();
+        $conn->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\TimedStatement::class, []]);
+        \CW\Tests\Support\TimedStatement::$watch = ['SELECT MIN(created_at) FROM reservation'];
+        \CW\Tests\Support\TimedStatement::$marks = [];
+        try {
+            $dests = \CW\Profit\LabelDestinations::resolve($conn, \CW\Profit\CarrierSettings::account($conn, $this->acct['account']), $labels, []);
+            $reads = count(\CW\Tests\Support\TimedStatement::$marks);
+        } finally {
+            \CW\Tests\Support\TimedStatement::$watch = [];
+            \CW\Tests\Support\TimedStatement::$marks = [];
+        }
+        self::assertSame(['shop'], array_values(array_unique(array_column($dests, 'dest'))));
+        self::assertSame(1, $reads, 'the start day of Vape and Go read once for its 6 labels');
+    }
 }
