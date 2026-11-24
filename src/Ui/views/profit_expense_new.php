@@ -15,6 +15,7 @@ $bad = static fn (string $f): string => $errorField === $f ? ' aria-invalid="tru
 <?php endif; ?>
 <form class="record expense-form" method="post" action="/ui/profit/expenses/new" enctype="multipart/form-data" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+  <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
   <div class="expense-main">
     <fieldset class="shop-pick">
       <legend><?= $word('EXPENSES', 'which_shop') ?></legend>

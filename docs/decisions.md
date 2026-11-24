@@ -20511,3 +20511,29 @@ supplier's invoice copy need invoices.view as well; the expense page names no st
 read in one moment and a file that is not there is "no such file" before any rule, so a request racing a store can never pass the rules
 before the file exists. M10: a form refused after a file was chosen says the file was not kept and asks for it again: sent without a file it
 is refused, unless "Save without a file" is ticked. M11 (and r1 M14): who deleted a row and when are in its history and compared every night.
+
+**The Codex check r3 of ca25bfc (`cw_work/runs/expenses_codex_r3.txt`: r2's H1, H3-H9, M6 and r1's H1, M7 FIXED; r2 H2, M10, M11 and r1 M14
+PARTLY; new: 5 HIGH, 6 MEDIUM; NO GO; the third and last Codex round of the build). Each shown failing first on 1d9b962 (ca25bfc + the tests:
+`runs/expenses_r3red.log`), then fixed (EX32-EX35). The full suite's template lints found four slips of ca25bfc (a helper's name used for a
+variable, a destructive button's class, a form's attributes in an order the multipart lint cannot read): fixed with them.**
+
+**EX32. One effect per add form (r3 H1; I46).** "Add an expense" and "Add a regular cost" carry a one-effect key (FormOnce): the same form
+sent again (a lost answer, a browser retry, a confirmed second one included) lands where the first did and adds nothing; a refused form keeps
+its key, so the corrected form is still one effect; a new form is a new key. What is kept of the form: its fields and the file's fingerprint.
+
+**EX33. Typed text as one plain line (r3 H2).** An invoice number, a supplier's, a regular cost's and a type's name: every kind of space (a
+non-breaking or thin space copied from a PDF, a tab) is one plain space, invisible format characters (a zero-width space) are dropped, none
+at either end; so "INV-487" copied with a non-breaking space is the same invoice for the duplicate guard (EX14), and it is kept that way.
+
+**EX34. A new end or name that meets another line of the same name asks first (r3 H3).** As an add (EX28): changing a regular cost's last
+day or name so that it counts on days of another line of the same name in its shop (one added on its own, not of its chain) is refused unless
+"It is another cost: save it all the same" is ticked.
+
+**EX35. The rest of r3.** H5: Real profit says it is not complete while ANY unit counted has no buying price or waits for it, with how many
+(the margin pages' 0.5% rule is for a margin; a real profit is an amount). H7: the seed checks its plan again inside its transaction under
+the locks every add takes: a line "already there" must still be there with the same figures (its row locked until the seed commits); else
+the whole run is refused, nothing written. M4: a line's "new amount" link is the next line by date. M6: "Show deleted ones too" offers the
+months of the deleted invoices as well. M8: a change refused because someone else changed the expense still asks for the file chosen. M9 (and
+r2 M11, r1 M14): who deleted a row (the person, deleted_by) is in its history and compared every night. M10: an expense's and a regular cost's
+page read their facts and their history in one snapshot. M11: the per-day sum stops at its last day (a period ending 31 Dec 9999 is worked
+out, never a loop).

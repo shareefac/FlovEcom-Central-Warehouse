@@ -12,6 +12,7 @@ $bad = static fn (string $f): string => $errorField === $f ? ' aria-invalid="tru
 <?php endif; ?>
 <form class="record" method="post" action="/ui/profit/regular/new" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+  <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
   <fieldset class="shop-pick">
     <legend><?= $word('REGULAR', 'which_shop') ?></legend>
 <?php foreach ($shops as $s): ?>

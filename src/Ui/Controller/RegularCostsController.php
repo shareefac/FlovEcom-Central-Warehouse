@@ -67,11 +67,17 @@ final class RegularCostsController
         $typed = ['name' => $f('name'), 'shop' => $f('shop'), 'type' => $f('type'), 'every' => $f('every'), 'amount' => $f('amount'), 'from' => $f('from'),
             'until' => $f('until'), 'note' => $f('note')];
         try {
-            $id = (new RegularCosts($ctx->db))->add($ctx->caller(), $typed, $ctx->req->field('same_ok') === '1');
+            $sameOk = $ctx->req->field('same_ok') === '1';
+            // One effect per form (FormOnce, I46; the Codex check r3, H1): the same form sent again, a confirmed second one too, adds nothing more.
+            $r = \CW\Ui\FormOnce::run($ctx, 'ui.regular_cost.add', $typed + ['same_ok' => $sameOk ? '1' : ''],
+                static function (\CW\Db $db) use ($ctx, $typed, $sameOk): \CW\OpResult {
+                    $id = (new RegularCosts($db))->add($ctx->caller(), $typed, $sameOk);
+                    return \CW\OpResult::of(303, ['redirect' => Html::url(self::PATH . '/' . $id, ['notice' => 'added'])]);
+                });
         } catch (CwException $e) {
             return $this->form($ctx, $e->httpStatus, $e, $typed);
         }
-        return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['notice' => 'added']));
+        return \CW\Ui\FormOnce::redirect($r);
     }
 
     public function show(Context $ctx): HtmlResponse
@@ -87,7 +93,7 @@ final class RegularCostsController
         $f = static fn (string $k): string => (string) ($ctx->req->field($k) ?? '');
         $typed = ['name' => $f('name'), 'type' => $f('type'), 'until' => $f('until'), 'note' => $f('note'), 'form' => 'change'];
         try {
-            $changed = (new RegularCosts($ctx->db))->change($ctx->caller(), $id, self::seen($ctx), $typed);
+            $changed = (new RegularCosts($ctx->db))->change($ctx->caller(), $id, self::seen($ctx), $typed, $ctx->req->field('same_ok') === '1');
         } catch (CwException $e) {
             return $this->refused($ctx, $id, $e, $typed);
         }
@@ -153,6 +159,7 @@ final class RegularCostsController
             'errorField' => is_string($error?->detail['field'] ?? null) ? $error->detail['field'] : null,
             'sameAsk' => $error?->errorCode === 'same_cost',
             'other' => is_int($error?->detail['other'] ?? null) ? self::PATH . '/' . $error->detail['other'] : null,
+            'formKey' => ExpensesController::formKey($ctx, $error),
         ], $status, ['title' => Words::REGULAR['new_title']]);
     }
 
@@ -204,6 +211,7 @@ final class RegularCostsController
             'errorField' => is_string($error?->detail['field'] ?? null) ? $error->detail['field'] : null,
             'amountText' => ExpenseMoney::gbp((int) $r['amount_pence']),
             'seen' => $seen ?? (int) $r['version'],
+            'sameAsk' => $error?->errorCode === 'same_cost',
         ], $status, ['title' => (string) $r['name'], 'notice' => $notice]);
     }
 }

@@ -126,7 +126,7 @@ final class ExpenseTypes
 
     private static function name(string $name): string
     {
-        $name = trim((string) preg_replace('/\s+/u', ' ', str_replace("\u{00A0}", ' ', $name)));
+        $name = Expenses::plain($name);
         if (!mb_check_encoding($name, 'UTF-8') || mb_strlen($name) < 2 || mb_strlen($name) > self::NAME_MAX || preg_match('/[\x00-\x1F\x7F]/', $name) === 1) {
             throw new CwException('bad_name', 'a name of 2 to ' . self::NAME_MAX . ' characters', 422, ['field' => 'name']);
         }

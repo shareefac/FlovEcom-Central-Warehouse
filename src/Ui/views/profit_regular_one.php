@@ -91,6 +91,9 @@ $deleted = $r['deleted_at'] !== null;
         <input type="text" name="note" value="<?= $e((string) $t['note']) ?>" maxlength="500"<?= $bad('note') ?>>
       </label>
     </fieldset>
+<?php if ($sameAsk): ?>
+    <label class="choice same-ok"><input type="checkbox" name="same_ok" value="1"> <?= $word('REGULAR', 'same_ok') ?></label>
+<?php endif; ?>
     <p class="actions"><button type="submit" class="btn primary"><?= $word('EXPENSES', 'change_save') ?></button></p>
   </form>
 </details>
@@ -104,7 +107,7 @@ $deleted = $r['deleted_at'] !== null;
       <input type="text" name="reason" value="" minlength="3" maxlength="500" required>
     </label>
     <label class="choice"><input type="checkbox" name="sure" value="1"> <?= $word('REGULAR', 'delete_tick') ?></label>
-    <p class="actions"><button type="submit" class="btn danger"><?= $word('EXPENSES', 'delete_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn risky"><?= $word('EXPENSES', 'delete_button') ?></button></p>
   </form>
 </details>
 <?php endif; ?>

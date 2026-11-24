@@ -73,6 +73,9 @@ final class RegularCostMath
                 [$w2, $num, $den] = self::norm(0, $num * $d + $n * $den, $den * $d);
                 $whole += $w2;
             }
+            if ($last >= $end) {
+                break; // the last day is done: never a day after it (the year 9999's next day is no YYYY day: the Codex check r3, M11)
+            }
             $cursor = self::addDays($last, 1);
         }
         return [$whole, $num, $den];

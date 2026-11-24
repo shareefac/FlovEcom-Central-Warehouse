@@ -40,7 +40,7 @@ $deleted = $x['deleted_at'] !== null;
 <?php if ($canEdit): ?>
 <details class="fold expense-change" id="change"<?php if ($error !== null && $errorCode !== 'not_sure' && $errorCode !== 'bad_reason'): ?> open<?php endif; ?>>
   <summary><?= $word('EXPENSES', 'change_title') ?></summary>
-  <form class="record expense-form" method="post" action="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/change') ?>" enctype="multipart/form-data" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
+  <form class="record expense-form" method="post" enctype="multipart/form-data" action="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/change') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
     <div class="expense-main">
@@ -81,7 +81,7 @@ $deleted = $x['deleted_at'] !== null;
       <input type="text" name="reason" value="" minlength="3" maxlength="500" required>
     </label>
     <label class="choice"><input type="checkbox" name="sure" value="1"> <?= $word('EXPENSES', 'delete_tick') ?></label>
-    <p class="actions"><button type="submit" class="btn danger"><?= $word('EXPENSES', 'delete_button') ?></button></p>
+    <p class="actions"><button type="submit" class="btn risky"><?= $word('EXPENSES', 'delete_button') ?></button></p>
   </form>
 </details>
 <?php endif; ?>

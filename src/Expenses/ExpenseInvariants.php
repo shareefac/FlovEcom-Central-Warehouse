@@ -44,9 +44,9 @@ final class ExpenseInvariants
         // Every field the screens show and the profit reads, a delete's reason exactly (the Codex check r1, M14), and the suppliers' and types'
         // rows too.
         $checked = ['expense' => ['expense', ['channel_id', 'supplier_id', 'type_id', 'invoice_date', 'invoice_no', 'net_pence', 'vat_pence', 'total_pence', 'note',
-                'file_id', 'deleted_reason', 'deleted_at', 'deleted_actor']],
+                'file_id', 'deleted_reason', 'deleted_at', 'deleted_actor', 'deleted_by']],
             'regular_cost' => ['regular_cost', ['name', 'channel_id', 'type_id', 'every', 'amount_pence', 'from_day', 'until_day', 'note', 'replaces_id', 'deleted_reason',
-                'deleted_at', 'deleted_actor']],
+                'deleted_at', 'deleted_actor', 'deleted_by']],
             'expense_supplier' => ['supplier', ['name', 'is_active']],
             'expense_type' => ['type', ['kind', 'name', 'is_active', 'sort_order']]];
         foreach ($checked as $table => [$subject, $cols]) {

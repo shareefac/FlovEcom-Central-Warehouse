@@ -4153,6 +4153,5 @@ form.record fieldset.expense-fields > p.expense-total, form.record fieldset.expe
 p.expense-total { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border: 1px solid var(--hairline);
   border-radius: var(--r-8); background: var(--page-alt); }
 p.expense-total output { font-weight: 600; }
-.btn.danger { border-color: var(--block-ink); color: var(--block-ink); }
 section.expense-figs .doc-step-big { font-variant-numeric: tabular-nums; }
 /* ==== end expenses ================================================================================================================= */

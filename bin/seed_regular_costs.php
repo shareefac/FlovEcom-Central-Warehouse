@@ -97,7 +97,7 @@ exit(Cli::main('seed_regular_costs', ['from:', 'apply'], 'usage: php bin/seed_re
                     . "from {$r['from_day']}" . ($r['until_day'] === null ? '' : " until {$r['until_day']}") . '): change or delete it on Profit > Regular costs first';
                 continue;
             }
-            $plan[] = ['there', $name, $amount, $groups[$group], $until, $line . ' (line ' . (int) array_values($match)[0]['id'] . ')'];
+            $plan[] = ['there', $name, $amount, $groups[$group], $until, $line . ' (line ' . (int) array_values($match)[0]['id'] . ')', (int) array_values($match)[0]['id']];
         }
         if ($refusals !== []) {
             foreach ($refusals as $why) {
@@ -118,7 +118,21 @@ exit(Cli::main('seed_regular_costs', ['from:', 'apply'], 'usage: php bin/seed_re
         $rc = new RegularCosts($cli->db);
         $caller = Caller::system('seed_regular_costs');
         try {
-            $done = $cli->db->transaction(static function () use ($plan, $rc, $caller, $shop, $from): array {
+            $done = $cli->db->transaction(static function (\CW\Db $db) use ($plan, $rc, $caller, $shop, $from): array {
+                // The plan checked again under the locks every add takes (the Codex check r3, H7): a line "already there" must still be there,
+                // not deleted, with the same figures, and stays so until this commits (its row locked); a line to add is checked by the add
+                // itself (EX28). Anything changed meanwhile refuses the whole run: nothing written.
+                $db->all("SELECT id FROM expense_type WHERE kind = 'regular' ORDER BY id FOR UPDATE");
+                foreach ($plan as $p) {
+                    if ($p[0] !== 'there') {
+                        continue;
+                    }
+                    $r = $db->one('SELECT every, amount_pence, from_day, until_day, deleted_at FROM regular_cost WHERE id = ? FOR UPDATE', [$p[6]]);
+                    if ($r === null || $r['deleted_at'] !== null || (string) $r['every'] !== 'week' || (int) $r['amount_pence'] !== (int) ExpenseMoney::pence($p[2])
+                        || (string) $r['from_day'] !== $from || ($r['until_day'] === null ? null : (string) $r['until_day']) !== $p[4]) {
+                        throw new CwException('seed_changed', "{$p[1]} (line {$p[6]}) changed while the seed ran", 409);
+                    }
+                }
                 $out = [];
                 foreach ($plan as [$what, $name, $amount, $type, $until, $line]) {
                     if ($what === 'add') {

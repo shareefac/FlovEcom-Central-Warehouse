@@ -119,9 +119,9 @@ final class RegularCosts
      *
      * @param array<string, mixed> $in
      */
-    public function change(Caller $caller, int $id, int $seen, array $in): bool
+    public function change(Caller $caller, int $id, int $seen, array $in, bool $sameOk = false): bool
     {
-        return $this->db->transaction(function (Db $db) use ($caller, $id, $seen, $in): bool {
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $seen, $in, $sameOk): bool {
             ExpenseAccess::mayEdit($db, $caller);
             $row = $this->locked($db, $id, $seen);
             $name = Expenses::name((string) ($in['name'] ?? ''));
@@ -137,6 +137,17 @@ final class RegularCosts
             }
             if ($name === (string) $row['name'] && $type === (int) $row['type_id'] && $until === $row['until_day'] && $note === $row['note']) {
                 return false;
+            }
+            // A new name or end that makes it meet another line of the same name in its shop (one added on its own, not of its chain): the same
+            // question as an add (EX28; the Codex check r3, H3), unless the person says it is another cost.
+            if (!$sameOk && ($name !== (string) $row['name'] || $until !== $row['until_day'])) {
+                $db->all("SELECT id FROM expense_type WHERE kind = 'regular' ORDER BY id FOR UPDATE");
+                $other = $db->one("SELECT id, from_day FROM regular_cost WHERE channel_id = ? AND name = ? AND deleted_at IS NULL AND id <> ? AND from_day <= COALESCE(?, '9999-12-31') "
+                    . "AND COALESCE(until_day, '9999-12-31') >= ? ORDER BY id LIMIT 1", [$row['channel_id'], $name, $id, $until, $row['from_day']]);
+                if ($other !== null) {
+                    throw new CwException('same_cost', 'a regular cost of this name in this shop counts on these days already', 409,
+                        ['other' => (int) $other['id'], 'from' => (string) $other['from_day'], 'field' => 'until']);
+                }
             }
             $before = self::state($db, $id);
             $version = (int) $row['version'] + 1;
@@ -189,14 +200,15 @@ final class RegularCosts
     public static function state(Db $db, int $id): array
     {
         $r = $db->one('SELECT r.name, r.channel_id, c.name AS shop, r.type_id, t.name AS type, r.every, r.amount_pence, r.from_day, r.until_day, r.note, r.replaces_id, '
-            . 'r.deleted_reason, r.deleted_at, r.deleted_actor FROM regular_cost r JOIN channel c ON c.id = r.channel_id JOIN expense_type t ON t.id = r.type_id WHERE r.id = ?', [$id])
+            . 'r.deleted_reason, r.deleted_at, r.deleted_actor, r.deleted_by FROM regular_cost r JOIN channel c ON c.id = r.channel_id JOIN expense_type t ON t.id = r.type_id WHERE r.id = ?', [$id])
             ?? throw new \LogicException("regular cost {$id} vanished");
         return ['name' => (string) $r['name'], 'channel_id' => (int) $r['channel_id'], 'shop' => (string) $r['shop'], 'type_id' => (int) $r['type_id'],
             'type' => (string) $r['type'], 'every' => (string) $r['every'], 'amount_pence' => (int) $r['amount_pence'], 'from_day' => (string) $r['from_day'],
             'until_day' => $r['until_day'] === null ? null : (string) $r['until_day'], 'note' => $r['note'] === null ? null : (string) $r['note'],
             'replaces_id' => $r['replaces_id'] === null ? null : (int) $r['replaces_id'], 'deleted_reason' => $r['deleted_reason'] === null ? null : (string) $r['deleted_reason'],
             // Who deleted it and when, compared every night (the Codex check r2, M11).
-            'deleted_at' => $r['deleted_at'] === null ? null : (string) $r['deleted_at'], 'deleted_actor' => $r['deleted_actor'] === null ? null : (string) $r['deleted_actor']];
+            'deleted_at' => $r['deleted_at'] === null ? null : (string) $r['deleted_at'], 'deleted_actor' => $r['deleted_actor'] === null ? null : (string) $r['deleted_actor'],
+            'deleted_by' => $r['deleted_by'] === null ? null : (int) $r['deleted_by']];
     }
 
     /** @return array<string, mixed> the line, locked, at the version the page showed, not deleted */

@@ -10925,6 +10925,7 @@ final class Words
         'real_title' => 'Real profit',
         'real_note' => 'All amounts without VAT. The line in grey is not built yet. Click a line to see what is in it.',
         'real_incomplete' => 'Some units sold have no buying price yet: the goods cost, and so the real profit, are not complete.',
+        'real_incomplete_units' => 'Units without a buying price yet: %s.',
         'real_line' => 'Line',
         'real_hayati' => 'Vape Big\'s partner product (Hayati 4000) is not taken apart here.',
         'real_days' => 'From %s to %s.',

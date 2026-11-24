@@ -28,7 +28,7 @@ $incomplete = array_filter($shops, static fn (array $s): bool => $s['incomplete'
 <p class="note" role="status"><?= $word('PROFIT', 'real_no_expenses') ?></p>
 <?php endif; ?>
 <?php if ($incomplete): ?>
-<p class="note" role="status"><?= $word('PROFIT', 'real_incomplete') ?></p>
+<p class="note" role="status"><?= $word('PROFIT', 'real_incomplete') ?> <?= $say('PROFIT', 'real_incomplete_units', (string) array_sum(array_column($shops, 'no_cost'))) ?></p>
 <?php endif; ?>
 <div class="table-wrap">
 <table class="stack rp-table real-profit">

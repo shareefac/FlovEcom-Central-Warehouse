@@ -171,7 +171,7 @@ final class Expenses
     public static function state(Db $db, int $id): array
     {
         $r = $db->one('SELECT e.channel_id, c.name AS shop, e.supplier_id, s.name AS supplier, e.type_id, t.name AS type, e.invoice_date, e.invoice_no, e.net_pence, '
-            . 'e.vat_pence, e.total_pence, e.note, e.file_id, e.deleted_reason, e.deleted_at, e.deleted_actor FROM expense e JOIN channel c ON c.id = e.channel_id '
+            . 'e.vat_pence, e.total_pence, e.note, e.file_id, e.deleted_reason, e.deleted_at, e.deleted_actor, e.deleted_by FROM expense e JOIN channel c ON c.id = e.channel_id '
             . 'JOIN expense_supplier s ON s.id = e.supplier_id JOIN expense_type t ON t.id = e.type_id WHERE e.id = ?', [$id])
             ?? throw new \LogicException("expense {$id} vanished");
         return ['channel_id' => (int) $r['channel_id'], 'shop' => (string) $r['shop'], 'supplier_id' => (int) $r['supplier_id'], 'supplier' => (string) $r['supplier'],
@@ -180,7 +180,8 @@ final class Expenses
             'note' => $r['note'] === null ? null : (string) $r['note'], 'file_id' => $r['file_id'] === null ? null : (int) $r['file_id'],
             'deleted_reason' => $r['deleted_reason'] === null ? null : (string) $r['deleted_reason'],
             // Who deleted it and when, compared every night (the Codex check r2, M11).
-            'deleted_at' => $r['deleted_at'] === null ? null : (string) $r['deleted_at'], 'deleted_actor' => $r['deleted_actor'] === null ? null : (string) $r['deleted_actor']];
+            'deleted_at' => $r['deleted_at'] === null ? null : (string) $r['deleted_at'], 'deleted_actor' => $r['deleted_actor'] === null ? null : (string) $r['deleted_actor'],
+            'deleted_by' => $r['deleted_by'] === null ? null : (int) $r['deleted_by']];
     }
 
     /**
@@ -211,7 +212,7 @@ final class Expenses
         if (!RegularCostMath::isDay($date) || $date < self::FIRST_DAY || $date > $latest) {
             throw new CwException('bad_date', 'the invoice date is not a day', 422, ['field' => 'invoice_date']);
         }
-        $no = trim((string) ($in['invoice_no'] ?? ''));
+        $no = self::plain((string) ($in['invoice_no'] ?? ''));
         if (!mb_check_encoding($no, 'UTF-8') || mb_strlen($no) > self::NO_MAX || preg_match('/[\x00-\x1F\x7F]/', $no) === 1) {
             throw new CwException('bad_invoice_no', 'the invoice number is at most ' . self::NO_MAX . ' characters', 422, ['field' => 'invoice_no']);
         }
@@ -310,11 +311,24 @@ final class Expenses
     /** A name of 2 to NAME_MAX characters, trimmed, inner spaces made one, no control characters (422 $code). */
     public static function name(string $name, string $code = 'bad_name', string $field = 'name'): string
     {
-        $name = trim((string) preg_replace('/\s+/u', ' ', str_replace("\u{00A0}", ' ', $name)));
+        $name = self::plain($name);
         if (!mb_check_encoding($name, 'UTF-8') || mb_strlen($name) < 2 || mb_strlen($name) > self::NAME_MAX || preg_match('/[\x00-\x1F\x7F]/', $name) === 1) {
             throw new CwException($code, 'a name of 2 to ' . self::NAME_MAX . ' characters', 422, ['field' => $field]);
         }
         return $name;
+    }
+
+    /**
+     * Typed text as one plain line: every kind of space (a non-breaking or thin space copied from a PDF, a tab) one plain space, invisible
+     * format characters (a zero-width space) gone, no space at either end; so "INV-487" copied with a non-breaking space is "INV-487" (the
+     * Codex check r3, H2; EX32). Text that is not UTF-8 comes back as it was, for the caller's own check to refuse.
+     */
+    public static function plain(string $s): string
+    {
+        if (!mb_check_encoding($s, 'UTF-8')) {
+            return $s;
+        }
+        return trim((string) preg_replace('/[\p{Z}\s]+/u', ' ', (string) preg_replace('/\p{Cf}+/u', '', $s)));
     }
 
     private function files(): FileStore

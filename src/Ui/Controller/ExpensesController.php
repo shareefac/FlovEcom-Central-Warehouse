@@ -15,6 +15,7 @@ use CW\Expenses\RegularCostMath;
 use CW\Files\FileStore;
 use CW\Profit\ProfitViews;
 use CW\Ui\Context;
+use CW\Ui\FormOnce;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
 use CW\Ui\UiRequest;
@@ -51,7 +52,7 @@ final class ExpensesController
         [$from, $to] = [(string) ($ctx->req->param('from') ?? ''), (string) ($ctx->req->param('to') ?? '')];
         $range = RegularCostMath::isDay($from) && RegularCostMath::isDay($to) && $from <= $to ? [$from, $to] : null;
         $data = $range !== null ? $views->days($range[0], $range[1], $shop, $q, $deleted) : $views->month($month, $shop, $q, $deleted);
-        $months = $views->months($today);
+        $months = $views->months($today, $deleted);
         if ($month !== null && !in_array($month, $months, true)) {
             $months[] = $month;
             rsort($months);
@@ -84,14 +85,21 @@ final class ExpensesController
         try {
             $file = self::upload($ctx, false);
             self::fileAgain($ctx, $file);
-            $r = (new Expenses($ctx->db, static fn (): FileStore => $ctx->files()))->add($ctx->caller(), $typed, $file, $ctx->req->field('same_ok') === '1');
+            $sameOk = $ctx->req->field('same_ok') === '1';
+            $another = $ctx->req->field('then') === 'another';
+            // One effect per form (FormOnce, I46; the Codex check r3, H1): the same form sent again (a lost answer, a retry), a confirmed second
+            // invoice too, lands where the first did and adds nothing. What it keeps of the form: the fields and the file's fingerprint.
+            $request = $typed + ['same_ok' => $sameOk ? '1' : '', 'then' => $another ? 'another' : 'done',
+                'file' => $file === null ? '' : (string) hash_file('sha256', $file['path'])];
+            $r = FormOnce::run($ctx, 'ui.expense.add', $request, static function (\CW\Db $db) use ($ctx, $typed, $file, $sameOk, $another): \CW\OpResult {
+                $x = (new Expenses($db, static fn (): FileStore => $ctx->files()))->add($ctx->caller(), $typed, $file, $sameOk);
+                return \CW\OpResult::of(303, ['redirect' => $another ? Html::url(self::PATH . '/new', ['notice' => 'added'])
+                    : Html::url(self::PATH . '/' . $x['id'], ['notice' => 'added'])]);
+            });
         } catch (CwException $e) {
             return $this->form($ctx, $e->httpStatus, $e, $typed, null);
         }
-        if ($ctx->req->field('then') === 'another') {
-            return HtmlResponse::redirect(Html::url(self::PATH . '/new', ['notice' => 'added']));
-        }
-        return HtmlResponse::redirect(Html::url(self::PATH . '/' . $r['id'], ['notice' => 'added']));
+        return FormOnce::redirect($r);
     }
 
     /** GET {id}: one expense. */
@@ -243,6 +251,17 @@ final class ExpensesController
         return $ctx->req->file('file') !== null || ($ctx->req->field('file_again') === '1' && $ctx->req->field('no_file_ok') !== '1');
     }
 
+    /**
+     * The form's one-effect key: the one sent, when the form comes back refused (nothing was kept under it: sent again, corrected, it is the
+     * same form), else a new one (I46).
+     */
+    public static function formKey(Context $ctx, ?CwException $error): string
+    {
+        $k = (string) ($ctx->req->field(FormOnce::FIELD) ?? '');
+        return $error !== null && !in_array($error->errorCode, ['bad_form_key', 'idempotency_key_reused'], true) && preg_match('/^[0-9a-f]{32}$/D', $k) === 1
+            ? $k : FormOnce::newKey();
+    }
+
     private static function seen(Context $ctx): int
     {
         $s = (string) ($ctx->req->field('seen') ?? '');
@@ -273,6 +292,7 @@ final class ExpensesController
             'other' => is_int($error?->detail['other'] ?? null) ? self::PATH . '/' . $error->detail['other'] : null,
             'maxMb' => intdiv(ExpenseFiles::MAX_BYTES, 1_048_576),
             'fileAgain' => $error !== null && self::fileChosen($ctx),
+            'formKey' => self::formKey($ctx, $error),
         ], $status, ['title' => Words::EXPENSES['new_title'], 'notice' => $notice]);
     }
 
@@ -324,7 +344,8 @@ final class ExpensesController
             'sameAsk' => $error?->errorCode === 'same_invoice',
             'maxMb' => intdiv(ExpenseFiles::MAX_BYTES, 1_048_576),
             'listHref' => Html::url(self::PATH, ['month' => substr((string) $x['invoice_date'], 0, 7)]),
-            'fileAgain' => $error !== null && $typed !== null && self::fileChosen($ctx),
+            // A change refused because someone else changed it shows their figures and still asks for the file chosen (the Codex check r3, M8).
+            'fileAgain' => $error !== null && self::fileChosen($ctx),
             'seen' => $seen ?? (int) $x['version'],
         ], $status, ['title' => $title, 'notice' => $notice]);
     }

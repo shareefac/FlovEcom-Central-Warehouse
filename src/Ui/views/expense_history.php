@@ -2,14 +2,14 @@
 // The history of an expense, a regular cost or an expense type (CW-1150; docs/decisions.md EX8): newest first, a row per version: when, who,
 // what it did and what changed (old → new, in words and pounds), and the reason when there is one. On a phone each row is a card.
 $X = \CW\Ui\Words::EXPENSES;
-$skip = ['channel_id', 'supplier_id', 'type_id', 'replaces_id', 'deleted_reason', 'deleted_at', 'deleted_actor', 'kind', 'sort_order'];
-$money = ['net_pence', 'vat_pence', 'total_pence', 'amount_pence'];
+$skip = ['channel_id', 'supplier_id', 'type_id', 'replaces_id', 'deleted_reason', 'deleted_at', 'deleted_actor', 'deleted_by', 'kind', 'sort_order'];
+$moneyFields = ['net_pence', 'vat_pence', 'total_pence', 'amount_pence'];
 $days = ['invoice_date', 'from_day', 'until_day'];
-$show = static function (string $field, mixed $v) use ($money, $days, $X): string {
+$show = static function (string $field, mixed $v) use ($moneyFields, $days, $X): string {
     if ($v === null || $v === '') {
         return $field === 'until_day' ? $X['no_end'] : $X['empty'];
     }
-    if (in_array($field, $money, true)) {
+    if (in_array($field, $moneyFields, true)) {
         return \CW\Expenses\ExpenseMoney::gbp((int) $v);
     }
     if (in_array($field, $days, true)) {

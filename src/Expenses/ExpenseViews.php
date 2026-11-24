@@ -81,9 +81,10 @@ final class ExpenseViews
      *
      * @return list<string> YYYY-MM
      */
-    public function months(string $today): array
+    public function months(string $today, bool $withDeleted = false): array
     {
-        $r = $this->db->one('SELECT MIN(invoice_date) AS lo, MAX(invoice_date) AS hi FROM expense WHERE deleted_at IS NULL') ?? [];
+        // With "Show deleted ones too", the months of the deleted invoices as well (the Codex check r3, M6).
+        $r = $this->db->one('SELECT MIN(invoice_date) AS lo, MAX(invoice_date) AS hi FROM expense' . ($withDeleted ? '' : ' WHERE deleted_at IS NULL')) ?? [];
         // The months of the regular costs too: a month with regular costs only is offered (the Codex check r1, M8).
         $first = $this->db->value('SELECT MIN(from_day) FROM regular_cost WHERE deleted_at IS NULL');
         $now = substr($today, 0, 7);
@@ -178,8 +179,14 @@ final class ExpenseViews
         return ['groups' => $groups, 'tiles' => $tiles, 'more' => $more];
     }
 
-    /** @return array<string, mixed>|null one expense with its shop, supplier, type, file and history */
+    /** @return array<string, mixed>|null one expense with its shop, supplier, type, file and history, from ONE moment (the Codex check r3, M10) */
     public function expense(int $id): ?array
+    {
+        return ProfitDays::snapshot($this->db, fn (): ?array => $this->expenseNow($id));
+    }
+
+    /** @return array<string, mixed>|null */
+    private function expenseNow(int $id): ?array
     {
         $r = $this->db->one('SELECT e.*, c.name AS shop, s.name AS supplier, s.is_active AS supplier_active, t.name AS type, f.mime, f.original_name, f.size_bytes, '
             . 'cu.display_name AS created_name, du.display_name AS deleted_name FROM expense e JOIN channel c ON c.id = e.channel_id '
@@ -228,12 +235,19 @@ final class ExpenseViews
     /** @return array<string, mixed>|null one regular cost line with its shop, group, the line it continues, the line continuing it, its history */
     public function regular(int $id): ?array
     {
+        return ProfitDays::snapshot($this->db, fn (): ?array => $this->regularNow($id));
+    }
+
+    /** @return array<string, mixed>|null */
+    private function regularNow(int $id): ?array
+    {
         $r = $this->db->one('SELECT r.*, c.name AS shop, t.name AS grp, t.is_active AS group_active, du.display_name AS deleted_name FROM regular_cost r '
             . 'JOIN channel c ON c.id = r.channel_id JOIN expense_type t ON t.id = r.type_id LEFT JOIN staff_user du ON du.id = r.deleted_by WHERE r.id = ?', [$id]);
         if ($r === null) {
             return null;
         }
-        $next = $this->db->one('SELECT id, amount_pence, from_day FROM regular_cost WHERE replaces_id = ? AND deleted_at IS NULL ORDER BY id LIMIT 1', [$id]);
+        // The line that follows it by date (a second new amount on the same line makes two: the Codex check r3, M4).
+        $next = $this->db->one('SELECT id, amount_pence, from_day FROM regular_cost WHERE replaces_id = ? AND deleted_at IS NULL ORDER BY from_day, id LIMIT 1', [$id]);
         return $r + ['next' => $next, 'history' => ExpenseHistory::of($this->db, 'regular_cost', $id)];
     }
 
@@ -266,7 +280,10 @@ final class ExpenseViews
                 $reg = $regular[$s['id']] ?? 0;
                 $out[] = ['shop_id' => $s['id'], 'shop' => $s['name'], 'goods' => $goods, 'cost' => $cost, 'delivery' => $delivery, 'delivery_cost' => $deliveryCost,
                     'fees' => $fees, 'expenses' => $exp, 'expenses_count' => $expenses[$s['id']]['count'] ?? 0, 'regular' => $reg,
-                    'real' => $goods - $cost + $delivery - $deliveryCost - $fees - $exp - $reg, 'incomplete' => (bool) $f['incomplete']];
+                    // Not complete while ANY unit counted has no buying price or waits for it (the margin pages' 0.5% rule is for a margin; a real
+                    // profit is an amount: the Codex check r3, H5).
+                    'real' => $goods - $cost + $delivery - $deliveryCost - $fees - $exp - $reg, 'incomplete' => (int) $f['no_cost'] + (int) $f['pending'] > 0,
+                    'no_cost' => (int) $f['no_cost'] + (int) $f['pending']];
             }
             return $out;
         });
