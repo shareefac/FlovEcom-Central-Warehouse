@@ -124,6 +124,8 @@ final class Migration0078Test extends IntegrationTestCase
             self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $label($bad)), json_encode($bad, JSON_THROW_ON_ERROR));
         }
         self::assertSame(1062, self::err(static fn () => $label()), 'one row per account and tracking number');
+        self::assertSame(1062, self::err(static fn () => $db->exec("UPDATE carrier_account SET key_name = 'click_and_drop_0706703000' WHERE account_no = 'vapebig-pending'")),
+            'a key name is one account\'s (DL82)');
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $db->exec("INSERT INTO carrier_party_rule (account_id, priority, ref_form) VALUES (?, 9, 'digits')",
             [$acct])));
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $db->exec("INSERT INTO carrier_channel (account_id, code, name) VALUES (?, 'other', 'x')", [$acct])),

@@ -30,8 +30,9 @@ final class RmFixtures
         $p = $party('vapeandgo', 'Vape and Go', $vpg);
         $e = $ef === null ? null : $party('electrofag', 'Electrofag', $ef, 5457);
         $h = $party('hayativapes', 'Hayati Vapes', null);
+        // a key name is one account's (0078; DL82): the shared account's; another account is read by report only (no key name) as 0078 seeds Vape Big's
         $a = $db->insert("INSERT INTO carrier_account (carrier, account_no, name, bill_format, label_source, key_name, main_party_id, state) VALUES ('royal_mail', ?, "
-            . "'Royal Mail OBA', 'rm_oba_page', 'click_and_drop', 'click_and_drop_0706703000', ?, ?)", [$number, $p, $state]);
+            . "'Royal Mail OBA', 'rm_oba_page', 'click_and_drop', ?, ?, ?)", [$number, $number === self::ACCOUNT ? 'click_and_drop_0706703000' : null, $p, $state]);
         foreach (array_filter([$p, $e, $h]) as $party) {
             $db->exec("INSERT INTO carrier_account_party (account_id, party_id, from_day) VALUES (?, ?, '2020-01-01')", [$a, $party]);
         }
