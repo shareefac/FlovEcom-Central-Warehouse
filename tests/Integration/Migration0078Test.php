@@ -52,7 +52,7 @@ final class Migration0078Test extends IntegrationTestCase
         self::assertSame(['Select', 'Insert'], Grants::desired('carrier_allocation'));
         self::assertSame(['ended_at'], Grants::UPDATE_COLUMNS['carrier_allocation'], 'an allocation is only ended');
         self::assertSame(['Select', 'Insert', 'Update', 'Delete'], Grants::desired('carrier_bill_check'), 'a check is taken once, and gone a day after it expires (DL79)');
-        self::assertSame(['Select', 'Insert'], Grants::desired('carrier_label_pull_day'), 'a day a pull read stays read (DL80)');
+        self::assertSame(['Select', 'Insert', 'Update', 'Delete'], Grants::desired('carrier_label_pull_day'), 'a day a later read finds incomplete is read no more (DL83)');
         self::assertSame(['Select', 'Insert', 'Update', 'Delete'], Grants::desired('carrier_pin_due'), 'a pin due is done, then gone (DL80)');
 
         $files = array_map('basename', glob(dirname(__DIR__, 2) . '/migrations/*.sql') ?: []);

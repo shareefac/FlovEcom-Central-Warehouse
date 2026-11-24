@@ -225,6 +225,51 @@ final class ClickAndDropClientTest extends TestCase
         }
     }
 
+    /** The Codex check r7, H1: an order's details are whole only with their fields in their shapes (an id alone, or packages not a list, is not). */
+    public function testAnOrdersDetailsAreWholeOnlyInTheirShapes(): void
+    {
+        $base = ['orderIdentifier' => 1, 'orderReference' => '1', 'createdOn' => '2026-11-10T10:00:00', 'manifestedOn' => '2026-11-10T18:00:00',
+            'trackingNumber' => 'JV000000001GB', 'packages' => [['trackingNumber' => 'JV000000001GB']]];
+        $http = static fn (array $o): HttpGet => new class ($o) implements HttpGet {
+            public function __construct(private array $o)
+            {
+            }
+
+            public function get(string $url, array $headers, int $timeoutSec): array
+            {
+                return ['status' => 200, 'body' => json_encode([$this->o]), 'retry_after' => null];
+            }
+        };
+        $whole = static fn (array $o): bool => ClickAndDropClient::complete((new ClickAndDropClient($http($o), self::KEY, static function (int $m): void {
+        }))->ordersByIds([1])[0]);
+        self::assertTrue($whole($base));
+        self::assertTrue($whole(['manifestedOn' => null, 'trackingNumber' => null, 'packages' => []] + $base), 'not manifested yet: read again later');
+        self::assertFalse($whole(['orderIdentifier' => 1]), 'an id alone is no sign it is not manifested');
+        self::assertFalse($whole(['packages' => 'JV000000001GB'] + $base), 'packages not a list');
+        self::assertFalse($whole(['packages' => [['trackingNumber' => '']]] + $base), 'a package with no tracking number');
+    }
+
+    /** The Codex check r7, H8: one key value under two names (a key copied to another account's name) is refused. */
+    public function testOneKeyUnderTwoNamesIsRefused(): void
+    {
+        $dir = sys_get_temp_dir() . '/cw_keys_' . bin2hex(random_bytes(4));
+        mkdir($dir, 0700);
+        $file = $dir . '/carrier_keys.env';
+        try {
+            file_put_contents($file, 'click_and_drop_0706703000=' . self::KEY . "\nclick_and_drop_vapebig=" . self::KEY . "\n");
+            chmod($file, 0600);
+            try {
+                CarrierKeys::key('click_and_drop_vapebig', $file);
+                self::fail('one key under two names');
+            } catch (CwException $e) {
+                self::assertSame('no_key', $e->errorCode);
+                self::assertStringNotContainsString(self::KEY, $e->getMessage());
+            }
+        } finally {
+            exec('rm -rf ' . escapeshellarg($dir));
+        }
+    }
+
     public function testTheKeyFileIsReadOnlyWhenItIsTheOwnersOnly(): void
     {
         $dir = sys_get_temp_dir() . '/cw_keys_' . bin2hex(random_bytes(4));
