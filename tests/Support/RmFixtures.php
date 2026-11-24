@@ -23,7 +23,7 @@ final class RmFixtures
      *
      * @return array{account: int, vpg_party: int, ef_party: ?int, hayati: int}
      */
-    public static function account(Db $db, int $vpg, ?int $ef = null, string $state = 'active', string $number = self::ACCOUNT): array
+    public static function account(Db $db, int $vpg, ?int $ef = null, string $state = 'active', string $number = self::ACCOUNT, bool $pulled = true): array
     {
         $party = static fn (string $code, string $name, ?int $ch, ?int $first = null): int => (int) ($db->value('SELECT id FROM delivery_party WHERE code = ?', [$code])
             ?? $db->insert('INSERT INTO delivery_party (code, name, channel_id, first_order_no) VALUES (?, ?, ?, ?)', [$code, $name, $ch, $first]));
@@ -44,7 +44,25 @@ final class RmFixtures
         if ($e !== null) {
             $db->exec("INSERT INTO carrier_party_rule (account_id, priority, channel_code, ref_form, party_id, before_first) VALUES (?, 5, 'api', 'digits_4', ?, 1)", [$a, $e]);
         }
+        if ($pulled) {
+            // its days read by a successful pull (an account with a key waits for that on every day: the Codex check r4, HIGH; DL80): July to
+            // December 2026, so a test of the planning needs no pull; a test of the wait takes the days it needs away
+            self::pulled($db, $a, '2026-07-01', '2026-12-31');
+        }
         return ['account' => $a, 'vpg_party' => $p, 'ef_party' => $e, 'hayati' => $h];
+    }
+
+    /** The days a successful pull read, as RoyalMailBills::pull() records them. */
+    public static function pulled(Db $db, int $account, string $from, string $to): void
+    {
+        $days = [];
+        for ($d = $from; $d <= $to; $d = (new \DateTimeImmutable($d))->modify('+1 day')->format('Y-m-d')) {
+            $days[] = $d;
+        }
+        foreach (array_chunk($days, 200) as $chunk) {
+            $db->exec('INSERT IGNORE INTO carrier_label_pull_day (account_id, day, read_at) VALUES ' . implode(', ', array_fill(0, count($chunk), "(?, ?, '2026-12-31 00:00:00')")),
+                array_merge(...array_map(static fn (string $d): array => [$account, $d], $chunk)));
+        }
     }
 
     /**

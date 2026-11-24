@@ -124,6 +124,11 @@ final class RoyalMailScreensTest extends KernelUiTestCase
         self::assertSame([Words::say('DELIVERY', 'rm_group_order', $shop), Words::say('DELIVERY', 'rm_group_shop', $shop),
             Words::say('DELIVERY', 'rm_group_day_line', $shop)], array_column(array_slice($check, 0, 3), 0));
         self::assertSame(['£5.08', '£3.59', '-£2.54', '£6.13'], array_column($check, 1), 'the same split the bill\'s page shows once stored');
+        // the Codex check r4 (D3 MEDIUM 2): its rows, its days and what moves on the bills already live (none: the account's first bill)
+        self::assertCount(2, self::rows($r, 'delivery-rm-check-rows'), 'the bill\'s rows');
+        self::assertSame([['TPL', '3', '2', '3']], array_map(static fn (array $x): array => array_slice($x, 1, 4), self::rows($r, 'delivery-rm-check-days')),
+            'labels 3, billed 2 (every bill with this one), priced 3');
+        self::assertStringContainsString(Words::DELIVERY['rm_check_others_none'], $r->text());
         self::assertStringNotContainsString('SESSION-', $r->body, 'a hidden input of the saved page is never shown');
         self::assertTrue($r->hasForm('/ui/profit/delivery/store'));
         $r = $job->post('/ui/profit/delivery/store', $r->form('/ui/profit/delivery/store'));
@@ -212,5 +217,28 @@ final class RoyalMailScreensTest extends KernelUiTestCase
         self::assertSame(200, $same->status, $same->describe());
         self::assertStringContainsString(Words::DELIVERY['rm_check_same'], $same->text());
         self::assertFalse($same->hasForm('/ui/profit/delivery/store'));
+    }
+
+    /** The Codex check r4 (D3 LOW 5): a Store the bills' lock kept busy stores nothing and offers the same check again. */
+    public function testABusyStoreOffersTheSameCheckAgain(): void
+    {
+        [, $acct] = $this->shop();
+        $job = $this->signIn($this->uiUser('delivery_bills'));
+        $path = $this->dir . '/bill.html';
+        file_put_contents($path, RmBill::page([RmBill::line('2026-11-09', 'TPL', 2, 508, '943')], ['invoice' => '9070000003']));
+        $form = $this->upload($job, ['carrier' => 'royal_mail', 'account' => (string) $acct], $path)->form('/ui/profit/delivery/store');
+        $lock = \CW\Tests\Support\TestDb::connect();
+        self::assertSame(1, (int) $lock->value("SELECT GET_LOCK(CONCAT('cw_delivery_bills:', DATABASE()), 0)"));
+        try {
+            $busy = $job->post('/ui/profit/delivery/store', $form);
+        } finally {
+            $lock->value("SELECT RELEASE_LOCK(CONCAT('cw_delivery_bills:', DATABASE()))");
+        }
+        self::assertSame(503, $busy->status, $busy->describe());
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_invoice'));
+        self::assertTrue($busy->hasForm('/ui/profit/delivery/store'), 'the same check offered again');
+        $again = $job->post('/ui/profit/delivery/store', $busy->form('/ui/profit/delivery/store'));
+        self::assertSame(303, $again->status, $again->describe());
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM carrier_invoice WHERE status = 'live'"));
     }
 }

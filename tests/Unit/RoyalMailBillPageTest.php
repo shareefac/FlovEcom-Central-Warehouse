@@ -132,6 +132,9 @@ final class RoyalMailBillPageTest extends TestCase
             RmBill::page($w)), 'the bill shows two different invoice numbers'];
         yield 'unknown product, a name shape' => [static fn (): string => RmBill::page([RmBill::line('2026-11-09', 'SMITHJ', 1, 100, '1')]),
             'line 1 of the bill (9 Nov 2026) has a product CW does not know. Send this bill to the CW team: the product must be added to CW before this bill can be read.'];
+        // the Codex check r4 (D3 LOW 4): a quantity CW cannot store is refused by the reader (the check never offers a Store that would fail)
+        yield 'quantity too large' => [static fn (): string => str_replace('>2147483648.000<', '>2,147,483,648.000<',
+            RmBill::page([RmBill::line('2026-11-09', 'TPL', 2147483648, 254, '943')])), 'row 1: its Quantity is larger than CW stores'];
         yield 'quantity not whole' => [static fn (): string => str_replace('>5.000<', '>5.500<', RmBill::page($w)), 'row 1: its Quantity is not a whole number'];
         yield 'not pounds' => [static fn (): string => str_replace('Total Price Net:</td><td>GBP', 'Total Price Net:</td><td>EUR', RmBill::page($w)), 'net total'];
         yield 'no line table' => [static fn (): string => str_replace('Product Number', 'Product', RmBill::page($w)), 'cannot find the table'];

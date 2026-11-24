@@ -844,12 +844,12 @@ final class RoyalMailBillsTest extends StockTestCase
     public function testADayThePullHasNotReadYetWaits(): void
     {
         $day = '2026-11-09';
-        self::$db->exec("INSERT INTO carrier_label_pull (account_id, read_to) VALUES (?, '2026-11-08')", [$this->acct['account']]);
+        self::$db->exec("DELETE FROM carrier_label_pull_day WHERE account_id = ? AND day >= '2026-11-09'", [$this->acct['account']]);
         self::order($this->vpg, '1131', '1361131', '2026-11-09T09:00:00Z', ['JV000000131GB' => '2026-11-09T10:00:00Z']);
         self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000131GB', 'TPL48HV', $day, '1361131')], 'report');
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]))['invoice_id'];
         self::assertSame(['held||no_report' => 254], self::where($id));
-        self::$db->exec("UPDATE carrier_label_pull SET read_to = '2026-11-09' WHERE account_id = ?", [$this->acct['account']]);
+        RmFixtures::pulled(self::$db, $this->acct['account'], '2026-11-09', '2026-11-09');
         self::rm()->replan(self::system(), null, 3650);
         self::assertSame(254, DeliveryBills::orderCost(self::$db, $this->vpg, '1131'));
         $this->assertRebuilds();
@@ -864,6 +864,223 @@ final class RoyalMailBillsTest extends StockTestCase
         self::assertSame(0, self::script('carrier_account', '--account=vapebig-pending', '--number=0706799998')['code']);
         self::assertSame(0, self::script('carrier_account', '--account=0706799998', '--number=0706799999')['code'], 'a typo corrected while off, no bill');
         self::assertSame(1, self::script('carrier_account', '--account=0706703000', '--number=0706711111')['code'], 'an active account\'s number never');
+        // the Codex check r4 (r3 second table 6 PARTLY): an account 0078 seeds BY ITS NUMBER never changes it, even off and with no bill
+        self::assertSame(0, self::script('carrier_account', '--account=0706703000', '--switch-off')['code']);
+        $r = self::script('carrier_account', '--account=0706703000', '--number=0706711111');
+        self::assertSame(1, $r['code'], $r['out']);
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM carrier_account WHERE account_no = '0706703000'"));
     }
 
+    // ---- the Codex check r4 (cw_work/runs/rmbills_codex_r4.txt): its HIGH, MEDIUMs and LOWs, each shown failing first (rmbills_r5_red.log) -------
+
+    /** A staff member with the Delivery bills job (the screen's caller). */
+    private static function person(string $name = 'rm4'): Caller
+    {
+        $p = Caller::staff(self::$db->insert('INSERT INTO staff_user (username, email, display_name, password_hash) VALUES (?, ?, ?, \'x\')', [$name, $name . '@example.com',
+            'Staff ' . $name]));
+        self::$db->exec("INSERT INTO staff_role (staff_user_id, role) VALUES (?, 'delivery_bills')", [$p->staffUserId]);
+        return $p;
+    }
+
+    /** @return array<string, int> a bill's live allocations in the check's form: "dest|shop|party|reason|day_line" => pence */
+    private static function split(int $invoiceId): array
+    {
+        $out = [];
+        foreach (self::$db->all("SELECT CONCAT(dest, '|', COALESCE(channel_id, ''), '|', COALESCE(party_id, ''), '|', COALESCE(held_reason, ''), '|', "
+            . "IF(kind = 'day_line', 'day_line', '')) AS k, SUM(pence) AS p FROM carrier_allocation WHERE invoice_id = ? AND ended_at IS NULL GROUP BY k", [$invoiceId]) as $r) {
+            $out[(string) $r['k']] = (int) $r['p'];
+        }
+        ksort($out);
+        return $out;
+    }
+
+    /** r4 HIGH (r2 HIGH 1, r3 1 PARTLY): on an account with a key, a day waits until a SUCCESSFUL pull read THAT day, whatever a report brought. */
+    public function testR4OnAnAccountWithAKeyADayWaitsUntilAPullReadIt(): void
+    {
+        $day = '2026-11-10';
+        self::$db->exec('DELETE FROM carrier_label_pull_day WHERE account_id = ?', [$this->acct['account']]);
+        self::order($this->vpg, '1141', '1361141', '2026-11-10T09:00:00Z', ['JV000000141GB' => '2026-11-10T10:00:00Z']);
+        // a part of the day's labels from a report, no pull has read the day: it waits (never Vape and Go's day line)
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000141GB', 'TPL48HV', $day, '1361141')], 'report');
+        $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 2, 508, '943')]))['invoice_id'];
+        self::assertSame(['held||no_report' => 508], self::where($id));
+        $clock = static fn (): \DateTimeImmutable => new \DateTimeImmutable('2026-11-14 02:20:00', new \DateTimeZone('UTC'));
+        $calls = [];
+        try {
+            (new RoyalMailBills(self::$db, $clock))->pull(self::system(), $this->acct['account'], self::cnd([], $calls, 500));
+            self::fail('the first pull fails');
+        } catch (CwException) {
+        }
+        self::rm()->replan(self::system(), null, 3650);
+        self::assertSame(['held||no_report' => 508], self::where($id), 'a failed first pull reads no day');
+        // a pull of later days only: the checkpoint passes the day, the day is not read: it waits
+        (new RoyalMailBills(self::$db, $clock))->pull(self::system(), $this->acct['account'], self::cnd([], $calls), '2026-11-12', '2026-11-13');
+        self::rm()->replan(self::system(), null, 3650);
+        self::assertSame(['held||no_report' => 508], self::where($id), 'read from the 12th: the 10th is still not read');
+        // a pull that reads the day (its other label, Electrofag's, comes with it; the report gives its service): planned
+        $o = ['orderIdentifier' => 9142, 'orderReference' => '5460', 'createdOn' => $day . 'T10:00:00.1234567', 'manifestedOn' => $day . 'T18:00:35',
+            'trackingNumber' => 'JV000000142GB', 'packages' => [['packageNumber' => 1, 'trackingNumber' => 'JV000000142GB']]];
+        (new RoyalMailBills(self::$db, $clock))->pull(self::system(), $this->acct['account'], self::cnd([$day => [$o]], $calls), $day, $day);
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000142GB', 'TPL48HV', $day, '5460')], 'report');
+        self::rm()->replan(self::system(), null, 3650);
+        self::assertSame(["held||shop_unknown" => 254, "order|{$this->vpg}|" => 254], self::where($id));
+        $this->assertRebuilds();
+    }
+
+    /** r4 D2 MEDIUM: the before-start rule is for a label on NO CW parcel: it never holds a label its tracking number puts on an order. */
+    public function testR4ABeforeStartRuleNeverHoldsALabelOnItsParcel(): void
+    {
+        $day = '2026-11-12';
+        self::order($this->vpg, '1151', '4000', '2026-11-12T09:00:00Z', ['JV000000151GB' => $day . 'T10:00:00Z']);
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000151GB', 'TPL48HV', $day, '4000')], 'report');
+        $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]))['invoice_id'];
+        self::assertSame(["order|{$this->vpg}|" => 254], self::where($id), 'API, 4 digits below 5457, on its Vape and Go parcel: that order');
+        $this->assertRebuilds();
+    }
+
+    /**
+     * r4 D3 MEDIUM 1 and 2: Store stores what its check showed, or refuses (a parcel came meanwhile: checked again); the check shows the bill's
+     * rows, its days (labels, billed by every bill with it, priced, the day's line) and what moves on the bills already live.
+     */
+    public function testR4StoreStoresWhatTheCheckShowedAndTheCheckShowsWhatMovesOnTheOtherBills(): void
+    {
+        $person = self::person();
+        $day = '2026-11-12';
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000161GB', 'TPL48HV', $day, '5460'),
+            RmFixtures::label('JV000000162GB', 'TPL48HV', $day, '1361162')], 'report');
+        self::order($this->vpg, '1162', '1361162', '2026-11-12T09:00:00Z', ['JV000000162GB' => $day . 'T10:00:00Z']);
+        // bill B (16 Nov) first: both labels priced on it
+        $b = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')], ['invoice' => '9070000162',
+            'date' => 'Nov 23, 2026']))['invoice_id'];
+        $beforeB = self::split($b);
+        // bill A, of an earlier date, for the same day: the first bill now (it prices the labels); B becomes the day's tail
+        $pageA = RmBill::page([RmBill::line($day, 'TPL', 2, 508, '943')], ['invoice' => '9070000161', 'date' => 'Nov 16, 2026']);
+        $c = self::rm()->check($person, $this->acct['account'], $pageA);
+        self::assertSame(['held|||shop_unknown|' => 254, "order|{$this->vpg}|||" => 254], $c['preview']['where'], 'Electrofag\'s label, its parcel not in CW yet: held');
+        self::assertSame([[1, $day, 'TPL', 2, 508]], array_map(static fn (array $r): array => [$r['row_no'], $r['service_date'], $r['product_code'], $r['qty'], $r['net']],
+            $c['preview']['bill_rows']));
+        self::assertSame([[$day, 'TPL', 2, 3, 2, 0, false]], array_map(static fn (array $d): array => [$d['day'], $d['product'], $d['labels'], $d['billed'], $d['priced'],
+            $d['line'], $d['waiting']], $c['preview']['days']), 'labels 2, billed 3 with B, both priced on A');
+        self::assertNotSame([], $c['preview']['others'], 'B\'s money moves');
+        self::assertSame(0, array_sum($c['preview']['others']), 'B still adds up to its net');
+        // the parcel reaches CW before Store: what Store would store is not what was shown: refused, nothing stored
+        self::order($this->ef, '2161', '5460', '2026-11-12T09:00:00Z', ['JV000000161GB' => $day . 'T10:00:00Z']);
+        try {
+            self::rm()->storeChecked($person, (string) $c['token'], (string) $c['bill_sha256']);
+            self::fail('the split changed since the check');
+        } catch (CwException $e) {
+            self::assertSame('check_changed', $e->errorCode);
+        }
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM carrier_invoice WHERE status = 'live'"));
+        // checked again: stored as shown, and B moved exactly as the check said
+        $c = self::rm()->check($person, $this->acct['account'], $pageA);
+        self::assertSame(["order|{$this->ef}|||" => 254, "order|{$this->vpg}|||" => 254], $c['preview']['where']);
+        $a = self::rm()->storeChecked($person, (string) $c['token'], (string) $c['bill_sha256']);
+        self::assertSame(['stored', 'upload'], [$a['result'], $a['mode']]);
+        self::assertSame(["order|{$this->ef}|||" => 254, "order|{$this->vpg}|||" => 254], self::split($a['invoice_id']));
+        $moved = [];
+        foreach (array_unique([...array_keys($beforeB), ...array_keys(self::split($b))]) as $k) {
+            $d = (self::split($b)[$k] ?? 0) - ($beforeB[$k] ?? 0);
+            if ($d !== 0) {
+                $moved[$k] = $d;
+            }
+        }
+        ksort($moved);
+        self::assertSame($moved, $c['preview']['others'], 'what the check said moves on B is what moved');
+        $this->assertRebuilds();
+    }
+
+    /** r4 MEDIUM (r3 8 PARTLY): a failure after the bill's write committed (a lost connection resetting the session) never says it failed. */
+    public function testR4AFailureAfterTheWriteCommittedNeverSaysTheBillFailed(): void
+    {
+        $day = '2026-11-12';
+        self::order($this->vpg, '1191', '1361191', '2026-11-12T09:00:00Z', ['JV000000191GB' => $day . 'T10:00:00Z']);
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000191GB', 'TPL48HV', $day, '1361191')], 'report');
+        $conn = TestDb::connect();
+        $conn->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\HookedStatement::class, []]);
+        $arm = null;
+        $arm = static function () use (&$arm): void {
+            // armed again until the bill is live; then the session's reset fails, as a lost connection's would
+            if ((int) self::$db->value("SELECT COUNT(*) FROM carrier_invoice WHERE status = 'live'") > 0) {
+                throw new \PDOException('MySQL server has gone away');
+            }
+            \CW\Tests\Support\HookedStatement::$before['SET SESSION innodb_lock_wait_timeout'] = $arm;
+        };
+        \CW\Tests\Support\HookedStatement::$before = ['SET SESSION innodb_lock_wait_timeout' => $arm];
+        try {
+            $r = (new RoyalMailBills($conn))->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]));
+        } finally {
+            \CW\Tests\Support\HookedStatement::$before = [];
+        }
+        self::assertSame('stored', $r['result']);
+        self::assertSame(254, DeliveryBills::orderCost(self::$db, $this->vpg, '1191'));
+        $this->assertRebuilds();
+    }
+
+    /** r4 MEDIUM: a pin a crash left undone after a bill's write is caught up by the nightly even when that bill was undone meanwhile. */
+    public function testR4APinLeftUndoneIsCaughtUpEvenAfterItsBillIsUndone(): void
+    {
+        $day = '2026-11-12';
+        self::order($this->vpg, '1171', '1361171', '2026-11-12T09:00:00Z', ['JV000000171GB' => $day . 'T10:00:00Z']);
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000171GB', 'TPL48HV', $day, '1361171')], 'report');
+        $page = RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]);
+        $conn = TestDb::connect();
+        $conn->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\HookedStatement::class, []]);
+        \CW\Tests\Support\HookedStatement::$before = ['UPDATE carrier_label l JOIN' => static fn () => throw new \PDOException('MySQL server has gone away')];
+        try {
+            $id = (new RoyalMailBills($conn))->upload(self::system(), $this->acct['account'], $page)['invoice_id'];
+        } finally {
+            \CW\Tests\Support\HookedStatement::$before = [];
+        }
+        self::assertNull(self::$db->value("SELECT cw_parcel_ref FROM carrier_label WHERE tracking_no = 'JV000000171GB'"), 'the pin after the write did not run');
+        self::rm()->undo(self::system(), $id);
+        // the parcel leaves its order (a new snapshot without it), then the nightly
+        (new OrderSnapshots(self::$db))->store($this->vpg, '1171', ['v' => 1, 'version' => 2, 'order_no' => '1361171', 'status' => 'completed',
+            'placed_at' => '2026-11-01T09:00:00Z', 'paid_at' => '2026-11-12T09:00:00Z', 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => null,
+            'lines' => [['line_id' => '8001171', 'variant_id' => '40123', 'qty' => 1, 'price_inc' => 1200, 'discount_inc' => 0, 'cancelled' => false, 'refund_inc' => 0,
+                'free' => false]], 'delivery' => ['method_id' => '5', 'method' => 'Royal Mail', 'charged_inc' => 399, 'refund_inc' => 0], 'order_refund_inc' => 0,
+            'grand_inc' => 1599, 'parcels' => []], 'api');
+        self::rm()->replan(self::system(), null, 3650);
+        self::assertSame('odl:11710', (string) self::$db->value("SELECT cw_parcel_ref FROM carrier_label WHERE tracking_no = 'JV000000171GB'"),
+            'pinned to the parcel its first committed price was on');
+        $id2 = self::rm()->upload(self::system(), $this->acct['account'], $page)['invoice_id'];
+        self::assertSame(["order|{$this->vpg}|" => 254], self::where($id2), 'the label stays on that order');
+        $this->assertRebuilds();
+    }
+
+    /** r4 MEDIUM: a report read for an account switched off stores its labels and plans no bill (no money moves while it is off). */
+    public function testR4AReportOfASwitchedOffAccountMovesNoMoney(): void
+    {
+        $day = '2026-11-12';
+        self::order($this->vpg, '1181', '1361181', '2026-11-12T09:00:00Z', ['JV000000181GB' => $day . 'T10:00:00Z']);
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000181GB', 'TPL48HV', $day, '1361181', ['service_code' => null])], 'api');
+        $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]))['invoice_id'];
+        self::assertSame(['held||no_report' => 254], self::where($id));
+        self::$db->exec("UPDATE carrier_account SET state = 'off' WHERE id = ?", [$this->acct['account']]);
+        $r = self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000181GB', 'TPL48HV', $day, '1361181')], 'report');
+        self::assertSame([1, 0], [$r['filled'], $r['replanned']]);
+        self::assertSame(['held||no_report' => 254], self::where($id), 'off: no bill planned');
+        self::$db->exec("UPDATE carrier_account SET state = 'active' WHERE id = ?", [$this->acct['account']]);
+        self::rm()->replan(self::system(), null, 3650);
+        self::assertSame(["order|{$this->vpg}|" => 254], self::where($id));
+        $this->assertRebuilds();
+    }
+
+    /** r4 D3 LOW 3 and 6: the check of the very bill live shows its split as it is; the nightly takes away checks a day past their time. */
+    public function testR4TheSameBillsCheckShowsItsOwnSplitAndOldChecksGo(): void
+    {
+        $person = self::person('rm5');
+        $day = '2026-11-12';
+        self::order($this->vpg, '1201', '1361201', '2026-11-12T09:00:00Z', ['JV000000201GB' => $day . 'T10:00:00Z']);
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000201GB', 'TPL48HV', $day, '1361201')], 'report');
+        $page = RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]);
+        $id = self::rm()->upload(self::system(), $this->acct['account'], $page)['invoice_id'];
+        $c = self::rm()->check($person, $this->acct['account'], $page);
+        self::assertTrue($c['same']);
+        self::assertSame(self::split($id), $c['preview']['where'], 'its own split, not a tail of itself');
+        self::rm()->check($person, $this->acct['account'], RmBill::page([RmBill::line($day, 'TPM', 1, 338, '943')], ['invoice' => '9070000202']));
+        self::$db->exec('UPDATE carrier_bill_check SET created_at = created_at - INTERVAL 3 DAY, expires_at = created_at + INTERVAL 20 MINUTE');
+        self::rm()->replan(self::system(), null, 3650);
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_bill_check'));
+    }
 }

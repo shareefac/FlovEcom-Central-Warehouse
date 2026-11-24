@@ -38,7 +38,7 @@ final class Migration0078Test extends IntegrationTestCase
             'nothing deleted, changed or dropped (only the CHECK the link replaces)');
         foreach ($statements as $st) {
             self::assertMatchesRegularExpression('/^(CREATE TABLE IF NOT EXISTS (carrier|delivery_party|carrier_account|carrier_account_party|carrier_channel|carrier_party_rule|'
-                . 'carrier_product|carrier_band|carrier_label|carrier_label_pull|carrier_bill_row|carrier_allocation|carrier_bill_check) |INSERT INTO (carrier|delivery_party|carrier_account|'
+                . 'carrier_product|carrier_band|carrier_label|carrier_label_pull|carrier_label_pull_day|carrier_pin_due|carrier_bill_row|carrier_allocation|carrier_bill_check) |INSERT INTO (carrier|delivery_party|carrier_account|'
                 . 'carrier_account_party|carrier_channel|carrier_party_rule|carrier_product|carrier_band) |SET @cw_0078_carrier = |(PREPARE|EXECUTE|DEALLOCATE PREPARE) '
                 . 'cw_0078_carrier)/', $st);
         }
@@ -52,6 +52,8 @@ final class Migration0078Test extends IntegrationTestCase
         self::assertSame(['Select', 'Insert'], Grants::desired('carrier_allocation'));
         self::assertSame(['ended_at'], Grants::UPDATE_COLUMNS['carrier_allocation'], 'an allocation is only ended');
         self::assertSame(['Select', 'Insert', 'Update', 'Delete'], Grants::desired('carrier_bill_check'), 'a check is taken once, and gone a day after it expires (DL79)');
+        self::assertSame(['Select', 'Insert'], Grants::desired('carrier_label_pull_day'), 'a day a pull read stays read (DL80)');
+        self::assertSame(['Select', 'Insert', 'Update', 'Delete'], Grants::desired('carrier_pin_due'), 'a pin due is done, then gone (DL80)');
 
         $files = array_map('basename', glob(dirname(__DIR__, 2) . '/migrations/*.sql') ?: []);
         sort($files, SORT_STRING);
@@ -75,7 +77,7 @@ final class Migration0078Test extends IntegrationTestCase
         $new = array_values(array_diff($db->column('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()'), $tables));
         sort($new);
         self::assertSame(['carrier', 'carrier_account', 'carrier_account_party', 'carrier_allocation', 'carrier_band', 'carrier_bill_check', 'carrier_bill_row', 'carrier_channel',
-            'carrier_label', 'carrier_label_pull', 'carrier_party_rule', 'carrier_product', 'delivery_party'], $new);
+            'carrier_label', 'carrier_label_pull', 'carrier_label_pull_day', 'carrier_party_rule', 'carrier_pin_due', 'carrier_product', 'delivery_party'], $new);
         self::assertSame($before, [$db->all('SELECT * FROM carrier_invoice'), $db->all('SELECT * FROM carrier_invoice_line'), $db->all('SELECT * FROM profit_day')],
             'the DPD bill, its line and the day summary as they were');
         $constraints = static fn (): array => array_map('strval', $db->column("SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() "
@@ -136,9 +138,10 @@ final class Migration0078Test extends IntegrationTestCase
             'a first CW order number is a shop\'s');
         // a bill checked on the screen keeps the bill as read and the sha256s, never the file (DL79)
         $user = $db->insert("INSERT INTO staff_user (username, display_name, password_hash) VALUES ('m78', 'M 78', 'x')");
-        $check = static fn (array $over = []): int => $db->insert('INSERT INTO carrier_bill_check (token_sha256, staff_user_id, account_id, file_sha256, bill_sha256, bill, '
-            . 'created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', array_values(array_replace(['t' => str_repeat('c', 64), 'u' => $user, 'a' => $acct,
-                'f' => str_repeat('d', 64), 'b' => str_repeat('e', 64), 'j' => '{"rows": []}', 'c' => '2026-11-24 10:00:00', 'x' => '2026-11-24 10:20:00'], $over)));
+        $check = static fn (array $over = []): int => $db->insert('INSERT INTO carrier_bill_check (token_sha256, staff_user_id, account_id, file_sha256, bill_sha256, plan_sha256, '
+            . 'bill, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', array_values(array_replace(['t' => str_repeat('c', 64), 'u' => $user, 'a' => $acct,
+                'f' => str_repeat('d', 64), 'b' => str_repeat('e', 64), 'p' => str_repeat('9', 64), 'j' => '{"rows": []}', 'c' => '2026-11-24 10:00:00',
+                'x' => '2026-11-24 10:20:00'], $over)));
         $check();
         foreach ([['t' => str_repeat('C', 64)], ['t' => str_repeat('f', 64), 'j' => 'not json'], ['t' => str_repeat('a', 64), 'x' => '2026-11-24 09:00:00'],
             ['t' => str_repeat('b', 64), 'f' => 'x']] as $bad) {
