@@ -22,7 +22,7 @@ if (!$canExpenses) {
     $lines = array_values(array_filter($lines, static fn (array $l): bool => !in_array($l[0], ['real_expenses', 'real_regular', 'real_profit'], true)));
 }
 $incomplete = array_filter($shops, static fn (array $s): bool => $s['incomplete']) !== [];
-$notStarted = static fn (?string $day): string => $day === null ? \CW\Ui\Words::PROFIT['real_not_set'] : \CW\Ui\Words::say('PROFIT', 'real_not_started', \CW\Ui\Html::day($day));
+$notStarted = static fn (?string $first): string => $first === null ? \CW\Ui\Words::PROFIT['real_not_set'] : \CW\Ui\Words::say('PROFIT', 'real_not_started', \CW\Ui\Html::day($first));
 $later = array_values(array_filter($shops, static fn (array $s): bool => $s['counted_from'] !== null));
 ?>
 <?= $head(\CW\Ui\Words::MENU['profit_real'], intro: 'profit_real', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_real'], [$vatPct])) ?>
