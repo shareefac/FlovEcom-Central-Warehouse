@@ -120,11 +120,15 @@ final class CarrierSettings
      *
      * @param list<array{channel_code: ?string, ref_form: ?string, party_id: ?int, before_first?: bool}> $rules
      * @param array<int, array<string, mixed>> $parties
+     * @param bool $beforeRules false: the before-start rules left out (a label on a CW parcel: they are for a label on none, DL80)
      * @return array{party_id: ?int, before_first: bool}|null
      */
-    public static function rule(array $rules, ?string $channel, ?string $reference, array $parties = []): ?array
+    public static function rule(array $rules, ?string $channel, ?string $reference, array $parties = [], bool $beforeRules = true): ?array
     {
         foreach ($rules as $r) {
+            if (!$beforeRules && ($r['before_first'] ?? false)) {
+                continue;
+            }
             if ($r['channel_code'] !== null && $r['channel_code'] !== $channel) {
                 continue;
             }

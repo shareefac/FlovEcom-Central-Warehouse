@@ -29,6 +29,9 @@ use CW\Profit\DeliveryBills;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
+/** The accounts 0078 seeds by their number (DPD's, the shared Royal Mail account): their number never changes here. */
+const CARRIER_ACCOUNT_SEEDED = ['3012002', '0706703000'];
+
 exit(Cli::main('carrier_account', ['list', 'account:', 'number:', 'switch-on', 'switch-off', 'add-channel:', 'channel-name:', 'party:', 'first-order:'],
     'usage: php bin/carrier_account.php --list | --account=<number> (--number=<new> | --switch-on | --switch-off | --add-channel=<code> --channel-name=<exact name>)'
     . ' | --party=<code> --first-order=<number>',
@@ -97,6 +100,12 @@ function carrier_account_change(Cli $cli, array $opts, string $no): int
         $new = $opts['number'];
         if (preg_match('/^[0-9]{6,16}$/D', $new) !== 1) {
             throw new InvalidArgumentException('--number must be the account number as the carrier prints it (digits)');
+        }
+        if (in_array((string) $a['account_no'], CARRIER_ACCOUNT_SEEDED, true)) {
+            // 0078 seeds these accounts' parties, channels and rules BY THEIR NUMBER: theirs never changes, off or not (the Codex check r4, r3
+            // second table 6 PARTLY; DL80)
+            $cli->error("account {$a['account_no']} is one 0078 sets up by its number: its number never changes");
+            return Cli::PROBLEM;
         }
         if (preg_match('/^[0-9]+$/D', (string) $a['account_no']) === 1 && $a['state'] !== 'off') {
             // a placeholder (0078's vapebig-pending) gets its real number, and a number typed wrong is corrected while the account is off with no bill;

@@ -78,8 +78,9 @@ final class Grants
         'opening_replacement', 'relay_mode_seen',
         // 0074 (docs/decisions.md PR17): every move of an item's buying price is a row of its own, so the cost on a past day stays readable.
         'item_cost_event',
-        // 0078 (docs/decisions.md DL50): a pooled carrier bill's rows as printed are never changed or removed.
-        'carrier_bill_row'];
+        // 0078 (docs/decisions.md DL50): a pooled carrier bill's rows as printed are never changed or removed; a day a pull of Click & Drop
+        // read stays read (DL80).
+        'carrier_bill_row', 'carrier_label_pull_day'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value

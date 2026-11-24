@@ -18,6 +18,15 @@ $gbp = static fn (int $p): string => \CW\Profit\DpdInvoiceFile::gbp($p);
 <?php if ($said !== null): ?>
 <p class="notice" role="status"><?= $e($said) ?></p>
 <?php endif; ?>
+<?php if (($retry ?? null) !== null): ?>
+<form class="record delivery-store" method="post" action="/ui/profit/delivery/store">
+  <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+  <input type="hidden" name="check" value="<?= $e((string) $retry['check']) ?>">
+  <input type="hidden" name="bill_sha256" value="<?= $e((string) $retry['bill_sha256']) ?>">
+  <p class="hint"><?= $word('DELIVERY', 'rm_check_retry_hint') ?></p>
+  <p class="actions"><button type="submit" class="btn primary"><?= $word('DELIVERY', 'rm_check_retry') ?></button></p>
+</form>
+<?php endif; ?>
 <?php if ($canUpload): ?>
 <form class="record import delivery-upload" method="post" action="/ui/profit/delivery/upload" enctype="multipart/form-data">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">

@@ -75,8 +75,9 @@ final class LabelDestinations
                     $fits[strtolower($p['channel_id'] . '|' . $p['order_ref'] . '|' . $p['parcel_ref'])] = $p;
                 }
             }
-            $rule = CarrierSettings::rule($rules, $l['channel_code'] ?? null, $l['reference'] ?? null, $parties);
-            $ruled = $rule['party_id'] ?? null;
+            // the rules as they name a party for check e of a label ON a CW parcel: a before-start rule is for a label on NO CW parcel only, it
+            // never holds a label its tracking number puts on an order (the Codex check r4, D2 MEDIUM; DL80)
+            $ruled = CarrierSettings::rule($rules, $l['channel_code'] ?? null, $l['reference'] ?? null, $parties, false)['party_id'] ?? null;
             if (count($fits) > 1) {
                 $out[$id] = self::held('two_parcels');
                 continue;
@@ -107,6 +108,8 @@ final class LabelDestinations
                 }
                 continue;
             }
+            $rule = CarrierSettings::rule($rules, $l['channel_code'] ?? null, $l['reference'] ?? null, $parties);
+            $ruled = $rule['party_id'] ?? null;
             if ($ruled === null) {
                 $out[$id] = self::held('shop_unknown');
                 continue;

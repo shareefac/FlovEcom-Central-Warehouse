@@ -474,7 +474,12 @@ final class RoyalMailBillPage
         if (preg_match('/^(-?)(\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.0{1,3})?$/D', $cells[2], $q) !== 1) {
             throw self::refuse("row {$at}: its Quantity is not a whole number");
         }
-        $qty = (int) str_replace(',', '', $q[2]) * ($q[1] === '-' ? -1 : 1);
+        $digits = str_replace(',', '', $q[2]);
+        if (strlen($digits) > 10 || (int) $digits > 2_147_483_647) {
+            // what CW stores (a signed INT): a check never offers a Store that would fail (the Codex check r4, D3 LOW 4)
+            throw self::refuse("row {$at}: its Quantity is larger than CW stores");
+        }
+        $qty = (int) $digits * ($q[1] === '-' ? -1 : 1);
         $net = self::amount($cells[$c - 3]);
         $gross = self::amount($cells[$c - 2]);
         if ($net === null || $gross === null) {

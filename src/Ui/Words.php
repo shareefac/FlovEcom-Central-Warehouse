@@ -11188,6 +11188,14 @@ final class Words
         'rm_check_time' => 'Store it within %s minutes, or upload it again.',
         'rm_check_cancel' => 'Do not store it',
         'rm_check_gone' => 'This check is no longer open: it was stored already, it is more than %s minutes old, or someone else made it. Nothing was saved. Upload the bill again to check it.',
+        'rm_check_others' => 'What moves on the bills already in the profit',
+        'rm_check_others_hint' => 'Storing this bill plans its days again with the bills already stored: these amounts of theirs move (each bill still adds up to its total).',
+        'rm_check_others_none' => 'Nothing changes on the bills already in the profit.',
+        'rm_check_waiting' => '%s of this bill\'s days wait for their labels from Click & Drop: their money is held until the labels come in.',
+        'rm_check_waiting_day' => 'Waiting for its labels',
+        'rm_check_retry' => 'Try "Store this bill" again',
+        'rm_check_retry_hint' => 'Nothing was stored. Your check is still open: press the button to store the bill you checked.',
+        'rm_billed_with' => 'Billed (every bill, with this one)',
     ];
 
     public const RD_REPORTS = [

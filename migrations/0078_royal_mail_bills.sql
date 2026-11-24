@@ -19,12 +19,15 @@
 -- Data:
 --  * carrier_label: one row per label a pooled account made (account x tracking number): the Click & Drop fields the matching needs, from
 --    the API pull or the "Manifested Orders" report; never a name, address, postcode, email or phone. carrier_label_pull: each account's
---    pull checkpoint (the last day fully read).
+--    pull checkpoint (the last day fully read); carrier_label_pull_day: each day a successful pull read (an account with a key waits for
+--    that on every day after its main shop's CW start: DL80).
 --  * carrier_bill_row: a pooled bill's rows as printed (day, product, quantity, net, gross, VAT code, the reference only in a known form).
 --  * carrier_allocation: where every penny of a bill row went (an order's parcel, a shop's "not on an order", a party with no shop, before
 --    CW start, held), adding up to the row's net; ended (never deleted) when it no longer counts.
 --  * carrier_bill_check: a bill checked on the upload screen, waiting for its Store (DL79): the bill AS READ (its top and rows, what CW
---    stores of it: never the file), bound to who checked it and the file's sha256, single use, gone a day after it expires.
+--    stores of it: never the file), bound to who checked it, the file's sha256 and the split it showed, single use, gone a day after it expires.
+--  * carrier_pin_due: a bill whose labels' CW parcels are to be pinned from what its write made live (written by that write, done right
+--    after it, or by the next write or the nightly: a crash in between never loses a pin, DL80).
 -- profit_day: no new column (the allocations count in delivery_cost and delivery_other, as DPD's lines).
 --
 -- HOW IT IS APPLIED: CREATE TABLE IF NOT EXISTS (new, empty), seed rows ON DUPLICATE KEY (never changing a row that is there), and ONE ALTER of
@@ -283,6 +286,15 @@ CREATE TABLE IF NOT EXISTS carrier_label_pull (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='each account''s Click & Drop pull checkpoint (docs/decisions.md DL49)';
 
+CREATE TABLE IF NOT EXISTS carrier_label_pull_day (
+  account_id     SMALLINT UNSIGNED NOT NULL,
+  day            DATE              NOT NULL COMMENT 'a UK day whose Click & Drop orders a successful pull read (and stored)',
+  read_at        DATETIME(6)       NOT NULL COMMENT 'when it was first read',
+  PRIMARY KEY (account_id, day),
+  CONSTRAINT fk_carrier_label_pull_day_account FOREIGN KEY (account_id) REFERENCES carrier_account (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='each day a pull of Click & Drop read whole (docs/decisions.md DL80): a day of an account with a key waits until it is here';
+
 CREATE TABLE IF NOT EXISTS carrier_bill_row (
   invoice_id    BIGINT UNSIGNED   NOT NULL,
   row_no        INT UNSIGNED      NOT NULL COMMENT 'its place among the bill''s rows',
@@ -357,6 +369,7 @@ CREATE TABLE IF NOT EXISTS carrier_bill_check (
   replace_id     BIGINT UNSIGNED   NULL COMMENT 'the live bill a corrected file replaces; NULL: a new bill',
   file_sha256    CHAR(64)          NOT NULL COMMENT 'the sha256 of the file or the pasted text the check read',
   bill_sha256    CHAR(64)          NOT NULL COMMENT 'the fingerprint of the bill as read (its carrier_invoice.file_sha256 once stored)',
+  plan_sha256    CHAR(64)          NOT NULL COMMENT 'the fingerprint of the split the check showed (the bill''s and what moved on the bills live): Store stores only that (DL80)',
   bill           MEDIUMTEXT        NOT NULL COMMENT 'the bill as read (JSON): its top and its rows as CW stores them; never the file',
   created_at     DATETIME(6)       NOT NULL,
   expires_at     DATETIME(6)       NOT NULL,
@@ -371,6 +384,14 @@ CREATE TABLE IF NOT EXISTS carrier_bill_check (
   CONSTRAINT fk_carrier_bill_check_account FOREIGN KEY (account_id) REFERENCES carrier_account (id),
   CONSTRAINT fk_carrier_bill_check_replace FOREIGN KEY (replace_id) REFERENCES carrier_invoice (id),
   CONSTRAINT ck_carrier_bill_check_shapes CHECK (REGEXP_LIKE(token_sha256, '^[0-9a-f]{64}$', 'c') AND REGEXP_LIKE(file_sha256, '^[0-9a-f]{64}$', 'c')
-    AND REGEXP_LIKE(bill_sha256, '^[0-9a-f]{64}$', 'c') AND JSON_VALID(bill) AND expires_at > created_at)
+    AND REGEXP_LIKE(bill_sha256, '^[0-9a-f]{64}$', 'c') AND REGEXP_LIKE(plan_sha256, '^[0-9a-f]{64}$', 'c') AND JSON_VALID(bill) AND expires_at > created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='a pooled bill checked on the upload screen, waiting for its Store (docs/decisions.md DL79): the bill as read, never the file';
+
+CREATE TABLE IF NOT EXISTS carrier_pin_due (
+  invoice_id     BIGINT UNSIGNED   NOT NULL,
+  live_at        DATETIME(6)       NOT NULL COMMENT 'when its write made it live: the allocations on orders live then are what its labels are pinned to',
+  PRIMARY KEY (invoice_id),
+  CONSTRAINT fk_carrier_pin_due_invoice FOREIGN KEY (invoice_id) REFERENCES carrier_invoice (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='a bill whose labels are still to be pinned to the CW parcels its write put their price on (docs/decisions.md DL80)';

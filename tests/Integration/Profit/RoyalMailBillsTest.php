@@ -974,10 +974,12 @@ final class RoyalMailBillsTest extends StockTestCase
         self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM carrier_invoice WHERE status = 'live'"));
         // checked again: stored as shown, and B moved exactly as the check said
         $c = self::rm()->check($person, $this->acct['account'], $pageA);
-        self::assertSame(["order|{$this->ef}|||" => 254, "order|{$this->vpg}|||" => 254], $c['preview']['where']);
+        $both = ["order|{$this->ef}|||" => 254, "order|{$this->vpg}|||" => 254];
+        ksort($both);
+        self::assertSame($both, $c['preview']['where']);
         $a = self::rm()->storeChecked($person, (string) $c['token'], (string) $c['bill_sha256']);
         self::assertSame(['stored', 'upload'], [$a['result'], $a['mode']]);
-        self::assertSame(["order|{$this->ef}|||" => 254, "order|{$this->vpg}|||" => 254], self::split($a['invoice_id']));
+        self::assertSame($both, self::split($a['invoice_id']));
         $moved = [];
         foreach (array_unique([...array_keys($beforeB), ...array_keys(self::split($b))]) as $k) {
             $d = (self::split($b)[$k] ?? 0) - ($beforeB[$k] ?? 0);
@@ -1026,7 +1028,13 @@ final class RoyalMailBillsTest extends StockTestCase
         $page = RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]);
         $conn = TestDb::connect();
         $conn->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\HookedStatement::class, []]);
-        \CW\Tests\Support\HookedStatement::$before = ['UPDATE carrier_label l JOIN' => static fn () => throw new \PDOException('MySQL server has gone away')];
+        // every pin on this connection fails, as a process that died right after the write would leave it
+        $arm = null;
+        $arm = static function () use (&$arm): void {
+            \CW\Tests\Support\HookedStatement::$before['UPDATE carrier_label l JOIN'] = $arm;
+            throw new \PDOException('MySQL server has gone away');
+        };
+        \CW\Tests\Support\HookedStatement::$before = ['UPDATE carrier_label l JOIN' => $arm];
         try {
             $id = (new RoyalMailBills($conn))->upload(self::system(), $this->acct['account'], $page)['invoice_id'];
         } finally {

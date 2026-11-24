@@ -101,13 +101,19 @@ final class DeliveryBillsController
      */
     public function store(Context $ctx): HtmlResponse
     {
+        $token = (string) ($ctx->req->field('check') ?? '');
+        $sha = (string) ($ctx->req->field('bill_sha256') ?? '');
         try {
-            $r = (new RoyalMailBills($ctx->db))->storeChecked($ctx->caller(), (string) ($ctx->req->field('check') ?? ''), (string) ($ctx->req->field('bill_sha256') ?? ''));
+            $r = (new RoyalMailBills($ctx->db))->storeChecked($ctx->caller(), $token, $sha);
         } catch (CwException $e) {
-            return $this->listPage($ctx, $e->httpStatus, $e, ['carrier' => 'royal_mail']);
+            // busy (the bills' lock or an order held elsewhere): nothing stored, the check given back; its Store offered again (the Codex check r4,
+            // D3 LOW 5). Any other refusal: the list with the reason.
+            $retry = $e->errorCode === 'busy' && preg_match('/^[0-9a-f]{64}$/D', $token) === 1 && preg_match('/^[0-9a-f]{64}$/D', $sha) === 1
+                ? ['check' => $token, 'bill_sha256' => $sha] : null;
+            return $this->listPage($ctx, $e->httpStatus, $e, ['carrier' => 'royal_mail'], null, $retry);
         }
-        $replaced = $ctx->db->value('SELECT supersedes_id FROM carrier_invoice WHERE id = ?', [$r['invoice_id']]) !== null;
-        $notice = $r['result'] === 'same' ? 'same' : ($replaced ? 'replaced' : 'stored') . ($r['rematch_error'] !== null ? '_later' : '');
+        // the mode comes with the result: the bill is not read again (the Codex check r4, r3 8 PARTLY)
+        $notice = $r['result'] === 'same' ? 'same' : ($r['mode'] === 'replace' ? 'replaced' : 'stored') . ($r['rematch_error'] !== null ? '_later' : '');
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $r['invoice_id'], ['notice' => $notice]));
     }
 
@@ -120,10 +126,14 @@ final class DeliveryBillsController
     private function checkPage(Context $ctx, array $c): HtmlResponse
     {
         $p = $c['preview'];
+        $views = new RoyalMailViews($ctx->db);
         return $ctx->page('profit_delivery_rm_check', [
             'check' => $c,
             'bill' => $p,
-            'where' => (new RoyalMailViews($ctx->db))->checkWhere($p['where']),
+            'where' => $views->checkWhere($p['where']),
+            'others' => $views->checkWhere($p['others']),
+            'days' => $p['days'],
+            'rows' => $p['bill_rows'],
             'minutes' => RoyalMailBills::CHECK_MINUTES,
         ], 200, ['title' => Words::say('DELIVERY', 'rm_check_title', (string) $p['invoice_no'])]);
     }
@@ -190,7 +200,8 @@ final class DeliveryBillsController
     }
 
     /** @param array<string, mixed> $typed what the refused form said (carrier, shop, account) */
-    private function listPage(Context $ctx, int $status, ?CwException $error, array $typed, ?string $said = null): HtmlResponse
+    /** @param array{check: string, bill_sha256: string}|null $retry a busy Store's check, offered again */
+    private function listPage(Context $ctx, int $status, ?CwException $error, array $typed, ?string $said = null, ?array $retry = null): HtmlResponse
     {
         $bills = array_map(static fn (array $b): array => $b + ['href' => self::PATH . '/' . (int) $b['id']], (new DeliveryViews($ctx->db))->bills());
         $stores = array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'name' => (string) $r['name']], $ctx->db->all('SELECT id, name FROM channel ORDER BY id'));
@@ -204,6 +215,7 @@ final class DeliveryBillsController
             'typed' => $typed,
             'error' => $error?->getMessage(),
             'said' => $said,
+            'retry' => $retry,
             'maxMiB' => intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576),
             'limit' => DeliveryViews::LIST_LIMIT,
         ], $status, ['title' => Words::MENU['profit_delivery']]);

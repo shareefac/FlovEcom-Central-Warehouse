@@ -20169,7 +20169,7 @@ goes on the line's order like the others; a file without the column (the weeks b
 (a column CW did not know, with amounts in it). Tested with a synthetic file only. (DPD account 3012002 stays Vape and Go's only: the
 owner, 23 Nov 2026, Electrofag does not use DPD.)
 
-## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL79; migration 0078)
+## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL80; migration 0078)
 
 <!-- ---- Shipping plan v3 phase 1 (0078): DL43-DL70. ---- -->
 The plan: `cw_work/delivery_cost_20261123/SHIPPING_PLAN_v3.md` (its money rules and the owner's decisions Q1-Q8 of 23 Nov 2026 are the spec);
@@ -20506,6 +20506,29 @@ Upload the bill again"). Audit: `delivery_bill.check` (the check, the file's sha
 `.replace` naming the check and the file's sha256. `bin/rm_bill.php` checks and stores in two runs as before (its check of another file of
 a live bill is planned as its replace). Tests: `RoyalMailScreensTest` (both flows; Finance, another person, another reading, another token,
 out of time, twice, the form's token: refused; the kept bill holds no page text).
+
+**DL80. The Codex check r4 of 81f4d13 (`cw_work/runs/rmbills_codex_r4.txt`, default model: NO GO, 1 HIGH, 7 MEDIUM, 4 LOW open).** Round 3's
+new 1-6 FIXED (6 = DL79), its PARTLY items accepted by DL77 confirmed as such. Fixed now, each shown failing first (`runs/rmbills_r5_red.log`;
+green `runs/rmbills_r5_green*.log`): (HIGH, r2 HIGH 1 / r3 1 PARTLY) on an account with a key (its labels come by the nightly pull: 0706703000)
+a day after the main shop's CW start waits until a SUCCESSFUL pull read THAT day: each day a pull read is recorded with what it stored
+(`carrier_label_pull_day`, 0078); a failed first pull, a pull of later days only, or a part of a day's labels from a report never ends a wait;
+the checkpoint moves only over days read with it. An account read by report only has no such record (DL77: Vape Big, off). So the go-live's
+first pull (the lead's, on the owner's word: GET only) reads from the day after Vape and Go's CW start to yesterday, or those days wait.
+(MEDIUM, r3 8 PARTLY) the session's lock wait put back after a guarded write never hides its result (a lost connection after the commit: the
+bill stored is said stored; DPD's writes the same), and the screen's Store says replace or upload with the result (it never reads the bill
+again). (MEDIUM, r3 second table 6 PARTLY) the accounts 0078 seeds by their number (3012002, 0706703000) never change it, off or not.
+(MEDIUM, D2) the before-start rule is left out of check e: it never holds a label its tracking number puts on an order. (MEDIUM, D3 1) Store
+stores only the split its check showed: the check keeps the split's fingerprint (`carrier_bill_check.plan_sha256`: the bill's and what moves
+on the bills live), the store's own plan is compared with it before the guarded write, and a change (a parcel or a label came meanwhile)
+refuses ("changed since you checked it ... check it again"). (MEDIUM, D3 2) the check also shows a red line when days wait for their labels,
+the bill's flat days (labels, billed by every bill with this one, priced, the day's line, waiting), what moves on the bills already live
+(their allocations by group, each still adding up), and the rows as read. (MEDIUM) the pins of a bill's write are recorded IN that write
+(`carrier_pin_due`, the time it went live), done right after it from the allocations on orders live then, or by the next write's or the
+nightly's sweep even when the bill was undone meanwhile (a crash between the write and its pins never loses a pin; the guards are held as
+before: one row more). (MEDIUM) a label import (the report) for an account switched off stores its labels and plans no bill. (LOW, D3 3) the
+check of the very bill live plans it with itself gone (its own split, never a tail of itself). (LOW, D3 4) a quantity larger than CW stores
+refuses the bill. (LOW, D3 5) a Store the lock kept busy gives the check back and offers it again ("Try Store again"). (LOW, D3 6) the
+nightly removes the checks a day past their time.
 
 ## A count sheet's product box: find an item by its name, as on the adjustment screen (branch `count-picker`, 23 Nov 2026; CP1-CP8; no migration)
 

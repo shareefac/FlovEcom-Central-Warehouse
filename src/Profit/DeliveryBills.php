@@ -768,11 +768,22 @@ final class DeliveryBills
         // HOLD_WAIT_SEC at most (then every guard let go, tried again within GUARD_BUDGET_SEC, then busy).
         $rowWait = $this->db->value('SELECT @@SESSION.innodb_lock_wait_timeout');
         $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . min((int) $rowWait, self::HOLD_WAIT_SEC));
+        $reset = function () use ($rowWait): void {
+            try {
+                $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . (int) $rowWait);
+            } catch (\Throwable) {
+                // the session's wait put back is never the write's result: a write that committed stands, a refusal stays what it was (a lost
+                // connection has no session to put back: the Codex check r4, r3 8 PARTLY; DL80)
+            }
+        };
         try {
-            return $this->attempts($plan, $since);
-        } finally {
-            $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . (int) $rowWait);
+            $r = $this->attempts($plan, $since);
+        } catch (\Throwable $e) {
+            $reset();
+            throw $e;
         }
+        $reset();
+        return $r;
     }
 
     /**
