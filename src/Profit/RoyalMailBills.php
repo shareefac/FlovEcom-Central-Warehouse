@@ -12,7 +12,7 @@ use CW\Db;
 use CW\Reports\ReportRefresh;
 
 /**
- * Royal Mail's bills and labels in CW (delivery cost, phase 1 of the shipping plan v3; docs/decisions.md DL43-DL85): ONE service for every
+ * Royal Mail's bills and labels in CW (delivery cost, phase 1 of the shipping plan v3; docs/decisions.md DL43-DL86): ONE service for every
  * pooled carrier account (0706703000 and Vape Big's: only the settings differ; the owner, 23 Nov 2026, Q5).
  *
  *  check()         the upload screen's first step (DL79): a bill read and refused as upload() / replace() would refuse it, where its money would
@@ -25,7 +25,8 @@ use CW\Reports\ReportRefresh;
  *  importReport()  Click & Drop's "Manifested Orders" report (ClickAndDropReport) with the From and To it was run for: its labels added or
  *                  their empty fields filled, and its days covered, in one transaction (phase 1 is report-only: DL84, DL85; the Click & Drop API
  *                  pull is phase 2). The only way labels and cover come in (the writers behind it are private).
- *  health()        the Royal Mail alerts: a week with no report by Tuesday 12:00, days waiting more than 14 days (DL84 8).
+ *  health()        the Royal Mail alerts: a week with no report by Tuesday 12:00, days covered by no report waiting more than 14 days (DL84 8),
+ *                  days or manifests billed more than their labels by more than the setting (DL86 7), an account that could not be checked.
  *  replan()        the nightly: every key (day x product, manifest, sales order) of the live rows of the last REPLAN_DAYS planned again (a label or
  *                  a CW parcel that came since takes its price; a held amount settled).
  *  drift()         the live allocations against a plan from scratch: [] when they are what the rows and labels say.
@@ -48,8 +49,6 @@ final class RoyalMailBills
     public const TRACKING = ['royal_mail' => '/^[A-Z]{2}[0-9]{9}GB$/D'];
     /** The health alert says the days of a bill waiting longer than this (DL84 8). */
     public const WAIT_ALERT_DAYS = 14;
-    /** Rounds a plan's keys are closed over (Special Delivery groups) before the plan is tried again. */
-    public const CLOSURE_ROUNDS = 40;
     /** Tries of a chunk of a loading bill's allocations whose row wait ran out. */
     public const LOAD_TRIES = 5;
     /** Who "ended" a bill whose write never finished (it never counted). */
@@ -400,12 +399,25 @@ final class RoyalMailBills
                 ? 'look' : 'closed');
         }
         ksort($days);
+        // the "needs a look" list of the bill's days with it (DL86 7): red when a day or a manifest is billed more than its labels by more than
+        // the setting; the parcels in no report, the odd services, the money of no label (never money: every penny is in the split above)
+        $look = RoyalMailLook::forDays($this->db, (int) $account['id'], array_values(array_unique(array_map(static fn (array $r): string => (string) $r['service_date'],
+            [...$rows, ...($replaces === null ? [] : self::billRows($this->db, [$replaces]))]))), $rows, $gone);
+        $red = [];
+        foreach ($look as $i) {
+            if ($i['kind'] === 'billed_more') {
+                $red[$i['day'] . '|' . $i['product']] = true;
+            }
+        }
+        foreach ($days as $k => $d) {
+            $days[$k]['red'] = isset($red[$k]);
+        }
         $live = $this->db->one('SELECT id, file_sha256 FROM carrier_invoice WHERE live_key = ?', [self::key($bill)]);
         return ['carrier' => $bill['carrier'], 'account' => $bill['account'], 'invoice_no' => $bill['invoice_no'], 'invoice_date' => $bill['invoice_date'],
             'period_from' => $bill['period_from'], 'period_to' => $bill['period_to'], 'net' => $bill['net'], 'vat' => $bill['vat'], 'gross' => $bill['gross'],
             'rows' => count($bill['rows']), 'sha256' => $bill['sha256'], 'live_id' => $live === null ? null : (int) $live['id'],
             'same_file' => $live !== null && $live['file_sha256'] === $bill['sha256'], 'where' => $split['where'], 'others' => $split['others'], 'gone' => $split['gone'],
-            'plan_sha256' => self::planSha($split), 'days' => array_values($days), 'waiting' => self::waitingOf($s['desired'], 0), 'state' => $account['state'],
+            'plan_sha256' => self::planSha($split), 'days' => array_values($days), 'waiting' => self::waitingOf($s['desired'], 0), 'state' => $account['state'], 'look' => $look,
             'bill_rows' => array_map(static fn (array $r): array => ['row_no' => (int) $r['row_no'], 'service_date' => (string) $r['service_date'],
                 'product_code' => (string) $r['product_code'], 'qty' => (int) $r['qty'], 'net' => (int) $r['net'], 'ref_kind' => (string) $r['ref_kind'],
                 'ref_no' => $r['ref_no'] === null ? null : (string) $r['ref_no'], 'sales_order' => $r['sales_order'] === null ? null : (string) $r['sales_order']], $rows)];
@@ -616,6 +628,21 @@ final class RoyalMailBills
             // the account read again now the lock is held: switched off, its labels are still read (a new account is filled so) but its bills are
             // not planned (no money moves while it is off: the Codex check r4, MEDIUM; DL80)
             $account = CarrierSettings::account($this->db, $account['id']);
+            if ($read !== null) {
+                // the same report again (DL86 10, the Codex check r10 #1): its file covers only the days it was first loaded for; the same days
+                // again: "already loaded", nothing written
+                $was = $this->db->one('SELECT id, from_day, to_day, imported_at FROM carrier_report_import WHERE account_id = ? AND file_sha256 = ? ORDER BY id LIMIT 1',
+                    [$account['id'], $read['sha256']]);
+                if ($was !== null) {
+                    if ((string) $was['from_day'] !== $read['from'] || (string) $was['to_day'] !== $read['to']) {
+                        throw new CwException('already_loaded', sprintf('This report was already loaded for %s to %s (on %s): the same file cannot cover other days. '
+                            . 'Run the "Manifested Orders" report for the days you want and upload that. Nothing was saved.', (string) $was['from_day'], (string) $was['to_day'],
+                            self::when((string) $was['imported_at'])), 409, ['field' => 'file']);
+                    }
+                    return ['labels' => count($labels), 'added' => 0, 'filled' => 0, 'differs' => 0, 'replanned' => 0, 'replan_error' => null,
+                        'import_id' => (int) $was['id'], 'days' => [], 'already' => true];
+                }
+            }
             // the pins earlier writes left due done first: no plan here moves a label off the parcel its first price was on (the Codex check r5,
             // MEDIUM 6; DL81)
             $this->drainPins();
@@ -657,7 +684,7 @@ final class RoyalMailBills
                 return $u;
             });
             $out = ['labels' => count($labels), 'added' => $u['added'], 'filled' => $u['filled'], 'differs' => $u['differs'], 'replanned' => null, 'replan_error' => null,
-                'import_id' => $u['import_id'], 'days' => $read['days'] ?? []];
+                'import_id' => $u['import_id'], 'days' => $read['days'] ?? [], 'already' => false];
             if ($u['due'] === [] || $account['state'] !== 'active') {
                 return ['replanned' => 0] + $out;
             }
@@ -748,9 +775,11 @@ final class RoyalMailBills
     }
 
     /**
-     * The Royal Mail health alert (DL84 8), for every active pooled account: rm_report_missing when a day of the last whole week (Monday to
-     * Sunday) is covered by no report import by the Tuesday after it, 12:00 UK; rm_days_waiting when a day of a live bill has waited more
-     * than WAIT_ALERT_DAYS days (counted from the day itself). A schema before 0078 has none.
+     * The Royal Mail health alert (DL84 8, DL86), for every active pooled account, each inside its own failure boundary (the Codex check r10
+     * #15): rm_report_missing when a day of the last whole week (Monday to Sunday) is covered by no report import by the Tuesday after it, 12:00
+     * UK; rm_days_waiting when a day of a live bill covered by no report has waited more than WAIT_ALERT_DAYS days (counted from the day; DL86 1:
+     * only that wait); rm_billed_more when a day x Tracked product or a Special Delivery manifest of the live bills of the nightly's days is billed
+     * more than its labels by more than the setting (DL86 7); rm_check_failed when an account could not be checked. A schema before 0078 has none.
      *
      * @return list<array{key: string, kind: string, detail: string, data: array<string, int|string|null>}>
      */
@@ -771,25 +800,51 @@ final class RoyalMailBills
         $out = [];
         foreach (CarrierSettings::pooledAccountIds($db) as $id) {
             try {
-                $a = CarrierSettings::account($db, $id);
-            } catch (CwException | \PDOException) {
-                continue; // one account that cannot be read never hides the others' alerts
+                array_push($out, ...self::accountHealth($db, $id, $now, $monday, $sunday, $old));
+            } catch (CwException | \PDOException $e) {
+                // one account that cannot be checked never hides the others' alerts; it is said itself (the Codex check r10 #15)
+                $no = null;
+                try {
+                    $no = $db->value('SELECT account_no FROM carrier_account WHERE id = ?', [$id]);
+                } catch (\Throwable) {
+                    // its number cannot be read either: its id is said
+                }
+                $name = $no === null ? '#' . $id : (string) $no;
+                $code = $e instanceof CwException ? $e->errorCode : 'database error ' . (Db::driverCode($e) ?? 'unknown');
+                $out[] = ['key' => 'rm_check_failed:' . $name, 'kind' => 'rm_check_failed', 'detail' => sprintf('Royal Mail %s: its bills could not be checked just now (%s)',
+                    $name, $code), 'data' => ['account' => $name, 'error' => $code]];
             }
-            if ($a['state'] !== 'active') {
-                continue;
-            }
-            $covered = (int) $db->value('SELECT COUNT(DISTINCT day) FROM carrier_day_cover WHERE account_id = ? AND day BETWEEN ? AND ?', [$a['id'], $monday, $sunday]);
-            if ($covered < 7) {
-                $out[] = ['key' => 'rm_report_missing:' . $a['account_no'], 'kind' => 'rm_report_missing', 'detail' => sprintf('Royal Mail %s: %d day(s) of %s to %s covered by '
-                    . 'no Click & Drop report yet', $a['account_no'], 7 - $covered, $monday, $sunday), 'data' => ['account' => $a['account_no'], 'from' => $monday,
-                    'to' => $sunday, 'days' => 7 - $covered]];
-            }
-            $long = array_filter(self::waitingDays($db, $a['id']), static fn (array $w): bool => $w['day'] < $old);
-            if ($long !== []) {
-                $out[] = ['key' => 'rm_days_waiting:' . $a['account_no'], 'kind' => 'rm_days_waiting', 'detail' => sprintf('Royal Mail %s: %d day(s) of its bills waiting more '
-                    . 'than %d days (the oldest %s)', $a['account_no'], count($long), self::WAIT_ALERT_DAYS, min(array_column($long, 'day'))),
-                    'data' => ['account' => $a['account_no'], 'days' => count($long), 'oldest' => min(array_column($long, 'day')), 'limit' => self::WAIT_ALERT_DAYS]];
-            }
+        }
+        return $out;
+    }
+
+    /** health() of one account. @return list<array{key: string, kind: string, detail: string, data: array<string, int|string|null>}> */
+    private static function accountHealth(Db $db, int $id, \DateTimeImmutable $now, string $monday, string $sunday, string $old): array
+    {
+        $out = [];
+        $a = CarrierSettings::account($db, $id);
+        if ($a['state'] !== 'active') {
+            return [];
+        }
+        $covered = (int) $db->value('SELECT COUNT(DISTINCT day) FROM carrier_day_cover WHERE account_id = ? AND day BETWEEN ? AND ?', [$a['id'], $monday, $sunday]);
+        if ($covered < 7) {
+            $out[] = ['key' => 'rm_report_missing:' . $a['account_no'], 'kind' => 'rm_report_missing', 'detail' => sprintf('Royal Mail %s: %d day(s) of %s to %s covered by '
+                . 'no Click & Drop report yet', $a['account_no'], 7 - $covered, $monday, $sunday), 'data' => ['account' => $a['account_no'], 'from' => $monday,
+                'to' => $sunday, 'days' => 7 - $covered]];
+        }
+        // only the days covered by no report (DL86 1: nothing else waits; an account switched off is not checked here)
+        $long = array_filter(self::waitingDays($db, $a['id']), static fn (array $w): bool => $w['day'] < $old && in_array('not_covered', $w['reasons'], true));
+        if ($long !== []) {
+            $out[] = ['key' => 'rm_days_waiting:' . $a['account_no'], 'kind' => 'rm_days_waiting', 'detail' => sprintf('Royal Mail %s: %d day(s) of its bills waiting more '
+                . 'than %d days (the oldest %s)', $a['account_no'], count($long), self::WAIT_ALERT_DAYS, min(array_column($long, 'day'))),
+                'data' => ['account' => $a['account_no'], 'days' => count($long), 'oldest' => min(array_column($long, 'day')), 'limit' => self::WAIT_ALERT_DAYS]];
+        }
+        $red = array_values(array_filter(RoyalMailLook::recent($db, $a['id'], $now), static fn (array $i): bool => in_array($i['kind'], ['billed_more', 'manifest'], true)));
+        if ($red !== []) {
+            $pct = RoyalMailLook::pctText(RoyalMailLook::alarmBp($db));
+            $out[] = ['key' => 'rm_billed_more:' . $a['account_no'], 'kind' => 'rm_billed_more', 'detail' => sprintf('Royal Mail %s: %d day(s) or manifest(s) billed more '
+                . 'than their labels by more than %s%% (the oldest %s)', $a['account_no'], count($red), $pct, min(array_column($red, 'day'))),
+                'data' => ['account' => $a['account_no'], 'count' => count($red), 'oldest' => min(array_column($red, 'day')), 'pct' => $pct]];
         }
         return $out;
     }
@@ -1068,7 +1123,13 @@ final class RoyalMailBills
             sort($keys, SORT_STRING);
             $n += $this->replanKeys($caller, $account, $keys);
             if (count($this->failed) === $failed) {
-                $this->db->exec('DELETE FROM carrier_replan_due WHERE account_id = ? AND day = ?', [$account['id'], $day]);
+                try {
+                    $this->db->exec('DELETE FROM carrier_replan_due WHERE account_id = ? AND day = ?', [$account['id'], $day]);
+                } catch (\PDOException) {
+                    // its "done" not written: the day stays due (planned again by the next run, no harm), the later days are planned all the same
+                    // (the Codex check r10 #14)
+                    $this->failed[] = 'done:' . $day;
+                }
             }
         }
         return $n;
@@ -1325,9 +1386,9 @@ final class RoyalMailBills
     }
 
     /**
-     * Everything one plan needs, read: the keys' live rows (with $newRows, without the bills in $gone), their labels and where each belongs, the
-     * plan, the live allocations it replaces (the rows' and every one of $gone's), and the difference: what ends, what is added (an allocation
-     * the same in both stays as it is: no churn).
+     * Everything one plan needs, read: the keys' live rows (with $newRows, without the bills in $gone), their labels and where each belongs
+     * (and which are of an odd service: DL86 4), the days that wait (DL86 1), the plan, the live allocations it replaces (the rows' and every one
+     * of $gone's), and the difference: what ends, what is added (an allocation the same in both stays as it is: no churn).
      *
      * @param list<string> $keys
      * @param list<array<string, mixed>> $newRows rows of the bill being stored (invoice_id 0)
@@ -1345,218 +1406,158 @@ final class RoyalMailBills
         $marks = static fn (int $n): string => implode(', ', array_fill(0, $n, '?'));
         $cols = 'id, tracking_no, reference, channel_code, service_code, manifest_day, manifest_no, weight_g, sales_order';
         $kindOf = static fn (array $r): string => $ctx['products'][(string) $r['product_code']]['kind'] ?? 'unknown';
-        // The keys' labels and their rows, found broadly; then closed over (the Codex check r1, MEDIUM 6): every label of a sales order a row
-        // names (so a row's manifest is read from all of them), and the key each row found has now and the manifests its live allocations' labels
-        // are on (the group it leaves) planned with them, until nothing new comes (3 rounds at most).
-        // DL84 3 (the Codex check r9 H5): a day that waits withdraws ALL its money in this write: every key of a row of a waiting day is planned
-        // here too, closed over again (a few passes at most)
-        for ($pass = 0; ; $pass++) {
-            for ($round = 0; ; $round++) {
-                $flat = [];
-                $manifests = [];
-                $sales = [];
-                $own = [];
-                foreach ($keys as $k) {
-                    $p = explode('|', $k);
-                    match ($p[0]) {
-                        'F' => $flat[] = [$p[1], $p[2]],
-                        'M' => $manifests[] = (int) $p[1],
-                        'S' => $sales[] = $p[1],
-                        default => $own[] = [(int) $p[1], (int) $p[2]],
-                    };
-                }
-                $labels = [];
-                $take = static function (array $rows) use (&$labels): void {
-                    foreach ($rows as $l) {
-                        $labels[(int) $l['id']] = self::label($l);
-                    }
+        $not = $gone === [] ? '' : ' AND i.id NOT IN (' . $marks(count($gone)) . ')';
+        // The keys' labels and rows, then closed over (DL86 8: no group any more, each key is priced on its own): the key each row has now (a
+        // Special Delivery row naming only its sales order finds its manifest through that sales order's labels), the manifests its live
+        // allocations' labels are on (the manifest a row leaves is planned with it: the Codex check r1, MEDIUM 6) and those of the bills going,
+        // until nothing new comes (it always ends: the keys only grow, and there are as many as the rows and labels; no cap, the Codex check r10 #13).
+        for ($round = 0; ; $round++) {
+            $flat = [];
+            $manifests = [];
+            $sales = [];
+            $own = [];
+            foreach ($keys as $k) {
+                $p = explode('|', $k);
+                match ($p[0]) {
+                    'F' => $flat[] = [$p[1], $p[2]],
+                    'M' => $manifests[] = (int) $p[1],
+                    'S' => $sales[] = $p[1],
+                    default => $own[] = [(int) $p[1], (int) $p[2]],
                 };
-                foreach (array_chunk($flat, 200) as $chunk) {
-                    $pairs = [];
-                    foreach ($chunk as [$day, $product]) {
-                        array_push($pairs, $day, (string) ($ctx['products'][$product]['service_code'] ?? ''));
-                    }
-                    $take($db->all("SELECT {$cols} FROM carrier_label WHERE account_id = ? AND (manifest_day, service_code) IN ("
-                        . implode(', ', array_fill(0, count($chunk), '(?, ?)')) . ')', [$account['id'], ...$pairs]));
+            }
+            $labels = [];
+            $take = static function (array $rows) use (&$labels): void {
+                foreach ($rows as $l) {
+                    $labels[(int) $l['id']] = self::label($l);
                 }
-                // a group's labels: its Special Delivery ones, and one of no service (not known what it is: a member; the Codex check r9 H8)
-                $bandOrNone = '(service_code IN (' . $marks(count($bandServices)) . ') OR service_code IS NULL)';
-                $bySales = static function (array $so) use ($db, $account, $bandServices, $cols, $marks, $take, $bandOrNone): void {
-                    foreach (array_chunk(array_values(array_unique($so)), 500) as $chunk) {
-                        $take($db->all("SELECT {$cols} FROM carrier_label WHERE account_id = ? AND sales_order IN (" . $marks(count($chunk)) . ") AND {$bandOrNone}",
-                            [$account['id'], ...$chunk, ...$bandServices]));
-                    }
-                };
-                if ($bandServices !== []) {
-                    foreach (array_chunk($manifests, 500) as $chunk) {
-                        $take($db->all("SELECT {$cols} FROM carrier_label WHERE account_id = ? AND manifest_no IN (" . $marks(count($chunk)) . ") AND {$bandOrNone}",
-                            [$account['id'], ...$chunk, ...$bandServices]));
-                    }
-                    $bySales($sales);
-                    // the labels on the manifests of a sales order's labels: one of them naming no sales order means the group is not known whole
-                    // (the Codex check r7, H4; DL83)
-                    $kin = array_values(array_unique(array_filter(array_map(static fn (array $l): ?int => $l['sales_order'] !== null && in_array($l['sales_order'], $sales, true)
-                        && $l['manifest_no'] !== null && ($l['service_code'] === null || in_array($l['service_code'], $bandServices, true)) ? (int) $l['manifest_no'] : null,
-                        $labels), static fn (?int $m): bool => $m !== null)));
-                    foreach (array_chunk($kin, 500) as $chunk) {
-                        $take($db->all("SELECT {$cols} FROM carrier_label WHERE account_id = ? AND manifest_no IN (" . $marks(count($chunk)) . ") AND {$bandOrNone}",
-                            [$account['id'], ...$chunk, ...$bandServices]));
-                    }
-                }
-                $soOfManifests = array_values(array_unique(array_filter(array_map(static fn (array $l): ?string => $l['manifest_no'] !== null
-                    && in_array((int) $l['manifest_no'], $manifests, true) ? $l['sales_order'] : null, $labels))));
-                // the keys' rows, each part its own query in chunks (no placeholder limit on a big catch-up or the drift check: the Codex check r9 M17)
-                $parts = [];
-                foreach (array_chunk($flat, 200) as $chunk) {
-                    $pp = [];
-                    foreach ($chunk as [$day, $product]) {
-                        array_push($pp, $product, $day);
-                    }
-                    $parts[] = ['(r.product_code, r.service_date) IN (' . implode(', ', array_fill(0, count($chunk), '(?, ?)')) . ')', $pp];
-                }
-                $band = $kinds('band');
-                // the band rows of the keys' manifests, and every band row naming a sales order of the keys or of their manifests' labels (a row of
-                // another manifest printing one: one group, the Codex check r9 H6)
-                $rowSalesWanted = array_values(array_unique([...$soOfManifests, ...$sales]));
-                if ($band !== []) {
-                    foreach (array_chunk($manifests, 500) as $chunk) {
-                        $parts[] = ['(r.product_code IN (' . $marks(count($band)) . ") AND r.ref_kind = 'manifest' AND r.ref_no IN (" . $marks(count($chunk)) . '))',
-                            [...$band, ...array_map('strval', $chunk)]];
-                    }
-                    foreach (array_chunk($rowSalesWanted, 500) as $chunk) {
-                        $parts[] = ['(r.product_code IN (' . $marks(count($band)) . ') AND r.sales_order IN (' . $marks(count($chunk)) . '))', [...$band, ...$chunk]];
-                    }
-                }
-                $ww = $kinds('wrong_weight');
-                if ($ww !== []) {
-                    foreach (array_chunk($sales, 500) as $chunk) {
-                        $m = $marks(count($chunk));
-                        $parts[] = ['(r.product_code IN (' . $marks(count($ww)) . ") AND ((r.ref_kind = 'sales_order' AND r.ref_no IN ({$m})) OR r.sales_order IN ({$m})))",
-                            [...$ww, ...$chunk, ...$chunk]];
-                    }
-                }
-                foreach (array_chunk($own, 200) as $chunk) {
-                    $pp = [];
-                    foreach ($chunk as [$inv, $no]) {
-                        array_push($pp, $inv, $no);
-                    }
-                    $parts[] = ['(r.invoice_id, r.row_no) IN (' . implode(', ', array_fill(0, count($chunk), '(?, ?)')) . ')', $pp];
-                }
-                $byRow = [];
-                $not = $gone === [] ? '' : ' AND i.id NOT IN (' . $marks(count($gone)) . ')';
-                foreach ($parts as [$sql, $pp]) {
-                    foreach (self::rowsWhere($db, $account, $sql . $not, [...$pp, ...$gone], $loading) as $r) {
-                        $byRow[$r['invoice_id'] . '|' . $r['row_no']] = $r;
-                    }
-                }
-                uasort($byRow, static fn (array $x, array $y): int => [$x['invoice_id'], $x['row_no']] <=> [$y['invoice_id'], $y['row_no']]);
-                $rows = array_values($byRow);
-                $cand = [...$rows, ...$newRows];
-                // every label of the sales orders the band rows name
-                $rowSales = [];
-                foreach ($cand as $r) {
-                    if ($kindOf($r) === 'band' && $r['sales_order'] !== null) {
-                        $rowSales[] = (string) $r['sales_order'];
-                    }
-                }
-                if ($bandServices !== []) {
-                    $bySales($rowSales);
-                }
-                ksort($labels);
-                $more = [];
-                $stored = [];
-                foreach ($cand as $r) {
-                    if ($kindOf($r) === 'band' || $kindOf($r) === 'wrong_weight') {
-                        $more[PooledPlanner::key($r, $kindOf($r), $labels, $ctx)] = true;
-                        if ($kindOf($r) === 'band' && $r['sales_order'] !== null) {
-                            $more['S|' . $r['sales_order']] = true; // a manifest's row naming a sales order: one group (DL84 4)
-                        }
-                        if ((int) $r['invoice_id'] !== 0) {
-                            $stored[] = $r;
-                        }
-                    }
-                }
-                foreach (array_chunk($stored, 300) as $chunk) {
-                    $pairs = [];
-                    foreach ($chunk as $r) {
-                        array_push($pairs, (int) $r['invoice_id'], (int) $r['row_no']);
-                    }
-                    foreach ($db->column('SELECT DISTINCT l.manifest_no FROM carrier_allocation a JOIN carrier_label l ON l.id = a.label_id WHERE a.ended_at IS NULL '
-                        . 'AND l.manifest_no IS NOT NULL AND (a.invoice_id, a.row_no) IN (' . implode(', ', array_fill(0, count($chunk), '(?, ?)')) . ')', $pairs) as $m) {
-                        $more['M|' . (int) $m] = true;
-                    }
-                }
-                // ... and the manifests of the bills going (an undone bill's Special Delivery rows leave their groups too: the Codex check r2, r1 MEDIUM 6)
-                if ($gone !== [] && $round === 0) {
-                    foreach ($db->column('SELECT DISTINCT l.manifest_no FROM carrier_allocation a JOIN carrier_label l ON l.id = a.label_id WHERE a.ended_at IS NULL '
-                        . 'AND l.manifest_no IS NOT NULL AND a.invoice_id IN (' . $marks(count($gone)) . ')', $gone) as $m) {
-                        $more['M|' . (int) $m] = true;
-                    }
-                }
-                // the band rows of the same day and product as a band row here: a bill taking that day over its labels withdraws them all in the
-                // same write (the Codex check r9 H5; DL84 3b)
+            };
+            foreach (array_chunk($flat, 200) as $chunk) {
                 $pairs = [];
-                foreach ($cand as $r) {
-                    if ($kindOf($r) === 'band') {
-                        $pairs[$r['service_date'] . '|' . $r['product_code']] = [(string) $r['product_code'], (string) $r['service_date']];
-                    }
+                foreach ($chunk as [$day, $product]) {
+                    array_push($pairs, $day, (string) ($ctx['products'][$product]['service_code'] ?? ''));
                 }
-                foreach (array_chunk(array_values($pairs), 200) as $chunk) {
-                    $not = $gone === [] ? '' : ' AND i.id NOT IN (' . $marks(count($gone)) . ')';
-                    foreach (self::rowsWhere($db, $account, '(r.product_code, r.service_date) IN (' . implode(', ', array_fill(0, count($chunk), '(?, ?)')) . ')' . $not,
-                        [...array_merge(...$chunk), ...$gone], $loading) as $r) {
-                        $more[PooledPlanner::key($r, 'band', $labels, $ctx)] = true;
-                    }
-                }
-                // the whole group: every manifest and sales order a Special Delivery label (or one of no service) of it names (DL84 4: closed over
-                // all live bills and labels)
-                foreach ($labels as $l) {
-                    if ($l['service_code'] === null || in_array($l['service_code'], $bandServices, true)) {
-                        if ($l['manifest_no'] !== null) {
-                            $more['M|' . (int) $l['manifest_no']] = true;
-                        }
-                        if ($l['sales_order'] !== null) {
-                            $more['S|' . $l['sales_order']] = true;
-                        }
-                    }
-                }
-                $new = array_values(array_diff(array_map('strval', array_keys($more)), $keys));
-                if ($new === []) {
-                    break;
-                }
-                if ($round >= self::CLOSURE_ROUNDS) {
-                    throw new CwException(self::RETRY, 'the Special Delivery groups kept growing while they were read', 409); // never discarded: tried again
-                }
-                $keys = array_values(array_unique([...$keys, ...$new]));
-                sort($keys, SORT_STRING);
+                $take($db->all("SELECT {$cols} FROM carrier_label WHERE account_id = ? AND (manifest_day, service_code) IN ("
+                    . implode(', ', array_fill(0, count($chunk), '(?, ?)')) . ')', [$account['id'], ...$pairs]));
             }
-            $rows = array_values(array_filter($cand, static fn (array $r): bool => in_array(PooledPlanner::key($r, $kindOf($r), $labels, $ctx), $keys, true)));
-            // the days waiting for their labels (the Codex checks r1 HIGH 1, r2; DL71, DL74): a day of the rows after the main shop's CW start with a
-            // label of no service yet (the API brought it, Click & Drop's report not read), or with no label at all
-            // the rows' days and their labels' manifest days (a Special Delivery manifest or its wrong weight waits on its labels' day too: the Codex
-            // check r5, HIGH 2; DL81)
-            $days = array_values(array_unique([...array_map(static fn (array $r): string => (string) $r['service_date'], $rows),
-                ...array_values(array_filter(array_map(static fn (array $l): string => (string) ($l['manifest_day'] ?? ''), $labels), static fn (string $d): bool => $d !== ''))]));
-            [$ctx['waiting'], $ctx['incomplete'], $ctx['product_waiting']] = self::dayStates($db, $account, $ctx, $days, $newRows, $gone, $loading);
-            $waitingDays = array_keys($ctx['waiting']);
-            $extra = [];
-            foreach (array_chunk($waitingDays, 200) as $chunk) {
-                $not = $gone === [] ? '' : ' AND i.id NOT IN (' . $marks(count($gone)) . ')';
-                foreach (self::keysOf($db, $account, $ctx, self::rowsWhere($db, $account, 'r.service_date IN (' . $marks(count($chunk)) . ')' . $not,
-                    [...$chunk, ...$gone], $loading)) as $k) {
-                    if (!in_array($k, $keys, true)) {
-                        $extra[$k] = true;
-                    }
+            // a manifest's and a sales order's labels: its Special Delivery ones
+            $bySales = static function (array $so) use ($db, $account, $bandServices, $cols, $marks, $take): void {
+                foreach (array_chunk(array_values(array_unique($so)), 500) as $chunk) {
+                    $take($db->all("SELECT {$cols} FROM carrier_label WHERE account_id = ? AND sales_order IN (" . $marks(count($chunk)) . ') AND service_code IN ('
+                        . $marks(count($bandServices)) . ')', [$account['id'], ...$chunk, ...$bandServices]));
+                }
+            };
+            if ($bandServices !== []) {
+                foreach (array_chunk($manifests, 500) as $chunk) {
+                    $take($db->all("SELECT {$cols} FROM carrier_label WHERE account_id = ? AND manifest_no IN (" . $marks(count($chunk)) . ') AND service_code IN ('
+                        . $marks(count($bandServices)) . ')', [$account['id'], ...$chunk, ...$bandServices]));
+                }
+                $bySales($sales);
+            }
+            $soOfManifests = array_values(array_unique(array_filter(array_map(static fn (array $l): ?string => $l['manifest_no'] !== null
+                && in_array((int) $l['manifest_no'], $manifests, true) ? $l['sales_order'] : null, $labels))));
+            // the keys' rows, each part its own query in chunks (no placeholder limit on a big catch-up or the drift check: the Codex check r9 M17)
+            $parts = [];
+            foreach (array_chunk($flat, 200) as $chunk) {
+                $pp = [];
+                foreach ($chunk as [$day, $product]) {
+                    array_push($pp, $product, $day);
+                }
+                $parts[] = ['(r.product_code, r.service_date) IN (' . implode(', ', array_fill(0, count($chunk), '(?, ?)')) . ')', $pp];
+            }
+            $band = $kinds('band');
+            if ($band !== []) {
+                // the band rows of the keys' manifests by their number, and the band rows naming ONLY a sales order of the manifests' labels (their
+                // manifest is found through them: PooledPlanner::key); a row of another manifest printing the same sales order is that manifest's
+                foreach (array_chunk($manifests, 500) as $chunk) {
+                    $parts[] = ['(r.product_code IN (' . $marks(count($band)) . ") AND r.ref_kind = 'manifest' AND r.ref_no IN (" . $marks(count($chunk)) . '))',
+                        [...$band, ...array_map('strval', $chunk)]];
+                }
+                foreach (array_chunk($soOfManifests, 500) as $chunk) {
+                    $parts[] = ['(r.product_code IN (' . $marks(count($band)) . ") AND r.ref_kind <> 'manifest' AND r.sales_order IN (" . $marks(count($chunk)) . '))',
+                        [...$band, ...$chunk]];
                 }
             }
-            if ($extra === []) {
+            $ww = $kinds('wrong_weight');
+            if ($ww !== []) {
+                foreach (array_chunk($sales, 500) as $chunk) {
+                    $m = $marks(count($chunk));
+                    $parts[] = ['(r.product_code IN (' . $marks(count($ww)) . ") AND ((r.ref_kind = 'sales_order' AND r.ref_no IN ({$m})) OR r.sales_order IN ({$m})))",
+                        [...$ww, ...$chunk, ...$chunk]];
+                }
+            }
+            foreach (array_chunk($own, 200) as $chunk) {
+                $pp = [];
+                foreach ($chunk as [$inv, $no]) {
+                    array_push($pp, $inv, $no);
+                }
+                $parts[] = ['(r.invoice_id, r.row_no) IN (' . implode(', ', array_fill(0, count($chunk), '(?, ?)')) . ')', $pp];
+            }
+            $byRow = [];
+            foreach ($parts as [$sql, $pp]) {
+                foreach (self::rowsWhere($db, $account, $sql . $not, [...$pp, ...$gone], $loading) as $r) {
+                    $byRow[$r['invoice_id'] . '|' . $r['row_no']] = $r;
+                }
+            }
+            uasort($byRow, static fn (array $x, array $y): int => [$x['invoice_id'], $x['row_no']] <=> [$y['invoice_id'], $y['row_no']]);
+            $rows = array_values($byRow);
+            $cand = [...$rows, ...$newRows];
+            // every label of the sales orders the band rows name (a row naming only its sales order finds its manifest through them)
+            $rowSales = [];
+            foreach ($cand as $r) {
+                if ($kindOf($r) === 'band' && $r['sales_order'] !== null && $r['ref_kind'] !== 'manifest') {
+                    $rowSales[] = (string) $r['sales_order'];
+                }
+            }
+            if ($bandServices !== []) {
+                $bySales($rowSales);
+            }
+            ksort($labels);
+            $more = [];
+            $stored = [];
+            foreach ($cand as $r) {
+                if ($kindOf($r) === 'band' || $kindOf($r) === 'wrong_weight') {
+                    $more[PooledPlanner::key($r, $kindOf($r), $labels, $ctx)] = true;
+                    if ($kindOf($r) === 'band' && (int) $r['invoice_id'] !== 0) {
+                        $stored[] = $r;
+                    }
+                }
+            }
+            $bandLabel = $bandServices === [] ? '' : ' AND l.service_code IN (' . $marks(count($bandServices)) . ')';
+            foreach (array_chunk($stored, 300) as $chunk) {
+                $pairs = [];
+                foreach ($chunk as $r) {
+                    array_push($pairs, (int) $r['invoice_id'], (int) $r['row_no']);
+                }
+                foreach ($db->column("SELECT DISTINCT l.manifest_no FROM carrier_allocation a JOIN carrier_label l ON l.id = a.label_id WHERE a.ended_at IS NULL AND a.kind = 'label' "
+                    . "AND l.manifest_no IS NOT NULL{$bandLabel} AND (a.invoice_id, a.row_no) IN (" . implode(', ', array_fill(0, count($chunk), '(?, ?)')) . ')',
+                    [...$bandServices, ...$pairs]) as $m) {
+                    $more['M|' . (int) $m] = true;
+                }
+            }
+            // ... and the manifests of the bills going (an undone bill's Special Delivery rows leave their manifests: the Codex check r2, r1 MEDIUM 6)
+            if ($gone !== [] && $round === 0) {
+                foreach ($db->column("SELECT DISTINCT l.manifest_no FROM carrier_allocation a JOIN carrier_label l ON l.id = a.label_id WHERE a.ended_at IS NULL AND a.kind = 'label' "
+                    . "AND l.manifest_no IS NOT NULL{$bandLabel} AND a.invoice_id IN (" . $marks(count($gone)) . ')', [...$bandServices, ...$gone]) as $m) {
+                    $more['M|' . (int) $m] = true;
+                }
+            }
+            $new = array_values(array_diff(array_map('strval', array_keys($more)), $keys));
+            if ($new === []) {
                 break;
             }
-            if ($pass >= 3) {
-                throw new CwException(self::RETRY, 'the days waiting kept growing while they were read', 409); // never discarded: tried again
-            }
-            $keys = array_values(array_unique([...$keys, ...array_map('strval', array_keys($extra))]));
+            $keys = array_values(array_unique([...$keys, ...$new]));
             sort($keys, SORT_STRING);
+        }
+        $rows = array_values(array_filter($cand, static fn (array $r): bool => in_array(PooledPlanner::key($r, $kindOf($r), $labels, $ctx), $keys, true)));
+        // the days that wait (DL86 1: covered by no report after the main shop's CW start, or the account off): the rows' days and their labels'
+        // manifest days (a manifest or a sales order waits on its labels' day too)
+        $days = array_values(array_unique([...array_map(static fn (array $r): string => (string) $r['service_date'], $rows),
+            ...array_values(array_filter(array_map(static fn (array $l): string => (string) ($l['manifest_day'] ?? ''), $labels), static fn (string $d): bool => $d !== ''))]));
+        $ctx['waiting'] = self::waits($db, $account, $ctx, $days);
+        // the labels of an odd service get no price (DL86 4)
+        $odd = self::odd($db, $ctx, $labels);
+        foreach ($odd as $id => $why) {
+            $labels[$id]['odd'] = $why;
         }
         // labels' destinations; a label whose price is on an order now stays on it (sticky)
         // the label's own CW parcel, pinned when a plan first put it on an order (DL74); else a live allocation on an order (labels of before)
@@ -1616,127 +1617,87 @@ final class RoyalMailBills
             array_push($end, ...$set);
         }
         usort($end, static fn (array $a, array $b): int => (int) $a['id'] <=> (int) $b['id']);
-        // the day's evidence read again once the write's guards are held (the Codex check r9 H12): a CW parcel's service, a label, a cover or a
-        // bill that changed it since this plan read it means the plan is old: made again (DeliveryBills' verify)
-        $states = [$ctx['waiting'], $ctx['incomplete'], $ctx['product_waiting']];
-        $verify = static fn (Db $db): bool => self::dayStates($db, $account, $ctx, $days, $newRows, $gone, $loading) === $states;
+        // the plan's evidence read again once the write's guards are held (the Codex check r9 H12): a cover, or a CW parcel's service of one of its
+        // labels, that changed since this plan read it means the plan is old: made again (DeliveryBills' verify)
+        $waiting = $ctx['waiting'];
+        $verify = static fn (Db $db): bool => self::waits($db, $account, $ctx, $days) === $waiting && self::odd($db, $ctx, $labels) === $odd;
         return ['keys' => $keys, 'rows' => $rows, 'labels' => $labels, 'sticky' => $sticky, 'dests' => $dests, 'versions' => $versions, 'desired' => $desired,
             'existing' => $existing, 'end' => $end, 'add' => $add, 'gone' => array_map('intval', $gone), 'loading' => $loading, 'verify' => $verify];
     }
 
     /**
-     * Which days of a plan may move money (DL84): a day is COMPLETE when a report import covers it (carrier_day_cover), every label of it has a
-     * service the plan maps, none differs from its CW parcel's service, and (a) every CW Royal Mail parcel labelled that day (of a shop the
-     * account serves, an outbound service or none given) is in the account's labels; and (b) for a product, the units all live bills have for
-     * it that day are no more than its labels that day. Each incomplete day with its reason; after the main shop's CW start it waits (on or before
-     * the start a day is wholly before CW start: PooledPlanner); an account switched off holds every day of a plan it makes (DL83).
+     * Which days of a plan wait (DL86 1): a day after the main shop's CW start covered by no report import (`not_covered`: it clears itself when
+     * staff upload the report run for it), and every day of a plan an account switched off makes (`account_off`, DL80, DL83). Nothing else waits.
      *
      * @param list<string> $days
-     * @param list<array<string, mixed>> $newRows the rows of a bill being stored (invoice 0)
-     * @param list<int> $gone the bills going (undone, replaced)
-     * @return array{0: array<string, string>, 1: array<string, string>, 2: array<string, string>} waiting day => reason, incomplete day => reason,
-     *   "day|product" => billed_more (every day)
+     * @return array<string, string> day => reason
      */
-    private static function dayStates(Db $db, array $account, array $ctx, array $days, array $newRows, array $gone, ?int $loading): array
+    private static function waits(Db $db, array $account, array $ctx, array $days): array
     {
-        $waiting = [];
-        $incomplete = [];
-        $product = [];
-        if ($days === []) {
-            return [$waiting, $incomplete, $product];
-        }
+        $out = [];
+        $days = array_values(array_unique(array_map('strval', $days)));
         sort($days, SORT_STRING);
-        $marks = static fn (int $n): string => implode(', ', array_fill(0, $n, '?'));
-        $flat = [];
-        foreach ($ctx['products'] as $code => $p) {
-            if ($p['service_code'] !== null && in_array($p['kind'], ['flat', 'band'], true)) {
-                $flat[(string) $p['service_code']] = (string) $code;
-            }
+        if ($days === []) {
+            return $out;
         }
-        $mapped = array_keys($flat);
-        $reason = [];
-        $covered = [];
-        $labelsBy = [];
-        foreach (array_chunk($days, 300) as $chunk) {
-            foreach ($db->column('SELECT DISTINCT day FROM carrier_day_cover WHERE account_id = ? AND day IN (' . $marks(count($chunk)) . ')', [$account['id'], ...$chunk]) as $d) {
-                $covered[(string) $d] = true;
-            }
-            foreach ($db->all('SELECT manifest_day, service_code, COUNT(*) AS n FROM carrier_label WHERE account_id = ? AND manifest_day IN (' . $marks(count($chunk))
-                . ') GROUP BY manifest_day, service_code', [$account['id'], ...$chunk]) as $r) {
-                $d = (string) $r['manifest_day'];
-                if ($r['service_code'] === null) {
-                    $reason[$d] ??= 'no_service';
-                } elseif (!in_array((string) $r['service_code'], $mapped, true)) {
-                    $reason[$d] ??= 'unknown_service';
-                } else {
-                    $labelsBy[$d . '|' . $flat[(string) $r['service_code']]] = (int) $r['n'];
-                }
-            }
-            // a report's service other than its CW parcel's, for the same tracking number
-            foreach ($db->column("SELECT DISTINCT l.manifest_day FROM carrier_label l JOIN sale_parcel p ON p.tracking_no = l.tracking_no AND p.removed_at IS NULL "
-                . "AND (p.carrier = 'royal_mail' OR p.is_manual = 1) AND p.service_code <> '' WHERE l.account_id = ? AND l.manifest_day IN (" . $marks(count($chunk)) . ') AND l.service_code IS NOT NULL '
-                . 'AND p.service_code <> l.service_code', [$account['id'], ...$chunk]) as $d) {
-                $reason[(string) $d] ??= 'service_differs';
-            }
-        }
-        // (a) the CW Royal Mail parcels labelled on these days (UK) of the shops the account serves, in no label of the account
-        $shops = array_values(array_filter(array_map(static fn (array $p): ?int => $p['channel_id'], CarrierSettings::parties($db, (int) $account['id']))));
-        if ($shops !== []) {
-            $utc = new \DateTimeZone('UTC');
-            $uk = new \DateTimeZone('Europe/London');
-            $lo = (new \DateTimeImmutable($days[0] . ' 00:00:00', $uk))->setTimezone($utc)->format('Y-m-d H:i:s');
-            $hi = (new \DateTimeImmutable(end($days) . ' 00:00:00', $uk))->modify('+1 day')->setTimezone($utc)->format('Y-m-d H:i:s');
-            // every outbound parcel, whatever its service (one the plan does not price too: the Codex check r9 H11); a return's service (the
-            // carrier's return products, e.g. TSS) is no label of the account
-            $returns = array_map('strval', array_keys(array_filter($ctx['products'], static fn (array $p): bool => $p['kind'] === 'return')));
-            $notReturn = $returns === [] ? '' : ' AND p.service_code NOT IN (' . $marks(count($returns)) . ')';
-            foreach ($db->all('SELECT p.label_at FROM sale_parcel p LEFT JOIN carrier_label l ON l.account_id = ? AND l.tracking_no = p.tracking_no '
-                . "WHERE p.carrier = 'royal_mail' AND p.removed_at IS NULL AND p.tracking_no IS NOT NULL AND p.tracking_no <> '' AND p.label_at >= ? AND p.label_at < ? "
-                . 'AND p.channel_id IN (' . $marks(count($shops)) . "){$notReturn} AND l.id IS NULL", [$account['id'], $lo, $hi, ...$shops, ...$returns]) as $p) {
-                $d = ReportRefresh::ukDay((string) $p['label_at']);
-                if (in_array($d, $days, true)) {
-                    $reason[$d] ??= 'parcel_missing';
-                }
-            }
-        }
-        // (b) the units of every live bill (the bills going left out, the one being stored in) per day and product, against its labels
-        $billed = [];
-        foreach (array_chunk($days, 300) as $chunk) {
-            $not = $gone === [] ? '' : ' AND i.id NOT IN (' . $marks(count($gone)) . ')';
-            foreach ($db->all("SELECT r.service_date, r.product_code, SUM(r.qty) AS q FROM carrier_bill_row r JOIN carrier_invoice i ON i.id = r.invoice_id AND (i.status = 'live'"
-                . ($loading === null ? '' : ' OR i.id = ' . $loading) . ") AND i.carrier = ? AND i.account = ? WHERE r.service_date IN (" . $marks(count($chunk)) . "){$not} GROUP BY r.service_date, r.product_code",
-                [$account['carrier'], $account['account_no'], ...$chunk, ...$gone]) as $r) {
-                $billed[$r['service_date'] . '|' . $r['product_code']] = ($billed[$r['service_date'] . '|' . $r['product_code']] ?? 0) + (int) $r['q'];
-            }
-        }
-        foreach ($newRows as $r) {
-            $k = $r['service_date'] . '|' . $r['product_code'];
-            $billed[$k] = ($billed[$k] ?? 0) + (int) $r['qty'];
+        if (!empty($ctx['hold_all'])) {
+            return array_fill_keys($days, 'account_off');
         }
         $start = $ctx['main_start'] ?? null;
-        $hold = !empty($ctx['hold_all']);
-        foreach ($billed as $k => $q) {
-            [$d, $code] = explode('|', $k);
-            $kind = $ctx['products'][$code]['kind'] ?? null;
-            // every day (a group crossing CW start checks its start-side days too: the Codex check r9 H10); a flat day on or before the start
-            // never waits (PooledPlanner)
-            if (in_array($kind, ['flat', 'band'], true) && $q > ($labelsBy[$k] ?? 0)) {
-                $product[$k] = 'billed_more';
+        $covered = [];
+        foreach (array_chunk($days, 300) as $chunk) {
+            foreach ($db->column('SELECT DISTINCT day FROM carrier_day_cover WHERE account_id = ? AND day IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')',
+                [$account['id'], ...$chunk]) as $d) {
+                $covered[(string) $d] = true;
             }
         }
         foreach ($days as $d) {
-            $why = $hold ? 'account_off' : (!isset($covered[$d]) ? 'not_covered' : ($reason[$d] ?? null));
-            if ($why !== null) {
-                $incomplete[$d] = $why;
-                if ($hold || ($start !== null && $d > $start)) {
-                    $waiting[$d] = $why;
+            if (!isset($covered[$d]) && $start !== null && $d > $start) {
+                $out[$d] = 'not_covered';
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The labels of an odd service (DL86 4): none (`no_service`), one the carrier's products do not map (`unknown_service`), or another than a
+     * CW Royal Mail parcel's of the same tracking number (`service_differs`, the case not minding). They get no price and are on the "needs a
+     * look" list.
+     *
+     * @param array<int, array<string, mixed>> $labels by id
+     * @return array<int, string> label id => why
+     */
+    public static function odd(Db $db, array $ctx, array $labels): array
+    {
+        $mapped = [];
+        foreach ($ctx['products'] as $p) {
+            if (in_array($p['kind'], ['flat', 'band'], true) && $p['service_code'] !== null) {
+                $mapped[] = (string) $p['service_code'];
+            }
+        }
+        $out = [];
+        $check = [];
+        foreach ($labels as $id => $l) {
+            if ($l['service_code'] === null) {
+                $out[(int) $id] = 'no_service';
+            } elseif (!in_array((string) $l['service_code'], $mapped, true)) {
+                $out[(int) $id] = 'unknown_service';
+            } else {
+                $check[strtoupper((string) $l['tracking_no'])][] = (int) $id;
+            }
+        }
+        foreach (array_chunk(array_map('strval', array_keys($check)), 500) as $chunk) {
+            foreach ($db->all('SELECT tracking_no, service_code FROM sale_parcel WHERE tracking_no IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') '
+                . "AND removed_at IS NULL AND (carrier = 'royal_mail' OR is_manual = 1) AND service_code <> ''", $chunk) as $p) {
+                foreach ($check[strtoupper((string) $p['tracking_no'])] ?? [] as $id) {
+                    if (strcasecmp((string) $p['service_code'], (string) $labels[$id]['service_code']) !== 0) {
+                        $out[$id] = 'service_differs';
+                    }
                 }
             }
         }
-        ksort($waiting);
-        ksort($incomplete);
-        ksort($product);
-        return [$waiting, $incomplete, $product];
+        ksort($out);
+        return $out;
     }
 
     /**
@@ -2068,7 +2029,8 @@ final class RoyalMailBills
         return ['id' => (int) $l['id'], 'tracking_no' => strtoupper((string) $l['tracking_no']), 'reference' => $l['reference'] === null ? null : (string) $l['reference'],
             'channel_code' => $l['channel_code'] === null ? null : (string) $l['channel_code'], 'service_code' => $l['service_code'] === null ? null : (string) $l['service_code'],
             'manifest_day' => $l['manifest_day'] === null ? null : (string) $l['manifest_day'], 'manifest_no' => $l['manifest_no'] === null ? null : (int) $l['manifest_no'],
-            'weight_g' => $l['weight_g'] === null ? null : (int) $l['weight_g'], 'sales_order' => $l['sales_order'] === null ? null : (string) $l['sales_order']];
+            'weight_g' => $l['weight_g'] === null ? null : (int) $l['weight_g'], 'sales_order' => $l['sales_order'] === null ? null : (string) $l['sales_order'],
+            'odd' => null];
     }
 
     /** A stored allocation in the planner's shape (with its id). @param array<string, mixed> $a @return array<string, mixed> */

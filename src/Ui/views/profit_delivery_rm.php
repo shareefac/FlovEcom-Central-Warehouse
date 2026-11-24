@@ -112,6 +112,44 @@ $groupText = static function (array $w) use ($W): string {
 </div>
 <?php endif; ?>
 
+<?php
+// "needs a look" (DL86 3-7): never money; red when a day or a manifest is billed more than its labels by more than the setting
+$lookText = static function (array $i) use ($W): string {
+    return match ($i['kind']) {
+        'billed_more' => sprintf($W['rm_look_billed_more'], $i['product'], number_format($i['billed']), number_format($i['labels']), number_format($i['billed'] - $i['labels'])),
+        'manifest' => sprintf($W['rm_look_manifest'], $i['manifest'], number_format($i['billed']), number_format($i['labels'])),
+        'no_labels' => sprintf($W['rm_look_no_labels'], $i['product'], $i['sales_order'] ?? '', \CW\Profit\DpdInvoiceFile::gbp((int) $i['pence'])),
+        'parcel_missing' => sprintf($W['rm_look_parcel_missing'], $i['tracking_no'], $i['shop'], $i['order_ref']),
+        default => sprintf($W['rm_look_odd_' . $i['why']], $i['tracking_no'], (string) ($i['service'] ?? ''), (string) ($i['cw_service'] ?? '')),
+    };
+};
+$lookRed = count(array_filter($look ?? [], static fn (array $i): bool => $i['red']));
+?>
+<h2><?= $word('DELIVERY', 'rm_look_title') ?><?php if ($lookRed > 0): ?> <?= $chip('needs', \CW\Ui\Words::say('DELIVERY', 'rm_look_red', $lookRed)) ?><?php endif; ?></h2>
+<p class="hint"><?= $say('DELIVERY', 'rm_look_hint', $lookPct) ?></p>
+<?php if (($look ?? []) === []): ?>
+<p class="muted"><?= $word('DELIVERY', 'rm_look_none') ?></p>
+<?php else: ?>
+<div class="table-wrap">
+<table class="stack rp-table delivery-rm-look">
+  <thead>
+    <tr>
+      <th scope="col"><?= $word('DELIVERY', 'rm_day') ?></th>
+      <th scope="col"><?= $word('DELIVERY', 'rm_look_detail') ?></th>
+    </tr>
+  </thead>
+  <tbody>
+<?php foreach ($look as $i): ?>
+    <tr<?php if ($i['red']): ?> class="error"<?php endif; ?>>
+      <th scope="row"><?= $day((string) $i['day']) ?><?php if ($i['red']): ?> <?= $chip('needs', $W['rm_look']) ?><?php endif; ?></th>
+      <td data-label="<?= $word('DELIVERY', 'rm_look_detail') ?>"><?= $e($lookText($i)) ?></td>
+    </tr>
+<?php endforeach; ?>
+  </tbody>
+</table>
+</div>
+<?php endif; ?>
+
 <?php if ($days !== []): ?>
 <h2><?= $word('DELIVERY', 'rm_days_title') ?></h2>
 <div class="table-wrap">
@@ -136,7 +174,7 @@ $groupText = static function (array $w) use ($W): string {
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_billed') ?>"><?= $n($d['billed']) ?></td>
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_priced') ?>"><?= $n($d['priced']) ?></td>
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_line') ?>"><?= $e($gbp($d['line_pence'])) ?> <span class="muted"><?= $e($d['difference'] > 0 ? sprintf($W['rm_not_charged'], number_format($d['difference'])) : ($d['difference'] < 0 ? sprintf($W['rm_no_label'], number_format(-$d['difference'])) : $W['rm_equal'])) ?></span></td>
-      <td data-label="<?= $word('DELIVERY', 'status') ?>"><?php if ($d['look']): ?><?= $chip('needs', $W['rm_look']) ?><?php else: ?><?= $e($d['closed'] ? $W['rm_closed'] : $W['rm_open']) ?><?php endif; ?></td>
+      <td data-label="<?= $word('DELIVERY', 'status') ?>"><?php if ($d['red'] ?? false): ?><?= $chip('needs', $W['rm_look']) ?> <?php endif; ?><?php if ($d['look']): ?><?= $chip('needs', $W['rm_look']) ?><?php else: ?><?= $e($d['closed'] ? $W['rm_closed'] : $W['rm_open']) ?><?php endif; ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>

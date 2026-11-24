@@ -14,19 +14,22 @@ namespace CW\Profit;
  *                        then its number). The day's price P = the FIRST bill's rows' net / quantity in whole pence (half up). EVERY label
  *                        manifested that day with the product's service gets P at once, on the first bill's rows (each row takes as many labels as
  *                        its quantity, the rest on its last row). The rest of each first-bill row, and the whole of every later bill's row of that
- *                        day (the tail Royal Mail bills a week later), is the day's line: "labels not charged" when negative, "billed, no label
- *                        found" when positive, split between the holders of the day's labels by their counts (each holder its share, truncated;
- *                        the pence left over to the main shop). A later bill's row so "takes back" from the line: no label's price moves.
+ *                        day (the tail Royal Mail bills a week later), is the day's line: "labels not charged" split between the holders of the
+ *                        day's labels by their counts (each holder its share, truncated; the pence left over to the main shop); when the day is
+ *                        billed MORE units than its labels, the whole line is the main shop's "not on an order" ("billed, no label found": DL86 2).
+ *                        A later bill's row so "takes back" from the line: no label's price moves.
  *  band (SD1)            a manifest's rows ("CLICK AND DROP M2281", or a row's sales order found on the manifest's labels) against that
  *                        manifest's labels of the service: by declared weight when the rows grouped by unit price fit the labels' bands one to one
  *                        (the cheapest price the lightest band; counts equal): each band's labels take its rows (each row as many as its
  *                        quantity, its net split over them, a penny more to the first ones); else every row's net split over every label
- *                        ("average"). No label: the row is the main shop's "not on an order".
+ *                        ("average"). No label: the row is the main shop's "not on an order" (DL86 5: by manifest number, whatever the day).
  *  wrong_weight (RX1/A)  shared equally over the Special Delivery labels of the row's sales order (ADJ<sales order>RCN), the pence left over to
  *                        the main shop's "not on an order"; no such label: all of it there.
  *  surcharge, return     the main shop's "not on an order" (no parcel named).
- * A label's money goes where its destination says (an order, a shop's "not on an order", a party with no shop, before CW start, held). Every
- * row's allocations add up to its net exactly.
+ * A label's money goes where its destination says (an order, a shop's "not on an order", a party with no shop, before CW start, held); a label of
+ * an odd service (its `odd` set: no service, one CW does not map, another than its CW parcel's) gets no price (DL86 4). A key (a day x product,
+ * a manifest, a sales order, a row on its own) waits whole only while a day of it waits (ctx waiting: covered by no report, or the account
+ * off: DL86 1). Every row's allocations add up to its net exactly.
  */
 final class PooledPlanner
 {
@@ -43,6 +46,9 @@ final class PooledPlanner
     {
         $out = [];
         $labels = self::beforeStartLabels($labels, $ctx);
+        // DL86 4: a label with no service, a service CW does not map, or another service than its CW parcel's gets no price (its unit falls into
+        // its product's billed-more line); it is on the "needs a look" list (RoyalMailLook)
+        $priced = array_filter($labels, static fn (array $l): bool => ($l['odd'] ?? null) === null);
         $groups = [];
         foreach ($rows as $r) {
             $kind = $ctx['products'][(string) $r['product_code']]['kind'] ?? 'unknown';
@@ -50,30 +56,26 @@ final class PooledPlanner
             $groups[$key][] = $r;
         }
         ksort($groups, SORT_STRING);
-        // DL84 4: the Special Delivery manifests and wrong-weight sales orders joined by a label are ONE group, over all live bills and all labels:
-        // checked whole before any pricing or fallback
-        $waits = self::groupReasons($groups, $labels, $ctx);
+        $services = self::bandServices($ctx);
         foreach ($groups as $key => $set) {
             usort($set, static fn (array $a, array $b): int => [(string) $a['rank'], (int) $a['row_no']] <=> [(string) $b['rank'], (int) $b['row_no']]);
             $type = substr($key, 0, 1);
-            if (($waits[$key] ?? null) !== null) {
-                array_push($out, ...self::waitAll($set, $waits[$key]));
-            } elseif ($type === 'F') {
+            if ($type === 'F') {
                 [, $day, $product] = explode('|', $key);
                 $service = (string) $ctx['products'][$product]['service_code'];
-                $own = array_filter($labels, static fn (array $l): bool => $l['manifest_day'] === $day && $l['service_code'] === $service);
-                array_push($out, ...self::flat($set, self::sorted($own), $ctx));
-            } elseif ($type === 'M') {
-                $m = (int) substr($key, 2);
-                $services = self::bandServices($ctx);
-                $own = array_filter($labels, static fn (array $l): bool => $l['manifest_no'] !== null && (int) $l['manifest_no'] === $m
-                    && in_array($l['service_code'], $services, true));
-                array_push($out, ...self::oldRowsBeforeStart(self::band($set, self::sorted($own), $ctx), $ctx));
-            } elseif ($type === 'S') {
-                $so = substr($key, 2);
-                $services = self::bandServices($ctx);
-                $own = array_filter($labels, static fn (array $l): bool => $l['sales_order'] === $so && in_array($l['service_code'], $services, true));
-                array_push($out, ...self::oldRowsBeforeStart(self::wrongWeight($set, self::sorted($own), $ctx), $ctx));
+                $own = array_filter($priced, static fn (array $l): bool => $l['manifest_day'] === $day && $l['service_code'] === $service);
+                $why = self::dayReason($day, $ctx);
+                array_push($out, ...($why !== null ? self::waitAll($set, $why) : self::flat($set, self::sorted($own), $ctx)));
+            } elseif ($type === 'M' || $type === 'S') {
+                // DL86 5, 6: a Special Delivery manifest by its number, a wrong-weight sales order by its labels: each on its own, whatever day
+                // the bill gives; it waits only while a day of it (its rows', its labels') is covered by no report (DL86 1)
+                $id = substr($key, 2);
+                $mine = array_filter($labels, static fn (array $l): bool => in_array($l['service_code'], $services, true)
+                    && ($type === 'M' ? $l['manifest_no'] !== null && (int) $l['manifest_no'] === (int) $id : $l['sales_order'] === $id));
+                $own = array_filter($mine, static fn (array $l): bool => ($l['odd'] ?? null) === null);
+                $why = self::keyReason($set, $mine, $ctx);
+                array_push($out, ...($why !== null ? self::waitAll($set, $why)
+                    : self::oldRowsBeforeStart($type === 'M' ? self::band($set, self::sorted($own), $ctx) : self::wrongWeight($set, self::sorted($own), $ctx), $ctx)));
             } else {
                 foreach ($set as $r) {
                     $kind = $ctx['products'][(string) $r['product_code']]['kind'] ?? 'unknown';
@@ -83,13 +85,9 @@ final class PooledPlanner
                         'band', 'wrong_weight' => 'no_batch',
                         default => 'unknown',
                     };
-                    // every row on its own waits while its day does (a surcharge or a return too: no shop's "not on an order" before its day is
-                    // covered and checked, the Codex check r9 H4); a Special Delivery or wrong-weight row whose group CW cannot name (no manifest, its
-                    // sales order on no label): its group is unknown: it waits after the main shop's CW start (DL71, DL83, DL84 4)
+                    // every row on its own waits while its day does (a surcharge or a return too: the Codex check r9 H4); else the main shop's "not
+                    // on an order" (a Special Delivery or wrong-weight row CW cannot put on one manifest or sales order too: DL86 5, on the list)
                     $why = self::dayReason((string) $r['service_date'], $ctx);
-                    if ($why === null && $how === 'no_batch' && self::afterStart([$r], $ctx)) {
-                        $why = $ctx['product_waiting'][$r['service_date'] . '|' . $r['product_code']] ?? 'group_unknown';
-                    }
                     $dest = $why !== null ? self::held($why) : self::mainDest($ctx, (string) $r['service_date']);
                     self::push($out, self::alloc($r, 'row', $why !== null ? 'waiting' : $how, null, $dest, (int) $r['net']));
                 }
@@ -144,127 +142,34 @@ final class PooledPlanner
     }
 
     /**
-     * Why each Special Delivery manifest and wrong-weight sales order waits, as one group with every key a label joins it to (DL82, DL83, DL84 4),
-     * null when it does not: a group with a row after the main shop's CW start needs ALL its days complete (its labels' manifest days, its
-     * manifests' rows' days, each product of them billed no more than its labels), on or before the start too, every label of it dated, no
-     * label of its manifests naming no sales order, and a label at all; a group all on or before the start waits only for a day after it.
+     * Why a manifest's or a sales order's key waits (DL86 1): the first day of it (its rows' service days, its labels' manifest days) that waits;
+     * null when none does.
      *
-     * @param array<string, list<array<string, mixed>>> $groups
-     * @param array<int, array<string, mixed>> $labels
-     * @return array<string, ?string> key => reason
+     * @param list<array<string, mixed>> $rows
+     * @param array<int|string, array<string, mixed>> $labels
      */
-    private static function groupReasons(array $groups, array $labels, array $ctx): array
+    private static function keyReason(array $rows, array $labels, array $ctx): ?string
     {
-        $services = self::bandServices($ctx);
-        $parent = [];
-        $find = static function (string $k) use (&$parent, &$find): string {
-            $parent[$k] ??= $k;
-            return $parent[$k] === $k ? $k : ($parent[$k] = $find($parent[$k]));
-        };
-        $union = static function (string $a, string $b) use (&$parent, $find): void {
-            $ra = $find($a);
-            $rb = $find($b);
-            if ($ra !== $rb) {
-                $parent[max($ra, $rb)] = min($ra, $rb);
-            }
-        };
-        foreach (array_keys($groups) as $k) {
-            if ($k[0] === 'M' || $k[0] === 'S') {
-                $find($k);
+        $days = [];
+        foreach ($rows as $r) {
+            $days[(string) $r['service_date']] = true;
+        }
+        foreach ($labels as $l) {
+            if ($l['manifest_day'] !== null) {
+                $days[(string) $l['manifest_day']] = true;
             }
         }
-        // the members: Special Delivery labels, and a label of no service on a manifest or a sales order (its service is not known: it may be
-        // one; the Codex check r9 H8)
-        $band = array_filter($labels, static fn (array $l): bool => in_array($l['service_code'], $services, true)
-            || ($l['service_code'] === null && ($l['manifest_no'] !== null || $l['sales_order'] !== null)));
-        foreach ($band as $l) {
-            if ($l['manifest_no'] !== null && $l['sales_order'] !== null) {
-                $union('M|' . (int) $l['manifest_no'], 'S|' . $l['sales_order']);
+        ksort($days);
+        foreach (array_keys($days) as $d) {
+            $why = self::dayReason((string) $d, $ctx);
+            if ($why !== null) {
+                return $why;
             }
         }
-        // a manifest's row naming a sales order joins them too
-        foreach ($groups as $k => $set) {
-            if ($k[0] === 'M') {
-                foreach ($set as $r) {
-                    if ($r['sales_order'] !== null) {
-                        $union($k, 'S|' . $r['sales_order']);
-                    }
-                }
-            }
-        }
-        $members = [];
-        foreach (array_keys($parent) as $k) {
-            $members[$find($k)][] = $k;
-        }
-        $out = [];
-        foreach ($members as $set) {
-            $ms = [];
-            $sos = [];
-            $rows = [];
-            foreach ($set as $k) {
-                if ($k[0] === 'M') {
-                    $ms[(int) substr($k, 2)] = true;
-                } else {
-                    $sos[substr($k, 2)] = true;
-                }
-                array_push($rows, ...($groups[$k] ?? []));
-            }
-            if ($rows === []) {
-                continue;
-            }
-            $own = array_filter($band, static fn (array $l): bool => ($l['manifest_no'] !== null && isset($ms[(int) $l['manifest_no']]))
-                || ($l['sales_order'] !== null && isset($sos[$l['sales_order']])));
-            $after = self::afterStart($rows, $ctx);
-            $set2 = $after ? ($ctx['incomplete'] ?? $ctx['waiting'] ?? []) : ($ctx['waiting'] ?? []);
-            $why = null;
-            $days = [];
-            $billedMore = null;
-            foreach ($own as $l) {
-                if ($l['manifest_day'] !== null) {
-                    $days[(string) $l['manifest_day']] = true;
-                }
-            }
-            foreach ($rows as $r) {
-                if (($ctx['products'][(string) $r['product_code']]['kind'] ?? null) === 'band') {
-                    // a manifest's rows' days are its days too; its wrong weights' are the adjustments' (no label is made on them: DL82)
-                    $days[(string) $r['service_date']] = true;
-                    if ($after) {
-                        $billedMore ??= $ctx['product_waiting'][$r['service_date'] . '|' . $r['product_code']] ?? null;
-                    }
-                }
-            }
-            ksort($days);
-            foreach (array_keys($days) as $d) {
-                if (isset($set2[(string) $d])) {
-                    $why = is_string($set2[(string) $d]) ? $set2[(string) $d] : 'not_covered';
-                    break;
-                }
-            }
-            $why ??= $billedMore === null ? null : (string) $billedMore;
-            if ($why === null && ($after || array_filter($own, static fn (array $l): bool => $l['manifest_day'] === null) !== [])) {
-                $undated = array_filter($own, static fn (array $l): bool => $l['manifest_day'] === null || $l['manifest_no'] === null) !== [];
-                // a label naming no sales order: the group is not known whole (DL83), a manifest with no sales order at all too (the Codex check
-                // r9 H7); a label of no service: not known what it is (H8)
-                $unnamed = array_filter($own, static fn (array $l): bool => $l['sales_order'] === null || $l['service_code'] === null) !== [];
-                // a wrong-weight sales order of the group with no label of its own (H9: never its main shop's "not on an order" inside a group)
-                $bare = false;
-                foreach ($set as $k) {
-                    if ($k[0] === 'S' && ($groups[$k] ?? []) !== [] && array_filter($own, static fn (array $l): bool => $l['sales_order'] === substr($k, 2)) === []) {
-                        $bare = true;
-                    }
-                }
-                if ($undated || $unnamed || $bare || ($own === [] && $after)) {
-                    $why = 'group_unknown';
-                }
-            }
-            foreach ($set as $k) {
-                $out[$k] = $why;
-            }
-        }
-        return $out;
+        return null;
     }
 
-    /** Why a day waits (ctx waiting: after the main shop's CW start, not complete), null when it does not. */
+    /** Why a day waits (ctx waiting: after the main shop's CW start, covered by no report, or the account off: DL86 1), null when it does not. */
     private static function dayReason(string $day, array $ctx): ?string
     {
         $w = $ctx['waiting'][$day] ?? null;
@@ -333,13 +238,9 @@ final class PooledPlanner
     private static function flat(array $rows, array $labels, array $ctx): array
     {
         $out = [];
-        $day = (string) $rows[0]['service_date'];
-        $why = self::dayReason($day, $ctx) ?? (self::afterStart([$rows[0]], $ctx) ? ($ctx['product_waiting'][$day . '|' . $rows[0]['product_code']] ?? null) : null);
-        if ($why !== null) {
-            // the day is not complete (not covered by a report, a CW parcel of it in none, a service not mapped or differing) or the product is
-            // billed more than its labels that day: the whole day book held, priced once it is (DL71, DL84 3)
-            return self::waitAll($rows, (string) $why);
-        }
+        // billed MORE units than the day's labels (every live bill's rows of the day): the day's whole line is the main shop's "not on an order",
+        // never split with the other shops ("billed, no label found": DL86 2, the owner's "yes no hold"); fewer or as many: split by the holders
+        $more = array_sum(array_map(static fn (array $r): int => (int) $r['qty'], $rows)) > count($labels);
         // the first bill with units billed sets the price (a first bill of only a credit sets none: the Codex check r3, new MEDIUM 5)
         $first = (int) $rows[0]['invoice_id'];
         foreach ($rows as $r) {
@@ -379,7 +280,8 @@ final class PooledPlanner
                 $rest = (int) $r['net'];
                 $how = 'tail';
             }
-            foreach (self::split($rest, $shares, $ctx, (string) $r['service_date']) as [$dest, $p]) {
+            $parts = $more ? ($rest === 0 ? [] : [[self::mainDest($ctx, (string) $r['service_date']), $rest]]) : self::split($rest, $shares, $ctx, (string) $r['service_date']);
+            foreach ($parts as [$dest, $p]) {
                 self::push($out, self::alloc($r, 'day_line', $how, null, $dest, $p));
             }
         }
@@ -396,7 +298,7 @@ final class PooledPlanner
     private static function band(array $rows, array $labels, array $ctx): array
     {
         $out = [];
-        // its group was checked whole first (groupReasons: DL82, DL84 4); no label here is a group all before CW start
+        // a manifest with no label in any report: the main shop's "not on an order" (DL86 5; on the "needs a look" list: RoyalMailLook)
         if ($labels === []) {
             foreach ($rows as $r) {
                 self::push($out, self::alloc($r, 'row', 'no_label', null, self::mainDest($ctx, (string) $r['service_date']), (int) $r['net']));
@@ -483,7 +385,7 @@ final class PooledPlanner
     private static function wrongWeight(array $rows, array $labels, array $ctx): array
     {
         $out = [];
-        // its group was checked whole first (groupReasons: DL82, DL84 4)
+        // a sales order with no label: the main shop's "not on an order" (DL86 6; on the "needs a look" list)
         foreach ($rows as $r) {
             $net = (int) $r['net'];
             if ($labels === []) {
@@ -600,16 +502,8 @@ final class PooledPlanner
         return self::dest('held', reason: $reason);
     }
 
-    /** Whether any of these rows is after the main shop's CW start (ctx main_start; none known: none). @param list<array<string, mixed>> $rows */
-    private static function afterStart(array $rows, array $ctx): bool
-    {
-        $start = $ctx['main_start'] ?? null;
-        return array_key_exists('main_start', $ctx) && $start !== null
-            && array_filter($rows, static fn (array $r): bool => (string) $r['service_date'] > (string) $start) !== [];
-    }
-
     /**
-     * Every row of a group held whole, waiting (DL82, DL84), for a reason (shown on the bill's page).
+     * Every row of a key held whole, waiting (DL86 1: its day covered by no report, or the account off), for a reason (shown on the bill's page).
      *
      * @param list<array<string, mixed>> $rows
      * @return list<array<string, mixed>>

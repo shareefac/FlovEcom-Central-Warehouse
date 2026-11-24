@@ -73,6 +73,7 @@ $gbp = static fn (int $p): string => \CW\Profit\DpdInvoiceFile::gbp($p);
       <th scope="col"><?= $word('DELIVERY', 'rm_covered_to') ?></th>
       <th scope="col"><?= $word('DELIVERY', 'rm_last_import') ?></th>
       <th scope="col" class="num"><?= $word('DELIVERY', 'rm_waiting_days') ?></th>
+      <th scope="col" class="num"><?= $word('DELIVERY', 'rm_look_accounts') ?></th>
     </tr>
   </thead>
   <tbody>
@@ -84,6 +85,7 @@ $gbp = static fn (int $p): string => \CW\Profit\DpdInvoiceFile::gbp($p);
       <td data-label="<?= $word('DELIVERY', 'rm_covered_to') ?>"><?php if ($a['covered_to'] === null): ?>-<?php else: ?><?= $day((string) $a['covered_to']) ?><?php endif; ?></td>
       <td data-label="<?= $word('DELIVERY', 'rm_last_import') ?>"><?php if ($a['last_from'] === null): ?>-<?php else: ?><?= $day((string) $a['last_from']) ?> - <?= $day((string) $a['last_to']) ?> <span class="muted"><?= $when((string) $a['last_at']) ?></span><?php endif; ?></td>
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_waiting_days') ?>"><?= $n((int) $a['waiting_days']) ?></td>
+      <td class="num" data-label="<?= $word('DELIVERY', 'rm_look_accounts') ?>"><?php if ((int) ($a['red'] ?? 0) > 0): ?><?= $chip('needs', \CW\Ui\Words::say('DELIVERY', 'rm_look_count', $n((int) $a['look']), $n((int) $a['red']))) ?><?php else: ?><?= $n((int) ($a['look'] ?? 0)) ?><?php endif; ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>

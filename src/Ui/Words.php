@@ -11138,14 +11138,8 @@ final class Words
         'rm_held_shop_differs' => 'its channel names another shop than its CW parcel\'s',
         'rm_held_shop_unknown' => 'shop not known',
         'rm_held_not_served' => 'its shop is not served by this account on that day',
-        // a day or a group waiting before it may move money (DL84): planned again when a report import or a bill changes it
+        // the only waits (DL86 1): planned again when a report import covers the day or the account is switched on
         'rm_held_not_covered' => 'waiting: no Click & Drop "Manifested Orders" report covers this day yet. Upload the report run for it (From and To)',
-        'rm_held_parcel_missing' => 'waiting: a CW Royal Mail parcel labelled that day is in no Click & Drop report. Upload the report that has it',
-        'rm_held_billed_more' => 'waiting: Royal Mail billed more of this service that day than Click & Drop has labels for',
-        'rm_held_unknown_service' => 'waiting: a label of that day has a service code CW does not know',
-        'rm_held_service_differs' => 'waiting: a label of that day has another service in Click & Drop than on its CW parcel',
-        'rm_held_no_service' => 'waiting: a label of that day has no service code',
-        'rm_held_group_unknown' => 'waiting: its Special Delivery group is not known whole (a label of it with no day, no manifest or no sales order, or none at all)',
         'rm_held_account_off' => 'waiting: this Royal Mail account is switched off',
         'rm_waiting_title' => 'Days whose money waits',
         'rm_waiting_hint' => 'This money is in no shop\'s profit yet. It moves by itself once the reason is settled (a report uploaded, or a later bill).',
@@ -11189,6 +11183,7 @@ final class Words
         'rm_report_upload' => 'Read the labels',
         'rm_labels_read' => 'Labels read: %s (%s new, %s with empty fields filled, %s rows skipped). Days %s to %s are covered.',
         'rm_labels_differ' => '%s labels say something else than CW holds already: CW keeps what it read first.',
+        'rm_labels_already' => 'This report was loaded already for %s to %s: nothing was saved again.', // DL86 10
         // the upload's check, then Store (DL79)
         'rm_check_title' => 'Check Royal Mail bill %s before you store it',
         'rm_check_intro' => 'Nothing is stored yet. This is what CW read from the bill and where its money would go. If it looks right, press "Store this bill".',
@@ -11210,12 +11205,28 @@ final class Words
         'rm_check_removed' => 'Removed by this correction.',
         'rm_check_gone_title' => 'What the bill it replaces takes out of the profit',
         'rm_credit' => '(a credit: charges and credits each on their own line)',
-        'rm_check_waiting' => '%s of this bill\'s days wait (no report covers them yet, or their labels do not tie): their money is held until they do. The reason is on each day.',
+        'rm_check_waiting' => '%s of this bill\'s days wait (no Click & Drop report covers them yet): their money is held until one does. The reason is on each day.',
         'rm_check_waiting_day' => 'Waiting',
         'rm_check_retry' => 'Try "Store this bill" again',
         'rm_check_retry_hint' => 'Nothing was stored. Your check is still open: press the button to store the bill you checked.',
         'rm_check_retry_late' => 'Your check ran out of time while it waited: nothing was stored. Upload the bill again to check it.',
         'rm_billed_with' => 'Billed (every bill, with this one)',
+        // "needs a look" (DL86 3-7): never money (every penny of the bill is in "where its money went"); red above the setting
+        'rm_look_title' => 'Needs a look',
+        'rm_look_hint' => 'Nothing here holds money: every penny is already on an order or a "not on an order" line. Red: billed more than the labels by more than %s%% (a setting).',
+        'rm_look_none' => 'Nothing to look at on this bill\'s days.',
+        'rm_look_red' => '%s red',
+        'rm_look_what' => 'What',
+        'rm_look_detail' => 'Detail',
+        'rm_look_billed_more' => '%s: %s billed, %s labels (%s more than the labels, above the setting)',
+        'rm_look_manifest' => 'Special Delivery manifest M%s: %s billed, %s labels',
+        'rm_look_no_labels' => '%s %s: no label in any Click & Drop report (%s on the main shop\'s "not on an order")',
+        'rm_look_parcel_missing' => 'CW parcel %s (%s, order %s) is not in a Click & Drop report: it has no cost; its unit is on the day\'s "billed, no label found" line',
+        'rm_look_odd_no_service' => 'Label %s has no service in the Click & Drop report: it has no price',
+        'rm_look_odd_unknown_service' => 'Label %s has service %s, which CW does not know: it has no price',
+        'rm_look_odd_service_differs' => 'Label %s is %s in the Click & Drop report but %s on its CW parcel: it has no price',
+        'rm_look_accounts' => 'Needs a look',
+        'rm_look_count' => '%s (%s red)',
     ];
 
     public const RD_REPORTS = [
@@ -13207,7 +13218,9 @@ final class Words
         // 0050 (LP9): the store, the landing page's title, its option number on the website, the order, how many are open
         'landing_order' => 'Website bug: an order on %s for the landing page %s (option %s, order %s). Fix it by hand: Approvals › From the stores › Website bugs.',
         'rm_report_missing' => 'Royal Mail %s: %s day(s) of %s to %s have no Click & Drop report yet, so their delivery cost waits. Run the "Manifested Orders" report for those days and upload it on Profit › Delivery bills.', // DL84
-        'rm_days_waiting' => 'Royal Mail %s: %s day(s) of its bills have waited more than %s days (the oldest %s). See why on the bill\'s page (Profit › Delivery bills).', // DL84
+        'rm_days_waiting' => 'Royal Mail %s: %s day(s) of its bills have waited more than %s days for a Click & Drop report (the oldest %s). Upload the "Manifested Orders" report for those days on Profit › Delivery bills.', // DL84, DL86 1
+        'rm_billed_more' => 'Royal Mail %s: %s day(s) or Special Delivery manifest(s) billed more than their labels by more than %s%% (the oldest %s). See "Needs a look" on the bill\'s page (Profit › Delivery bills).', // DL86 7
+        'rm_check_failed' => 'Royal Mail %s: CW could not check its bills just now (%s). It checks again at the next run; tell the CW team if this stays.', // DL86 (the Codex check r10 #15)
         'landing_orders' => 'Website bug: an order on %1$s for the landing page %2$s (option %3$s, order %4$s). %5$s such orders are open: '
             . 'Approvals › From the stores › Website bugs.',
         'cleared' => 'Back to normal: %s',

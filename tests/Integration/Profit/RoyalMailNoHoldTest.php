@@ -50,6 +50,8 @@ final class RoyalMailNoHoldTest extends StockTestCase
     protected function tearDown(): void
     {
         \CW\Tests\Support\HookedStatement::$before = [];
+        // the alarm setting as the migration seeds it (app_setting is not emptied between tests)
+        self::$db->exec("UPDATE app_setting SET value_json = CAST('\"1.0\"' AS JSON) WHERE setting_key = 'delivery.rm_billed_more_pct'");
         parent::tearDown();
     }
 
@@ -93,6 +95,13 @@ final class RoyalMailNoHoldTest extends StockTestCase
         return $out;
     }
 
+    /** @param array<string, int> $a @return array<string, int> by key (as where() gives it: the shops' ids decide the order) */
+    private static function ks(array $a): array
+    {
+        ksort($a);
+        return $a;
+    }
+
     private function report(array $labels, string $from, string $to, ?string $sha = null, ?RoyalMailBills $rm = null): array
     {
         return RmFixtures::report($rm ?? self::rm(), self::system(), $this->acct['account'], $labels, $from, $to, $sha);
@@ -132,7 +141,7 @@ final class RoyalMailNoHoldTest extends StockTestCase
         self::order($this->vpg, '3012', '1393012', ['JV000003012GB' => ['2026-11-13T11:00:00Z', 'TPL48HV']]);
         $this->report([RmFixtures::label('JV000003011GB', 'TPL48HV', '2026-11-13', '1393011')], '2026-11-13', '2026-11-13');
         $id = $this->bill([RmBill::line('2026-11-12', 'TPL', 1, 254, '943'), RmBill::line('2026-11-13', 'TPL', 2, 508, '943')]);
-        self::assertSame(['held||not_covered' => 254, "order|{$this->vpg}|" => 254, "shop|{$this->vpg}|" => 254], self::where($id),
+        self::assertSame(self::ks(['held||not_covered' => 254, "order|{$this->vpg}|" => 254, "shop|{$this->vpg}|" => 254]), self::where($id),
             'the 12th is covered by no report: it waits; the 13th goes through, a CW parcel of it in no report or not');
         self::assertSame([['day' => '2026-11-12', 'reasons' => ['not_covered'], 'pence' => 254]], RoyalMailBills::waitingDays(self::$db, $this->acct['account']));
         $alerts = RoyalMailBills::health(self::$db, new \DateTimeImmutable('2026-11-27 13:00:00', new \DateTimeZone('Europe/London')));
@@ -152,15 +161,15 @@ final class RoyalMailNoHoldTest extends StockTestCase
             RmFixtures::label('JV000003023GB', 'TPL48HV', '2026-11-13', '1393023'), RmFixtures::label('JV000003024GB', 'TPL48HV', '2026-11-13', '9324')],
             '2026-11-12', '2026-11-13');
         $a = $this->bill([RmBill::line('2026-11-12', 'TPL', 3, 762, '943')], '9070000021');
-        self::assertSame(["order|{$this->ef}|" => 254, "order|{$this->vpg}|" => 254, "shop|{$this->vpg}|" => 254], self::where($a),
+        self::assertSame(self::ks(["order|{$this->ef}|" => 254, "order|{$this->vpg}|" => 254, "shop|{$this->vpg}|" => 254]), self::where($a),
             '3 billed for 2 labels: each order 254, the extra unit on Vape and Go\'s not on an order (never split with Electrofag)');
         $b = $this->bill([RmBill::line('2026-11-13', 'TPL', 1, 254, '943')], '9070000022');
-        self::assertSame(["order|{$this->ef}|" => 254, "order|{$this->vpg}|" => 254, "shop|{$this->ef}|" => -127, "shop|{$this->vpg}|" => -127], self::where($b),
+        self::assertSame(self::ks(["order|{$this->ef}|" => 254, "order|{$this->vpg}|" => 254, "shop|{$this->ef}|" => -127, "shop|{$this->vpg}|" => -127]), self::where($b),
             '1 billed for 2 labels: the labels not charged split by the shops\' shares, as built');
         $c = $this->bill([RmBill::line('2026-11-13', 'TPL', 2, 508, '943')], '9070000023', 'Nov 23, 2026');
-        self::assertSame(["order|{$this->ef}|" => 254, "order|{$this->vpg}|" => 254, "shop|{$this->vpg}|" => -254], self::where($b),
+        self::assertSame(self::ks(["order|{$this->ef}|" => 254, "order|{$this->vpg}|" => 254, "shop|{$this->vpg}|" => -254]), self::where($b),
             'a later bill takes the 13th to 3 billed for 2 labels: the whole line of the day is Vape and Go\'s');
-        self::assertSame(["shop|{$this->vpg}|" => 508], self::where($c));
+        self::assertSame(self::ks(["shop|{$this->vpg}|" => 508]), self::where($c));
         $this->assertRebuilds();
     }
 
@@ -174,11 +183,11 @@ final class RoyalMailNoHoldTest extends StockTestCase
         self::order($this->ef, '3034', '9334', ['JV000003034GB' => [$day . 'T13:00:00Z', 'TSS']]); // a return: no label of the account
         $this->report([RmFixtures::label('JV000003031GB', 'TPL48HV', $day, '1393031')], $day, $day);
         $id = $this->bill([RmBill::line($day, 'TPL', 3, 762, '943')]);
-        self::assertSame(["order|{$this->vpg}|" => 254, "shop|{$this->vpg}|" => 508], self::where($id), 'nothing waits: the 2 units of no label on Vape and Go\'s line');
+        self::assertSame(self::ks(["order|{$this->vpg}|" => 254, "shop|{$this->vpg}|" => 508]), self::where($id), 'nothing waits: the 2 units of no label on Vape and Go\'s line');
         self::assertSame(['JV000003032GB', 'JV000003033GB'], array_column($this->look([$day], 'parcel_missing'), 'tracking_no'),
             'both CW parcels in no report are listed, the manual one too; the return is not');
         $this->report([RmFixtures::label('JV000003032GB', 'TPL48HV', $day, '1393032')], $day, $day);
-        self::assertSame(["order|{$this->vpg}|" => 508, "shop|{$this->vpg}|" => 254], self::where($id), 'the later report has it: it takes the day\'s price from the line');
+        self::assertSame(self::ks(["order|{$this->vpg}|" => 508, "shop|{$this->vpg}|" => 254]), self::where($id), 'the later report has it: it takes the day\'s price from the line');
         self::assertSame(['JV000003033GB'], array_column($this->look([$day], 'parcel_missing'), 'tracking_no'));
         $this->assertRebuilds();
     }
@@ -194,7 +203,7 @@ final class RoyalMailNoHoldTest extends StockTestCase
             RmFixtures::label('JV000003043GB', 'TPL48HV', $day, '1393043', ['service_code' => null]), RmFixtures::label('JV000003044GB', 'TPL48HV', $day, '1393044')],
             $day, $day);
         $id = $this->bill([RmBill::line($day, 'TPL', 4, 1016, '943')]);
-        self::assertSame(["order|{$this->vpg}|" => 254, "shop|{$this->vpg}|" => 762], self::where($id), 'only the good label is priced; the 3 others\' units on the line');
+        self::assertSame(self::ks(["order|{$this->vpg}|" => 254, "shop|{$this->vpg}|" => 762]), self::where($id), 'only the good label is priced; the 3 others\' units on the line');
         self::assertSame([['JV000003042GB', 'unknown_service'], ['JV000003043GB', 'no_service'], ['JV000003044GB', 'service_differs']],
             array_map(static fn (array $i): array => [$i['tracking_no'], $i['why']], $this->look([$day], 'odd_service')));
         $this->assertRebuilds();
@@ -211,7 +220,7 @@ final class RoyalMailNoHoldTest extends StockTestCase
             self::sd('AS000003055GB', '2026-11-08', '1393055', 2502, '5155503054')], '2026-11-07', '2026-11-08');
         $id = $this->bill([RmBill::line('2026-11-08', 'SD1', 3, 2790, 'CLICK AND DROP M2501', '5155503051'),
             RmBill::line('2026-11-08', 'SD1', 2, 1860, 'CLICK AND DROP M2502', '5155503054'), RmBill::line('2026-11-08', 'SD1', 1, 1189, 'CLICK AND DROP M2503')]);
-        self::assertSame(["order|{$this->vpg}|" => 2790, "shop|{$this->vpg}|" => 3049], self::where($id),
+        self::assertSame(self::ks(["order|{$this->vpg}|" => 2790, "shop|{$this->vpg}|" => 3049]), self::where($id),
             'M2501 (labelled the 7th, billed the 8th) on its 3 orders; M2502 on its 2 labels (no CW parcel: Vape and Go\'s line); M2503, no label: Vape and Go\'s line');
         $red = array_values(array_filter(RoyalMailLook::forDays(self::$db, $this->acct['account'], ['2026-11-07', '2026-11-08']), static fn (array $i): bool => $i['red']));
         self::assertSame([['manifest', 2503]], array_map(static fn (array $i): array => [$i['kind'], $i['manifest']], $red), 'only the manifest with no label is red');
@@ -228,7 +237,7 @@ final class RoyalMailNoHoldTest extends StockTestCase
             self::sd('AS000003063GB', '2026-11-12', '1393063', 2512, null)], '2026-11-12', '2026-11-14');
         $id = $this->bill([RmBill::line('2026-11-12', 'SD1', 2, 1860, 'CLICK AND DROP M2511', '5155503061'), RmBill::line('2026-11-12', 'SD1', 1, 930, 'CLICK AND DROP M2512'),
             RmBill::line('2026-11-14', 'RX1', 1, 275, 'ADJ5155503061RCN Surcharge'), RmBill::line('2026-11-14', 'RX1', 1, 275, 'ADJ5155509999RCN Surcharge')]);
-        self::assertSame(["order|{$this->ef}|" => 930 + 137, "order|{$this->vpg}|" => 930 + 930 + 137, "shop|{$this->vpg}|" => 1 + 275], self::where($id),
+        self::assertSame(self::ks(["order|{$this->ef}|" => 930 + 137, "order|{$this->vpg}|" => 930 + 930 + 137, "shop|{$this->vpg}|" => 1 + 275]), self::where($id),
             'M2511 on its 2 orders, the wrong weight 2 x 137 (1p left); M2512 (its label names no sales order) on its order; the other sales order has no label');
         self::assertSame(['5155509999'], array_column($this->look(['2026-11-14'], 'no_labels'), 'sales_order'));
         $this->assertRebuilds();
@@ -248,7 +257,7 @@ final class RoyalMailNoHoldTest extends StockTestCase
         }
         $this->report($labels, '2026-11-12', '2026-11-13');
         $id = $this->bill([RmBill::line('2026-11-12', 'TPL', 101, 101 * 254, '943'), RmBill::line('2026-11-13', 'TPL', 102, 102 * 254, '943')]);
-        self::assertSame(["shop|{$this->vpg}|" => 203 * 254], self::where($id));
+        self::assertSame(self::ks(["shop|{$this->vpg}|" => 203 * 254]), self::where($id));
         $red = array_values(array_filter(RoyalMailLook::forDays(self::$db, $this->acct['account'], ['2026-11-12', '2026-11-13']), static fn (array $i): bool => $i['red']));
         self::assertSame([['billed_more', '2026-11-13', 'TPL', 100, 102]], array_map(static fn (array $i): array => [$i['kind'], $i['day'], $i['product'], $i['labels'],
             $i['billed']], $red), '101 for 100 is 1%: not above the setting; 102 is 2%: red');
@@ -289,7 +298,7 @@ final class RoyalMailNoHoldTest extends StockTestCase
         self::order($this->ef, '3122', '9122', ['AS000003122GB' => ['2026-11-12T11:00:00Z', 'SD1']]);
         $id = $this->bill([RmBill::line('2026-11-12', 'SD1', 1, 930, 'CLICK AND DROP M2601', '5155503121'),
             RmBill::line('2026-11-12', 'SD1', 1, 930, 'CLICK AND DROP M2602', '5155503122')]);
-        self::assertSame(['held||not_covered' => 1860], self::where($id));
+        self::assertSame(self::ks(['held||not_covered' => 1860]), self::where($id));
         $lock = TestDb::connect();
         self::assertSame(1, (int) $lock->value('SELECT GET_LOCK(?, 0)', [OrderSnapshots::lockName($this->vpg, '3121')]));
         try {
@@ -299,9 +308,9 @@ final class RoyalMailNoHoldTest extends StockTestCase
             $lock->value('SELECT RELEASE_LOCK(?)', [OrderSnapshots::lockName($this->vpg, '3121')]);
         }
         self::assertNotNull($r['replan_error']);
-        self::assertSame(['held||not_covered' => 930, "order|{$this->ef}|" => 930], self::where($id), 'M2602 is priced although M2601\'s order is busy');
+        self::assertSame(self::ks(['held||not_covered' => 930, "order|{$this->ef}|" => 930]), self::where($id), 'M2602 is priced although M2601\'s order is busy');
         self::rm()->replan(self::system(), null, 3650);
-        self::assertSame(["order|{$this->ef}|" => 930, "order|{$this->vpg}|" => 930], self::where($id));
+        self::assertSame(self::ks(["order|{$this->ef}|" => 930, "order|{$this->vpg}|" => 930]), self::where($id));
         $this->assertRebuilds();
     }
 
@@ -317,7 +326,7 @@ final class RoyalMailNoHoldTest extends StockTestCase
         }
         $this->report($labels, '2026-11-12', '2026-11-12');
         $id = $this->bill([RmBill::line('2026-11-12', 'SD1', 1, 930, 'CLICK AND DROP M2701', '5155600001')]);
-        self::assertSame(["order|{$this->vpg}|" => 930], self::where($id));
+        self::assertSame(self::ks(["order|{$this->vpg}|" => 930]), self::where($id));
     }
 
     /** The Codex check r10 #14: a due day whose "done" cannot be written never stops the later due days from being planned. */
@@ -326,13 +335,13 @@ final class RoyalMailNoHoldTest extends StockTestCase
         self::order($this->vpg, '3141', '1393141', ['JV000003141GB' => ['2026-11-12T10:00:00Z', 'TPL48HV']]);
         self::order($this->vpg, '3142', '1393142', ['JV000003142GB' => ['2026-11-13T10:00:00Z', 'TPL48HV']]);
         $id = $this->bill([RmBill::line('2026-11-12', 'TPL', 1, 254, '943'), RmBill::line('2026-11-13', 'TPL', 1, 254, '943')]);
-        self::assertSame(['held||not_covered' => 508], self::where($id));
+        self::assertSame(self::ks(['held||not_covered' => 508]), self::where($id));
         $conn = TestDb::connect();
         $conn->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\CW\Tests\Support\HookedStatement::class, []]);
         \CW\Tests\Support\HookedStatement::$before = ['DELETE FROM carrier_replan_due' => static fn () => throw new \PDOException('the done of the 12th not written')];
         $this->report([RmFixtures::label('JV000003141GB', 'TPL48HV', '2026-11-12', '1393141'), RmFixtures::label('JV000003142GB', 'TPL48HV', '2026-11-13', '1393142')],
             '2026-11-12', '2026-11-13', null, new RoyalMailBills($conn));
-        self::assertSame(["order|{$this->vpg}|" => 508], self::where($id), 'the 13th planned all the same');
+        self::assertSame(self::ks(["order|{$this->vpg}|" => 508]), self::where($id), 'the 13th planned all the same');
         self::assertSame(['2026-11-12'], array_map('strval', self::$db->column('SELECT day FROM carrier_replan_due WHERE account_id = ?', [$this->acct['account']])),
             'the 12th stays due (its plan is done; the next run says so)');
     }

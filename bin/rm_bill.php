@@ -58,6 +58,9 @@ exit(Cli::main('rm_bill', ['file:', 'account:', 'upload', 'replace:'],
                 : ($party !== '' ? (string) $cli->db->value('SELECT name FROM delivery_party WHERE id = ?', [(int) $party]) : $reason);
             $cli->log(sprintf('  %-13s %-28s %12s', $dest . ($line !== '' ? ' (day line)' : ''), $who, DpdInvoiceFile::gbp($pence)));
         }
+        // the "needs a look" of its days (DL86 7): counts only, never a parcel or a label named here
+        $red = count(array_filter($p['look'] ?? [], static fn (array $i): bool => $i['red']));
+        $cli->log(sprintf('needs a look: %d (%d red: billed more than labels by more than the setting)', count($p['look'] ?? []), $red));
         if ($p['live_id'] !== null) {
             $cli->log($p['same_file'] ? "this very bill is live already as bill id {$p['live_id']}" : "a bill of this number is live already (id {$p['live_id']}): --replace={$p['live_id']} loads this one in its place");
         }

@@ -15,6 +15,7 @@ use CW\Db;
  *    day's line ("N labels not charged" or "N billed, no label found") and whether the day is open (waiting for the next bill: the account's
  *    next bill not stored yet and the day less than OPEN_DAYS old) or closed, "needs a look" only on a closed day LOOK_PCT and LOOK_LABELS apart;
  *  - its Special Delivery manifests (labels, billed, by weight or the average);
+ *  - its "needs a look" list (DL86 3-7, RoyalMailLook): red when a day or a manifest is billed more than its labels by more than the setting;
  *  - its rows as printed (the reference in its known form only);
  *  - the accounts' labels: covered up to which day, the last report import, the days waiting, how many labels CW holds (DL84).
  */
@@ -72,12 +73,25 @@ final class RoyalMailViews
         $rows = $this->db->all('SELECT row_no, service_date, product_code, qty, net_pence, gross_pence, vat_code, ref_kind, ref_no, sales_order FROM carrier_bill_row '
             . 'WHERE invoice_id = ? ORDER BY row_no', [$id]);
         $rowsNet = array_sum(array_map(static fn (array $r): int => (int) $r['net_pence'], $rows));
+        // what to look at on its days (DL86): a live bill's (a bill no longer in the profit has none)
+        $look = $live && $account !== null ? RoyalMailLook::forBill($this->db, $id) : [];
+        $red = [];
+        foreach ($look as $i) {
+            if ($i['kind'] === 'billed_more') {
+                $red[$i['day'] . '|' . $i['product']] = true;
+            }
+        }
+        $days = $account === null ? [] : $this->days((int) $account['id'], $b, $rows);
+        foreach ($days as $k => $d) {
+            $days[$k]['red'] = isset($red[$d['day'] . '|' . $d['product']]);
+        }
         return [
             'bill' => $b,
             'where' => array_values($where),
             'totals' => $totals,
             'adds_up' => $sum === (int) $b['net_pence'] && $rowsNet === (int) $b['net_pence'] && count($rows) === (int) $b['line_count'],
-            'days' => $account === null ? [] : $this->days((int) $account['id'], $b, $rows),
+            'days' => $days,
+            'look' => $look,
             // the days whose money waits, each with why (DL84: a day moves money only when a report covers it and its labels tie)
             'waiting' => $live ? $this->db->all("SELECT day, held_reason AS reason, COUNT(*) AS n, SUM(pence) AS pence FROM carrier_allocation WHERE invoice_id = ? "
                 . "AND ended_at IS NULL AND how = 'waiting' GROUP BY day, held_reason ORDER BY day, held_reason", [$id]) : [],
@@ -240,6 +254,19 @@ final class RoyalMailViews
      * @return list<array<string, mixed>>
      */
     public function accounts(): array
+    {
+        $now = ($this->clock ?? static fn (): \DateTimeImmutable => Clock::now())();
+        // each account's "needs a look" of its live bills' days (DL86 7): how many, how many red
+        $out = [];
+        foreach ($this->accountRows() as $a) {
+            $look = $a['state'] === 'active' ? RoyalMailLook::recent($this->db, (int) $a['id'], $now) : [];
+            $out[] = $a + ['look' => count($look), 'red' => count(array_filter($look, static fn (array $i): bool => $i['red']))];
+        }
+        return $out;
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function accountRows(): array
     {
         return $this->db->all("SELECT a.id, a.account_no, a.name, a.state, "
             . '(SELECT COUNT(*) FROM carrier_label l WHERE l.account_id = a.id) AS labels, (SELECT MAX(l.manifest_day) FROM carrier_label l WHERE l.account_id = a.id) AS last_day, '

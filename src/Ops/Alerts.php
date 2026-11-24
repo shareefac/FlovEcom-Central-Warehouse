@@ -32,7 +32,9 @@ use CW\Settings;
  *                    again at most once per alerts.repeat_minutes while one is open, "back to normal" when all are handled.
  *   per active Royal Mail account (docs/decisions.md DL84; RoyalMailBills::health):
  *     rm_report_missing  a day of the last whole week (Monday to Sunday) covered by no Click & Drop report by the Tuesday after, 12:00 UK
- *     rm_days_waiting    a day of a live bill waiting more than 14 days (counted from the day)
+ *     rm_days_waiting    a day of a live bill covered by no report, waiting more than 14 days (counted from the day; DL86 1: the only wait)
+ *     rm_billed_more     a day or Special Delivery manifest billed more than its labels by more than the setting (DL86 7)
+ *     rm_check_failed    an account whose checks could not be read (each account on its own: the Codex check r10 #15)
  *
  * Read only. The probe is injectable (tests).
  */
@@ -81,7 +83,8 @@ final class Alerts
         foreach ($this->landingOrders() as $p) {
             $out[] = $p;
         }
-        // Royal Mail delivery cost (DL84 8): a week with no Click & Drop report by Tuesday 12:00, a bill's days waiting more than 14 days
+        // Royal Mail delivery cost (DL84 8, DL86): a week with no Click & Drop report by Tuesday 12:00, a bill's days waiting more than 14 days, billed
+        // more than the labels above the setting, an account not checked
         foreach (\CW\Profit\RoyalMailBills::health($this->db, Clock::now()) as $p) {
             $out[] = $p + ['channel' => null, 'channel_id' => null, 'name' => null, 'mode' => null];
         }

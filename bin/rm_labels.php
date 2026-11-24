@@ -81,6 +81,11 @@ exit(Cli::main('rm_labels', ['pull', 'report:', 'status', 'account:', 'from:', '
             $cli->error($e->getMessage());
             return Cli::PROBLEM;
         }
+        if ($r['already'] ?? false) {
+            // the same report for the same days (DL86 10): nothing written again
+            $cli->log(sprintf('%s: this report was loaded already for %s to %s (import %d): nothing saved again', $accounts[0]['account_no'], $from, $to, (int) $r['import_id']));
+            return Cli::OK;
+        }
         $cli->log(sprintf('%s: %s to %s covered (import %d): %d rows, %d labels: %d new, %d filled, %d differ (kept as read first), %d rows skipped; %s allocations changed%s',
             $accounts[0]['account_no'], $from, $to, (int) $r['import_id'], $r['rows'], $r['labels'], $r['added'], $r['filled'], $r['differs'], $r['skipped'],
             $r['replanned'] ?? '-', $r['replan_error'] === null ? '' : '; ' . $r['replan_error']));

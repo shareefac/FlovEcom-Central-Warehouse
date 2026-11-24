@@ -154,6 +154,9 @@ final class AlertDispatch
             // Royal Mail delivery cost, phase 1 (docs/decisions.md DL84): a week with no Click & Drop report, a bill's days waiting long
             'rm_report_missing' => Words::say('ALERT', 'rm_report_missing', (string) ($d['account'] ?? ''), $n('days'), (string) ($d['from'] ?? ''), (string) ($d['to'] ?? '')),
             'rm_days_waiting' => Words::say('ALERT', 'rm_days_waiting', (string) ($d['account'] ?? ''), $n('days'), $n('limit'), (string) ($d['oldest'] ?? '')),
+            // DL86 7: billed more than labels above the setting; an account that could not be checked
+            'rm_billed_more' => Words::say('ALERT', 'rm_billed_more', (string) ($d['account'] ?? ''), $n('count'), (string) ($d['pct'] ?? ''), (string) ($d['oldest'] ?? '')),
+            'rm_check_failed' => Words::say('ALERT', 'rm_check_failed', (string) ($d['account'] ?? ''), (string) ($d['error'] ?? '')),
             default => (string) ($p['detail'] ?? $p['kind']),
         };
     }

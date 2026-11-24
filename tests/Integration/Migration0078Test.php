@@ -39,7 +39,7 @@ final class Migration0078Test extends IntegrationTestCase
         foreach ($statements as $st) {
             self::assertMatchesRegularExpression('/^(CREATE TABLE IF NOT EXISTS (carrier|delivery_party|carrier_account|carrier_account_party|carrier_channel|carrier_party_rule|'
                 . 'carrier_product|carrier_band|carrier_label|carrier_report_import|carrier_day_cover|carrier_pin_due|carrier_replan_due|carrier_bill_row|carrier_allocation|carrier_bill_check) |INSERT INTO (carrier|delivery_party|carrier_account|'
-                . 'carrier_account_party|carrier_channel|carrier_party_rule|carrier_product|carrier_band) |SET @cw_0078_carrier = |(PREPARE|EXECUTE|DEALLOCATE PREPARE) '
+                . 'carrier_account_party|carrier_channel|carrier_party_rule|carrier_product|carrier_band|app_setting|config_change) |SET @cw_0078_carrier = |(PREPARE|EXECUTE|DEALLOCATE PREPARE) '
                 . 'cw_0078_carrier)/', $st);
         }
         self::assertSame(['Select'], Grants::desired('carrier'), 'the carriers come by migration');
@@ -113,6 +113,11 @@ final class Migration0078Test extends IntegrationTestCase
             ['TPM', 'flat', 'TPM24HV'], ['TRN', 'flat', 'TRN24'], ['TSS', 'return', null]],
             self::rows($db, "SELECT product_code, kind, service_code FROM carrier_product WHERE carrier = 'royal_mail' ORDER BY product_code"));
         self::assertSame(['100', '500', '1000', '2000', '10000', '20000'], array_map('strval', $db->column("SELECT max_grams FROM carrier_band WHERE product_code = 'SD1' ORDER BY band_no")));
+        // the alarm of DL86 7 (the owner's 1%), a setting with its baseline version
+        self::assertSame([['decimal', '"1.0"', '0', 'DL86']], self::rows($db, "SELECT value_type, CAST(value_json AS CHAR), provisional, decision FROM app_setting "
+            . "WHERE setting_key = 'delivery.rm_billed_more_pct'"));
+        self::assertSame([['1', 'baseline']], self::rows($db, "SELECT version, action FROM config_change WHERE subject_type = 'setting' "
+            . "AND subject_key = 'delivery.rm_billed_more_pct'"));
 
         // the CHECKs of the new tables
         $acct = (int) $db->value("SELECT id FROM carrier_account WHERE account_no = '0706703000'");

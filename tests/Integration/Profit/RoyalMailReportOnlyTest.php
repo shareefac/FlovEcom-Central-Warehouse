@@ -16,11 +16,12 @@ use CW\Tests\Support\TestDb;
 
 /**
  * Phase 1 is REPORT-ONLY (the coordinator, 24 Nov 2026; docs/decisions.md DL84), SYNTHETIC labels and bills: the Click & Drop API pull is
- * phase 2; a day is covered only by a report import (its From..To, in the same transaction as its labels); a covered day moves money only
- * when every CW Royal Mail parcel of it is in the reports and no product of it is billed more than its labels; a Special Delivery manifest or
- * a wrong-weight sales order waits whole when any member is not covered, undated or unknown; an unmapped or conflicting service code holds
- * its day; the main shop's start day and every day before it are wholly before CW start; due days of an account switched off wait for it,
- * one failing group never blocks the others; the health alert says a week with no report and days waiting long.
+ * phase 2; a day is covered only by a report import (its From..To, in the same transaction as its labels). Since DL86 (the owner's "yes no
+ * hold", 24 Nov 2026) a covered day moves money whatever the evidence says: a CW parcel in no report, units billed above the labels and an
+ * unmapped or conflicting service hold nothing (the tests of DL84 3-5 changed with it, each says so); a Special Delivery manifest and a
+ * wrong-weight sales order are each priced on their own; the main shop's start day and every day before it are wholly before CW start; due
+ * days of an account switched off wait for it, one failing group never blocks the others; the health alert says a week with no report and
+ * days waiting long.
  */
 final class RoyalMailReportOnlyTest extends StockTestCase
 {
@@ -162,20 +163,20 @@ final class RoyalMailReportOnlyTest extends StockTestCase
         self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM carrier_label WHERE tracking_no = 'JV000000916GB'"));
     }
 
-    /** DL84 3a: a covered day waits while a CW Royal Mail parcel labelled that day is in no report; a report bringing it releases the day. */
+    /** DL84 3a, changed by DL86 3: a CW Royal Mail parcel of a covered day in no report holds nothing; a report bringing it gives it the day's price. */
     public function testACoveredDayWaitsWhileACwParcelOfItIsInNoReport(): void
     {
         $day = '2026-11-12';
         self::order($this->vpg, '1921', '1369921', ['JV000000921GB' => [$day . 'T10:00:00Z', 'TPL48HV'], 'JV000000922GB' => [$day . 'T11:00:00Z', 'TPL48HV']]);
         $this->report([RmFixtures::label('JV000000921GB', 'TPL48HV', $day, '1369921')], $day, $day);
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]))['invoice_id'];
-        self::assertSame(['held||parcel_missing' => 254], self::where($id), 'JV...922, labelled that day in CW, is in no report');
+        self::assertSame(["order|{$this->vpg}|" => 254], self::where($id), 'JV...922, labelled that day in CW, is in no report: nothing waits (DL86 3)');
         $this->report([RmFixtures::label('JV000000922GB', 'TPL48HV', $day, '1369921')], $day, $day);
         self::assertSame(["order|{$this->vpg}|" => 508, "shop|{$this->vpg}|" => -254], self::where($id), 'both in: the day prices (2 labels at 254, 1 billed: 1 not charged)');
         $this->assertRebuilds();
     }
 
-    /** DL84 3b: a day billed more than its labels waits; a later bill that bills more withdraws the money in its own write. */
+    /** DL84 3b, changed by DL86 2: a day billed more than its labels waits no more: the extra units are the main shop's "not on an order". */
     public function testADayBilledMoreThanItsLabelsWaits(): void
     {
         $day = '2026-11-12';
@@ -185,13 +186,16 @@ final class RoyalMailReportOnlyTest extends StockTestCase
         self::assertSame(["order|{$this->vpg}|" => 254], self::where($a));
         $b = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')], ['invoice' => '9070000932',
             'date' => 'Nov 23, 2026']))['invoice_id'];
-        self::assertSame(['held||billed_more' => 254], self::where($a), 'billed 2 for 1 label: the first bill\'s money withdrawn by the second\'s store');
-        self::assertSame(['held||billed_more' => 254], self::where($b));
-        self::assertSame(0, \CW\Profit\DeliveryBills::orderCost(self::$db, $this->vpg, '1931'));
+        self::assertSame(["order|{$this->vpg}|" => 254], self::where($a), 'billed 2 for 1 label: the first bill\'s price stays on its order');
+        self::assertSame(["shop|{$this->vpg}|" => 254], self::where($b), 'the second unit on Vape and Go\'s not on an order');
+        self::assertSame(254, \CW\Profit\DeliveryBills::orderCost(self::$db, $this->vpg, '1931'));
         $this->assertRebuilds();
     }
 
-    /** DL84 4: a manifest and its sales order are one group over all bills and labels: one member not covered or undated, all of it waits. */
+    /**
+     * DL84 4, changed by DL86 5 and 6: a manifest and a wrong-weight sales order are each priced on their own (no group); a key waits only while
+     * a day of it (its rows', its labels') is covered by no report.
+     */
     public function testAGroupWaitsWholeWhenAMemberIsNotCoveredOrUndated(): void
     {
         $sd = static fn (int $m): array => ['manifest_no' => $m, 'sales_order' => '5155500901', 'weight_g' => 80];
@@ -204,18 +208,21 @@ final class RoyalMailReportOnlyTest extends StockTestCase
         RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('AS000000944GB', 'SD1', '2026-11-13', '1369944', $sd(2902))], 'report');
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line('2026-11-12', 'SD1', 2, 2008, 'CLICK AND DROP M2901', '5155500901'),
             RmBill::line('2026-11-14', 'RX1', 1, 275, 'ADJ5155500901RCN Surcharge')]))['invoice_id'];
-        self::assertSame(['held||not_covered' => 2283], self::where($id), 'M2901, its sales order and M2902: one group, the 13th not covered');
+        self::assertSame(['held||not_covered' => 275, "order|{$this->vpg}|" => 2008], self::where($id),
+            'M2901 on its labels (2 x 1004 by weight); its sales order\'s wrong weight waits: a label of it on the 13th and the row\'s 14th covered by no report');
         $this->report([], '2026-11-13', '2026-11-13');
-        self::assertSame(["order|{$this->vpg}|" => 2281, "shop|{$this->vpg}|" => 2], self::where($id), 'covered whole: 2 x 1004 by weight, the wrong weight 3 x 91 (2p left)');
-        // an undated label of the sales order: the group waits again
+        self::assertSame(['held||not_covered' => 275, "order|{$this->vpg}|" => 2008], self::where($id), 'the 14th still covered by no report');
+        $this->report([], '2026-11-14', '2026-11-14');
+        self::assertSame(["order|{$this->vpg}|" => 2281, "shop|{$this->vpg}|" => 2], self::where($id), 'covered: the wrong weight 3 x 91 (2p left)');
+        // an undated label of the sales order: no wait, it takes its share (on no CW parcel and of no day: held, not served)
         RmFixtures::labels(self::rm(), self::system(), $this->acct['account'], [RmFixtures::label('AS000000943GB', 'SD1', '2026-11-13', '1369943',
             ['manifest_no' => null, 'manifest_day' => null, 'manifested_at' => null, 'sales_order' => '5155500901', 'weight_g' => 80])], 'report');
         self::rm()->replan(self::system(), null, 3650);
-        self::assertSame(['held||group_unknown' => 2283], self::where($id));
+        self::assertSame(['held||not_served' => 68, "order|{$this->vpg}|" => 2008 + 3 * 68, "shop|{$this->vpg}|" => 3], self::where($id));
         $this->assertRebuilds();
     }
 
-    /** DL84 5: a service code the plan does not map, or one other than the CW parcel's, holds its day. */
+    /** DL84 5, changed by DL86 4: a service code the plan does not map, or one other than the CW parcel's, holds nothing: no price, listed. */
     public function testAnUnmappedOrConflictingServiceHoldsItsDay(): void
     {
         self::order($this->vpg, '1951', '1369951', ['JV000000951GB' => ['2026-11-12T10:00:00Z', 'TPL48HV']]);
@@ -224,8 +231,11 @@ final class RoyalMailReportOnlyTest extends StockTestCase
             RmFixtures::label('JV000000952GB', 'TPL48HV', '2026-11-13', '1369952')], '2026-11-12', '2026-11-13');
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line('2026-11-12', 'TPL', 1, 254, '943'),
             RmBill::line('2026-11-13', 'TPL', 1, 254, '943')]))['invoice_id'];
-        self::assertSame(['held||service_differs' => 254, 'held||unknown_service' => 254], self::where($id),
-            'TPL49HV maps to nothing (12th); JV...952 is TPM24HV in CW, TPL48HV in the report (13th)');
+        self::assertSame(["order|{$this->vpg}|" => 254, "shop|{$this->vpg}|" => 254], self::where($id),
+            'TPL49HV maps to nothing (12th: the good label priced); JV...952 is TPM24HV in CW, TPL48HV in the report (13th: no price, the unit on the line)');
+        self::assertSame([['JV000000953GB', 'unknown_service'], ['JV000000952GB', 'service_differs']], array_map(static fn (array $i): array => [$i['tracking_no'], $i['why']],
+            array_values(array_filter(\CW\Profit\RoyalMailLook::forDays(self::$db, $this->acct['account'], ['2026-11-12', '2026-11-13']),
+                static fn (array $i): bool => $i['kind'] === 'odd_service'))), 'both on "needs a look"');
     }
 
     /** DL84 6: the main shop's start day and every day before it are wholly before CW start, a label on an order included. */

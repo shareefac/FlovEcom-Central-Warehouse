@@ -48,6 +48,9 @@ final class Settings
         // 0074 (profit step 1, PR4): the VAT in the shops' prices, a percent with at most two decimals that matter; kept without trailing zeros
         // ("5.0000" is saved as "5"), so the profit code reads exactly what was saved (the final review of 6d59eda, c-M5, PR109).
         'profit.vat_rate_pct' => ['min' => '0', 'max' => '100', 'percent' => true],
+        // 0078 (DL86 7, the owner's 1%): a Royal Mail day or Special Delivery manifest billed more units than its labels by more than this percent
+        // of them is red on "needs a look" and in the health alert (RoyalMailLook)
+        'delivery.rm_billed_more_pct' => ['min' => '0', 'max' => '100', 'percent' => true],
         'reorder.short_weight' => ['min' => '0', 'max' => '1'],
         'reorder.promo_price_drop' => ['min' => '0', 'max' => '1'],
         'reorder.promo_units_uplift' => ['min' => '1', 'max' => '100'],

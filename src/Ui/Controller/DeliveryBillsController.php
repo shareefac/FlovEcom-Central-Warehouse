@@ -9,6 +9,7 @@ use CW\Profit\DeliveryBills;
 use CW\Profit\DeliveryViews;
 use CW\Profit\DpdInvoiceFile;
 use CW\Profit\RoyalMailBills;
+use CW\Profit\RoyalMailLook;
 use CW\Profit\RoyalMailViews;
 use CW\Ui\Context;
 use CW\Ui\Html;
@@ -141,6 +142,8 @@ final class DeliveryBillsController
             'gone' => $views->checkGone($p['gone'] ?? []),
             'days' => $p['days'],
             'waitingDays' => $p['waiting'] ?? [],
+            'look' => $p['look'] ?? [],
+            'lookPct' => RoyalMailLook::pctText(RoyalMailLook::alarmBp($ctx->db)),
             'rows' => $p['bill_rows'],
             'minutes' => RoyalMailBills::CHECK_MINUTES,
         ], 200, ['title' => Words::say('DELIVERY', 'rm_check_title', (string) $p['invoice_no'])]);
@@ -183,6 +186,10 @@ final class DeliveryBillsController
             $r = (new RoyalMailBills($ctx->db))->importReport($ctx->caller(), $account, (string) file_get_contents($file['path']), $from, $to);
         } catch (CwException $e) {
             return $this->listPage($ctx, $e->httpStatus, $e, ['account' => $account, 'carrier' => 'royal_mail', 'from' => $from, 'to' => $to]);
+        }
+        if ($r['already'] ?? false) {
+            // the same report for the same days again (DL86 10): nothing written
+            return $this->listPage($ctx, 200, null, [], Words::say('DELIVERY', 'rm_labels_already', $from, $to));
         }
         $said = Words::say('DELIVERY', 'rm_labels_read', number_format($r['labels']), number_format($r['added']), number_format($r['filled']), number_format($r['skipped']),
             $from, $to)
@@ -277,6 +284,7 @@ final class DeliveryBillsController
         }
         $bill = $b['bill'];
         return $ctx->page('profit_delivery_rm', $b + [
+            'lookPct' => RoyalMailLook::pctText(RoyalMailLook::alarmBp($ctx->db)),
             'canUpload' => $ctx->me()->can(self::PERM_UPLOAD) && $bill['status'] === 'live',
             'error' => $error?->getMessage(),
             'headline' => self::rmHeadline($b),

@@ -2,7 +2,7 @@
 // Profit › Delivery bills › a Royal Mail bill checked, nothing stored (0078; docs/decisions.md DL79; the plan, section 6 step 3): what CW read
 // (account, bill date, days, that its lines add up to its totals, its rows, net, VAT, total), the bill it replaces, where its money would go
 // (as its page shows it once stored: on orders per shop, a shop's "not on an order", the days' lines, Hayati Vapes, before CW start per shop,
-// held per reason), a red line when days wait (each with its reason: DL84), its flat days (labels, billed by every bill with it, priced, the day's line),
+// held per reason), a red line when days wait (each with its reason: DL86 1), the "needs a look" list (DL86 7), its flat days (labels, billed by every bill with it, priced, the day's line),
 // what moves on the bills already live (DL80), its rows as read, and the Store button for who checked it (the bill as read is kept for it,
 // never the file), or "in the profit already".
 $W = \CW\Ui\Words::DELIVERY;
@@ -101,6 +101,44 @@ $waiting = count(array_filter($days, static fn (array $d): bool => $d['waiting']
 <p class="error" role="alert"><?= $say('DELIVERY', 'rm_check_waiting', $waiting) ?></p>
 <?php endif; ?>
 
+<?php
+// "needs a look" (DL86 3-7): never money; red when a day or a manifest is billed more than its labels by more than the setting
+$lookText = static function (array $i) use ($W): string {
+    return match ($i['kind']) {
+        'billed_more' => sprintf($W['rm_look_billed_more'], $i['product'], number_format($i['billed']), number_format($i['labels']), number_format($i['billed'] - $i['labels'])),
+        'manifest' => sprintf($W['rm_look_manifest'], $i['manifest'], number_format($i['billed']), number_format($i['labels'])),
+        'no_labels' => sprintf($W['rm_look_no_labels'], $i['product'], $i['sales_order'] ?? '', \CW\Profit\DpdInvoiceFile::gbp((int) $i['pence'])),
+        'parcel_missing' => sprintf($W['rm_look_parcel_missing'], $i['tracking_no'], $i['shop'], $i['order_ref']),
+        default => sprintf($W['rm_look_odd_' . $i['why']], $i['tracking_no'], (string) ($i['service'] ?? ''), (string) ($i['cw_service'] ?? '')),
+    };
+};
+$lookRed = count(array_filter($look ?? [], static fn (array $i): bool => $i['red']));
+?>
+<h2><?= $word('DELIVERY', 'rm_look_title') ?><?php if ($lookRed > 0): ?> <?= $chip('needs', \CW\Ui\Words::say('DELIVERY', 'rm_look_red', $lookRed)) ?><?php endif; ?></h2>
+<p class="hint"><?= $say('DELIVERY', 'rm_look_hint', $lookPct) ?></p>
+<?php if (($look ?? []) === []): ?>
+<p class="muted"><?= $word('DELIVERY', 'rm_look_none') ?></p>
+<?php else: ?>
+<div class="table-wrap">
+<table class="stack rp-table delivery-rm-look">
+  <thead>
+    <tr>
+      <th scope="col"><?= $word('DELIVERY', 'rm_day') ?></th>
+      <th scope="col"><?= $word('DELIVERY', 'rm_look_detail') ?></th>
+    </tr>
+  </thead>
+  <tbody>
+<?php foreach ($look as $i): ?>
+    <tr<?php if ($i['red']): ?> class="error"<?php endif; ?>>
+      <th scope="row"><?= $day((string) $i['day']) ?><?php if ($i['red']): ?> <?= $chip('needs', $W['rm_look']) ?><?php endif; ?></th>
+      <td data-label="<?= $word('DELIVERY', 'rm_look_detail') ?>"><?= $e($lookText($i)) ?></td>
+    </tr>
+<?php endforeach; ?>
+  </tbody>
+</table>
+</div>
+<?php endif; ?>
+
 <?php if ($days !== []): ?>
 <h2><?= $word('DELIVERY', 'rm_days_title') ?></h2>
 <div class="table-wrap">
@@ -125,7 +163,7 @@ $waiting = count(array_filter($days, static fn (array $d): bool => $d['waiting']
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_billed_with') ?>"><?= $n($d['billed']) ?></td>
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_priced') ?>"><?= $n($d['priced']) ?></td>
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_line') ?>"><?= $e($gbp($d['line'])) ?></td>
-      <td data-label="<?= $word('DELIVERY', 'status') ?>"><?php if ($d['removed']): ?><?= $word('DELIVERY', 'rm_check_removed') ?> <?php endif; ?><?php if ($d['waiting']): ?><?= $word('DELIVERY', 'rm_check_waiting_day') ?><?php if (($d['reason'] ?? null) !== null): ?> - <?= $e($W['rm_held_' . $d['reason']] ?? (string) $d['reason']) ?><?php endif; ?><?php else: ?><?= $word('DELIVERY', ['open' => 'rm_open', 'closed' => 'rm_closed', 'look' => 'rm_look'][$d['status']]) ?><?php endif; ?></td>
+      <td data-label="<?= $word('DELIVERY', 'status') ?>"><?php if ($d['red'] ?? false): ?><?= $chip('needs', $W['rm_look']) ?> <?php endif; ?><?php if ($d['removed']): ?><?= $word('DELIVERY', 'rm_check_removed') ?> <?php endif; ?><?php if ($d['waiting']): ?><?= $word('DELIVERY', 'rm_check_waiting_day') ?><?php if (($d['reason'] ?? null) !== null): ?> - <?= $e($W['rm_held_' . $d['reason']] ?? (string) $d['reason']) ?><?php endif; ?><?php else: ?><?= $word('DELIVERY', ['open' => 'rm_open', 'closed' => 'rm_closed', 'look' => 'rm_look'][$d['status']]) ?><?php endif; ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>

@@ -16,6 +16,8 @@
 --    (# and digits, or N digits); a rule with no party names nobody (the label is held: shop not known).
 --  * carrier_product / carrier_band: a carrier's product codes on its bills and what each is (flat price per label, price by weight band,
 --    wrong-weight surcharge, surcharge of no parcel, return), and the weight bands (grams, the edge inclusive).
+--  * app_setting delivery.rm_billed_more_pct (with its baseline version): a day or a Special Delivery manifest billed more units than its
+--    labels by more than this percent of them is red on "needs a look" and in the health alert (DL86 7: the owner's 1%, 24 Nov 2026).
 -- Data:
 --  * carrier_label: one row per label a pooled account made (account x tracking number): the Click & Drop fields the matching needs, from
 --    the "Manifested Orders" report (phase 1 is report-only: DL84); never a name, address, postcode, email or phone. carrier_report_import:
@@ -415,3 +417,14 @@ CREATE TABLE IF NOT EXISTS carrier_replan_due (
   CONSTRAINT fk_carrier_replan_due_account FOREIGN KEY (account_id) REFERENCES carrier_account (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='days whose labels changed and whose groups a plan has not taken yet (docs/decisions.md DL83): written with the labels, done by the next plan';
+
+-- The alarm of DL86 7 (the owner, 24 Nov 2026: "your 1% rule is fine"): a setting like every other (Settings › its page: settings.manage, a
+-- reason, its versions in config_change and the audit), with its baseline version as 0074 gave its own. Run again: the row as it is then.
+INSERT INTO app_setting (setting_key, value_type, value_json, provisional, decision, description) VALUES
+ ('delivery.rm_billed_more_pct','decimal','"1.0"',0,'DL86','Royal Mail: a day of a Tracked service, or a Special Delivery manifest, billed more units than its labels by more than this percent of its labels is red on "Needs a look" (the bill''s page, the check, Profit › Delivery bills) and in the health alert. The extra units'' money is on the main shop''s "not on an order" whatever this is')
+ ON DUPLICATE KEY UPDATE setting_key = setting_key;
+
+INSERT INTO config_change (subject_type, subject_key, version, action, state, actor)
+  SELECT 'setting', s.setting_key, 1, 'baseline', JSON_OBJECT('value', CAST(s.value_json AS CHAR), 'provisional', s.provisional), 'system:migrate'
+  FROM app_setting s WHERE s.setting_key = 'delivery.rm_billed_more_pct'
+    AND NOT EXISTS (SELECT 1 FROM config_change c WHERE c.subject_type = 'setting' AND c.subject_key = s.setting_key);
