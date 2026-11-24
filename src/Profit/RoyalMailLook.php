@@ -191,10 +191,12 @@ final class RoyalMailLook
                 if ($band === [] || $chunk === []) {
                     break;
                 }
-                foreach ($db->all("SELECT id, tracking_no, service_code, manifest_no, sales_order FROM carrier_label WHERE account_id = ? AND {$col} IN (" . $marks(count($chunk))
+                // with its day: its service is compared with the CW parcels of its matching window only, as the plan does (DL88 F3)
+                foreach ($db->all("SELECT id, tracking_no, service_code, manifest_day, manifest_no, sales_order FROM carrier_label WHERE account_id = ? AND {$col} IN (" . $marks(count($chunk))
                     . ') AND service_code IN (' . $marks(count($band)) . ')', [$account['id'], ...$chunk, ...$band]) as $l) {
                     $out[(int) $l['id']] = ['id' => (int) $l['id'], 'tracking_no' => strtoupper((string) $l['tracking_no']), 'service_code' => (string) $l['service_code'],
-                        'manifest_no' => $l['manifest_no'] === null ? null : (int) $l['manifest_no'], 'sales_order' => $l['sales_order'] === null ? null : (string) $l['sales_order']];
+                        'manifest_day' => $l['manifest_day'] === null ? null : (string) $l['manifest_day'], 'manifest_no' => $l['manifest_no'] === null ? null : (int) $l['manifest_no'],
+                        'sales_order' => $l['sales_order'] === null ? null : (string) $l['sales_order']];
                 }
             }
             return $out;
