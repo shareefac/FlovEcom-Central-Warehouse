@@ -14,6 +14,7 @@ $deleted = $x['deleted_at'] !== null;
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
+<?= $partial('same_list', ['items' => $sameList, 'group' => 'EXPENSES']) ?>
 <?php if ((int) $x['net_pence'] < 0): ?>
 <p class="note credit-banner" role="status"><?= $say('EXPENSES', 'credit_banner', (string) $x['shop']) ?></p>
 <?php endif; ?>

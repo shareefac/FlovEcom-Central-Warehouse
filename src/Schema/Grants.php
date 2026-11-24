@@ -80,7 +80,9 @@ final class Grants
         'item_cost_event',
         // 0079 (docs/decisions.md EX8): every add, change, end and delete of an expense, a regular cost, a supplier or a type of them; and every
         // file an expense named, by the version that named it, kept 7 years from then (EX40).
-        'expense_history', 'expense_file'];
+        'expense_history', 'expense_file',
+        // Every file a supplier named as its evidence, the replaced ones too (0079, the fix round 2 of 8dbee81; EX61).
+        'supplier_file'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value

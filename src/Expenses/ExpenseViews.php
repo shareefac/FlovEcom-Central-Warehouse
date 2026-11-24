@@ -259,7 +259,16 @@ final class ExpenseViews
     /** @return list<array{id: int, name: string, is_active: bool, version: int, used: int}> the expenses' suppliers by name */
     public function suppliers(): array
     {
-        $this->guard();
+        // The viewer's jobs and the list from ONE moment (the Codex re-check of 8dbee81, C3; EX60).
+        return ProfitDays::snapshot($this->db, function (): array {
+            $this->guard();
+            return $this->suppliersNow();
+        });
+    }
+
+    /** @return list<array{id: int, name: string, is_active: bool, version: int, used: int}> */
+    private function suppliersNow(): array
+    {
         return array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'name' => (string) $r['name'], 'is_active' => (int) $r['is_active'] === 1,
             'version' => (int) $r['version'], 'used' => (int) $r['used']], $this->db->all('SELECT s.id, s.name, s.is_active, s.version, '
             . '(SELECT COUNT(*) FROM expense e WHERE e.supplier_id = s.id AND e.deleted_at IS NULL) AS used FROM expense_supplier s ORDER BY s.name, s.id'));
@@ -274,7 +283,16 @@ final class ExpenseViews
      */
     public function regularList(string $today, ?int $shop = null): array
     {
-        $this->guard();
+        // The viewer's jobs and the lines from ONE moment (C3; EX60).
+        return ProfitDays::snapshot($this->db, function () use ($today, $shop): array {
+            $this->guard();
+            return $this->regularListNow($today, $shop);
+        });
+    }
+
+    /** @return array{groups: list<array{group: string, rows: list<array<string, mixed>>}>, today: array<string, int>, today_cost: array<string, int>} */
+    private function regularListNow(string $today, ?int $shop): array
+    {
         $rows = $this->db->all('SELECT r.id, r.name, r.channel_id, c.name AS shop, r.type_id, t.name AS grp, t.sort_order, r.every, r.amount_pence, r.vat_included, '
             . 'r.vat_rate_bp, '
             . 'r.from_day, r.until_day, '
@@ -324,7 +342,13 @@ final class ExpenseViews
         $next = $this->db->one('WITH RECURSIVE d (id) AS (SELECT ? UNION ALL SELECT r.id FROM regular_cost r JOIN d ON r.replaces_id = d.id) '
             . 'SELECT r.id, r.amount_pence, r.from_day FROM d JOIN regular_cost r ON r.id = d.id WHERE r.id <> ? AND r.deleted_at IS NULL AND r.from_day > ? '
             . 'ORDER BY r.from_day, r.id LIMIT 1', [RegularCosts::root($this->db, $id), $id, (string) $r['from_day']]);
-        return $r + ['next' => $next, 'history' => ExpenseHistory::of($this->db, 'regular_cost', $id)];
+        // The live line just before it by date in the same whole chain (the one whose last day decides whether a gap opens when this one is
+        // deleted: £70 from 1 Nov, £98 from 15 Nov, then £84 backdated from 8 Nov: before the £98 line is the £84 one ending 14 Nov, never the
+        // £70 one ending 7 Nov; the Codex re-check of 8dbee81, C5; EX59).
+        $prev = $this->db->one('WITH RECURSIVE d (id) AS (SELECT ? UNION ALL SELECT r.id FROM regular_cost r JOIN d ON r.replaces_id = d.id) '
+            . 'SELECT r.id, r.until_day FROM d JOIN regular_cost r ON r.id = d.id WHERE r.id <> ? AND r.deleted_at IS NULL AND r.from_day < ? '
+            . 'ORDER BY r.from_day DESC, r.id DESC LIMIT 1', [RegularCosts::root($this->db, $id), $id, (string) $r['from_day']]);
+        return $r + ['next' => $next, 'prev' => $prev, 'history' => ExpenseHistory::of($this->db, 'regular_cost', $id)];
     }
 
     /**

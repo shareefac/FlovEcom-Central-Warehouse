@@ -13,6 +13,7 @@ $deleted = $r['deleted_at'] !== null;
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
+<?= $partial('same_list', ['items' => $sameList, 'group' => 'REGULAR']) ?>
 <?php if ($deleted): ?>
 <p class="note" role="status"><?= $word('REGULAR', 'deleted_banner') ?> <?= $say('EXPENSES', 'deleted_by', (string) ($r['deleted_name'] ?? $r['deleted_actor']), \CW\Ui\Html::when((string) $r['deleted_at']), (string) $r['deleted_reason']) ?></p>
 <?php if ($before !== null): ?>

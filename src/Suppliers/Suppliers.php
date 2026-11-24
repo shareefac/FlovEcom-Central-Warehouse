@@ -314,6 +314,7 @@ final class Suppliers
             } catch (\PDOException $e) {
                 throw self::duplicate($e) ?? $e;
             }
+            $this->recordEvidence($id, $v, $caller->actor);
             Audit::write($db, $caller, 'supplier.create', 'supplier', (string) $id, null, ['code' => $v['code'], 'name' => $v['name'], 'fields' => $v]);
             return $this->get($id);
         });
@@ -763,10 +764,28 @@ final class Suppliers
             } else {
                 $this->writeRow($id, $set, $me['id'], $caller->actor, $now);
             }
+            $this->recordEvidence($id, array_intersect_key($v, $changed), $caller->actor);
             Audit::write($db, $caller, $action, 'supplier', (string) $id, null,
                 ['version' => $expectedVersion + 1, 'changed' => $changed] + ($tasks === [] ? [] : ['tasks' => $tasks]));
             return $this->get($id);
         });
+    }
+
+    /**
+     * Each evidence file the supplier names now ($v: the columns written), kept in supplier_file (append-only, indexed by file_id): the file rules
+     * close a file once named as a supplier's evidence to those without suppliers.view, also after it is replaced (the Codex re-check of
+     * 8dbee81, C2; docs/decisions.md EX61).
+     *
+     * @param array<string, mixed> $v
+     */
+    private function recordEvidence(int $id, array $v, string $actor): void
+    {
+        foreach (['dd' => 'dd_evidence_file_id', 'import_route' => 'import_route_file_id'] as $field => $col) {
+            $file = $v[$col] ?? null;
+            if ((is_int($file) || (is_string($file) && preg_match('/^[1-9]\d{0,18}$/D', $file) === 1)) && (int) $file > 0) {
+                $this->db->exec('INSERT INTO supplier_file (supplier_id, field, file_id, attached_actor) VALUES (?, ?, ?, ?)', [$id, $field, (int) $file, $actor]);
+            }
+        }
     }
 
     /** @param array<string, mixed> $set */

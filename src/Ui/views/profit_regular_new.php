@@ -8,8 +8,9 @@ $t = $typed;
 ?>
 <?= $head($R['new_title'], intro: 'profit_regular_new', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_regular'], [$vatPct]), back: ['/ui/profit/regular', $R['back']]) ?>
 <?php if ($error !== null): ?>
-<p class="error" role="alert"><?= $e($error) ?><?php if ($other !== null): ?> <a href="<?= $e($other) ?>"><?= $word('REGULAR', 'open_other') ?></a><?php endif; ?></p>
+<p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
+<?= $partial('same_list', ['items' => $sameList, 'group' => 'REGULAR']) ?>
 <form class="record" method="post" action="/ui/profit/regular/new" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">

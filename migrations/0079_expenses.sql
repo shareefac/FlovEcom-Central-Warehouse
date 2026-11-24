@@ -18,11 +18,13 @@
 --  * expense_history: every add, change, end and delete of the four, with the row before and after, the reason, who and when (append-only).
 --  * expense_file: every file an expense named (its PDF or photo, and each one a change replaced), by the version that named it, kept 7 years
 --    from that attachment (append-only): the file rules ask it by its file_id index (docs/decisions.md EX24, EX40), never the history's JSON.
+--  * supplier_file: every file a supplier named as its evidence, the replaced ones too (append-only; EX61), filled from the suppliers and their
+--    history once here: the file rules ask it by its file_id index.
 --  * staff_role.role gets `expenses` at the END of its list (the stored number of every grant stays what it was); the two new permissions
 --    expenses.view (Finance and the new job) and expenses.edit (the new job) are rows of the stored map, each with its baseline; nobody
 --    holds the new job until the owner says who (the go-live kit gives it to staff 1 and staff 2 together; bin/grant_role.php).
 --
--- HOW IT IS APPLIED: six CREATE TABLE IF NOT EXISTS (new, empty), the start lists of expense_type with their history only while the list
+-- HOW IT IS APPLIED: seven CREATE TABLE IF NOT EXISTS (new, empty; supplier_file then filled once from the suppliers and their history), the start lists of expense_type with their history only while the list
 -- has none of them, the two permission rows and the three "real profit from" settings ON DUPLICATE KEY with their baselines only when missing, and ONE ALTER of staff_role (tiny;
 -- ALGORITHM = COPY, LOCK = SHARED, as 0069, 0074 and 0077). Every statement can run again and changes nothing the second time.
 -- No undo release (the owner, 24 Nov 2026: "anything happnes with cw we dont undo we fix them and put another fixed version"; docs/decisions.md
@@ -188,6 +190,54 @@ CREATE TABLE IF NOT EXISTS expense_file (
   CONSTRAINT fk_expense_file_file FOREIGN KEY (file_id) REFERENCES stored_file (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='every file an expense named, by the version that named it, kept 7 years from then (EX24, EX40): the downloads ask it (indexed), never the history';
+
+-- Every file named as a supplier's evidence (the due-diligence evidence or the import-route evidence), the replaced ones too (the fix round 2 of
+-- 8dbee81, Codex C2; docs/decisions.md EX61): written by Suppliers each time a supplier names one, append-only, asked by its file_id index by
+-- the file rules (suppliers.view), so a PDF once named as evidence stays closed to an Expenses-only person whatever was stored first.
+CREATE TABLE IF NOT EXISTS supplier_file (
+  id             BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+  supplier_id    INT UNSIGNED      NOT NULL,
+  field          ENUM('dd','import_route') NOT NULL COMMENT 'dd: supplier.dd_evidence_file_id; import_route: supplier.import_route_file_id',
+  file_id        BIGINT UNSIGNED   NOT NULL COMMENT 'the evidence file (stored_file)',
+  attached_actor VARCHAR(64)       NOT NULL,
+  attached_at    DATETIME(6)       NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (id),
+  KEY ix_supplier_file_file (file_id),
+  KEY ix_supplier_file_supplier (supplier_id, field),
+  CONSTRAINT fk_supplier_file_supplier FOREIGN KEY (supplier_id) REFERENCES supplier (id),
+  CONSTRAINT fk_supplier_file_file FOREIGN KEY (file_id) REFERENCES stored_file (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='every file a supplier named as its evidence, the replaced ones too (EX61): the file rules ask it (indexed), append-only';
+
+-- The evidence named before this release: each supplier's evidence now and every one its history names (the audit rows of supplier.create,
+-- supplier.update and supplier.evidence: the value before and after each change), only files and suppliers that exist. Run again: nothing
+-- that is there already.
+INSERT INTO supplier_file (supplier_id, field, file_id, attached_actor)
+SELECT x.supplier_id, x.field, x.file_id, 'system:migrate' FROM (
+  SELECT id AS supplier_id, 'dd' AS field, dd_evidence_file_id AS file_id FROM supplier WHERE dd_evidence_file_id IS NOT NULL
+  UNION SELECT id, 'import_route', import_route_file_id FROM supplier WHERE import_route_file_id IS NOT NULL
+  UNION SELECT CAST(a.entity_id AS UNSIGNED), 'dd', CAST(JSON_UNQUOTE(JSON_EXTRACT(a.detail, '$.changed.dd_evidence_file_id[0]')) AS UNSIGNED) FROM audit_log a
+    WHERE a.entity_type = 'supplier' AND a.entity_id REGEXP '^[1-9][0-9]{0,9}$'
+      AND JSON_UNQUOTE(JSON_EXTRACT(a.detail, '$.changed.dd_evidence_file_id[0]')) REGEXP '^[1-9][0-9]{0,18}$'
+  UNION SELECT CAST(a.entity_id AS UNSIGNED), 'dd', CAST(JSON_UNQUOTE(JSON_EXTRACT(a.detail, '$.changed.dd_evidence_file_id[1]')) AS UNSIGNED) FROM audit_log a
+    WHERE a.entity_type = 'supplier' AND a.entity_id REGEXP '^[1-9][0-9]{0,9}$'
+      AND JSON_UNQUOTE(JSON_EXTRACT(a.detail, '$.changed.dd_evidence_file_id[1]')) REGEXP '^[1-9][0-9]{0,18}$'
+  UNION SELECT CAST(a.entity_id AS UNSIGNED), 'import_route', CAST(JSON_UNQUOTE(JSON_EXTRACT(a.detail, '$.changed.import_route_file_id[0]')) AS UNSIGNED) FROM audit_log a
+    WHERE a.entity_type = 'supplier' AND a.entity_id REGEXP '^[1-9][0-9]{0,9}$'
+      AND JSON_UNQUOTE(JSON_EXTRACT(a.detail, '$.changed.import_route_file_id[0]')) REGEXP '^[1-9][0-9]{0,18}$'
+  UNION SELECT CAST(a.entity_id AS UNSIGNED), 'import_route', CAST(JSON_UNQUOTE(JSON_EXTRACT(a.detail, '$.changed.import_route_file_id[1]')) AS UNSIGNED) FROM audit_log a
+    WHERE a.entity_type = 'supplier' AND a.entity_id REGEXP '^[1-9][0-9]{0,9}$'
+      AND JSON_UNQUOTE(JSON_EXTRACT(a.detail, '$.changed.import_route_file_id[1]')) REGEXP '^[1-9][0-9]{0,18}$'
+  UNION SELECT CAST(a.entity_id AS UNSIGNED), 'dd', CAST(JSON_UNQUOTE(JSON_EXTRACT(a.detail, '$.fields.dd_evidence_file_id')) AS UNSIGNED) FROM audit_log a
+    WHERE a.entity_type = 'supplier' AND a.entity_id REGEXP '^[1-9][0-9]{0,9}$'
+      AND JSON_UNQUOTE(JSON_EXTRACT(a.detail, '$.fields.dd_evidence_file_id')) REGEXP '^[1-9][0-9]{0,18}$'
+  UNION SELECT CAST(a.entity_id AS UNSIGNED), 'import_route', CAST(JSON_UNQUOTE(JSON_EXTRACT(a.detail, '$.fields.import_route_file_id')) AS UNSIGNED) FROM audit_log a
+    WHERE a.entity_type = 'supplier' AND a.entity_id REGEXP '^[1-9][0-9]{0,9}$'
+      AND JSON_UNQUOTE(JSON_EXTRACT(a.detail, '$.fields.import_route_file_id')) REGEXP '^[1-9][0-9]{0,18}$'
+) x
+WHERE EXISTS (SELECT 1 FROM supplier s WHERE s.id = x.supplier_id) AND EXISTS (SELECT 1 FROM stored_file f WHERE f.id = x.file_id)
+  AND NOT EXISTS (SELECT 1 FROM supplier_file sf WHERE sf.supplier_id = x.supplier_id AND sf.field = x.field AND sf.file_id = x.file_id)
+ORDER BY x.supplier_id, x.field, x.file_id;
 
 -- The start lists (the lead's brief, 24 Nov 2026): the expense types, and the regular costs' groups as the approved drawing groups them.
 -- Only those not there yet (a run again adds nothing; a name the owner changed later is not his start name, and is not added again while

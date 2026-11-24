@@ -186,7 +186,6 @@ final class ExpensesFix2Test extends KernelUiTestCase
         $y = $this->service()->add($job, $this->form(['invoice_no' => 'INV-481', 'new_supplier' => false]), $c);
         self::assertSame((int) $first['id'], (int) $y['file_id']);
         self::assertSame(403, $web->get("/ui/profit/expenses/{$y['id']}/file")->status);
-        self::$db->exec('DELETE FROM supplier_file');
     }
 
     // ---- C3: the download's rules with the jobs of the same moment -----------------------------------------------------------------------
@@ -245,13 +244,14 @@ final class ExpensesFix2Test extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('expenses'));
         $page = $web->get("/ui/profit/regular/{$l98}");
         self::assertStringContainsString(Words::say('REGULAR', 'delete_continues', Html::day('2026-11-14')), $page->text());
-        self::assertContains("/ui/profit/regular/{$l84}", $page->hrefs());
-        self::assertNotContains("/ui/profit/regular/{$l70}", $page->hrefs(), 'never the £70 line ending on 7 Nov');
+        $link = static fn ($r, string $class): string => (string) (new \DOMXPath($r->dom()))->evaluate('string(//p[contains(@class, "' . $class . '")]/a/@href)');
+        self::assertSame("/ui/profit/regular/{$l84}", $link($page, 'delete-continues'), 'the £84 line, never the £70 line ending on 7 Nov');
+        self::assertNotSame("/ui/profit/regular/{$l70}", $link($page, 'delete-continues'));
         $done = $web->post("/ui/profit/regular/{$l98}/delete", ['reason' => 'typed in by mistake', 'sure' => '1'] + $page->form("/ui/profit/regular/{$l98}/delete"));
         self::assertSame(303, $done->status, $done->describe());
         $after = $web->follow($done);
         self::assertStringContainsString(Words::say('REGULAR', 'deleted_continues', Html::day('2026-11-14')), $after->text());
-        self::assertContains("/ui/profit/regular/{$l84}", $after->hrefs());
+        self::assertSame("/ui/profit/regular/{$l84}", $link($after, 'deleted-continues'));
     }
 
     // ---- C6: the seed locks and checks its groups by id and name, and the VAT rate's row ---------------------------------------------

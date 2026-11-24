@@ -11142,6 +11142,11 @@ final class Words
         'open_other' => 'Open the one in already',
         'which_shop' => 'Which shop is this expense for?',
         'same_ok' => 'It is another invoice: save it all the same',
+        // Every record a "same one" question met, each linked (the fix round 2 of 8dbee81, Codex C1; the Fable re-check F-B; EX58).
+        'same_list' => 'In already (open each to check it before you tick the box):',
+        'same_row_number' => '%s, dated %s, %s: the same supplier, invoice number and shop',
+        'same_row_day' => '%s, dated %s, %s: the same supplier, shop, date and total',
+        'same_no_number' => 'No invoice number',
         'save' => 'Save expense',
         'save_another' => 'Save and add another',
         'file_title' => 'Invoice PDF',
@@ -11288,6 +11293,10 @@ final class Words
         'overlaps' => 'A new amount follows this line: its last day must be before the new amount starts.',
         'same_cost_lead' => 'A regular cost of this name is in already',
         'same_cost' => 'A regular cost of this name is in already for this shop on some of these days (from %s). If it really is another cost, tick the box below and save again.',
+        // A bill of no number met (the same supplier, shop, date and total), in its own words (the Fable re-check of 8dbee81, F-B; EX58).
+        'same_invoice_bill' => 'This bill looks like one in already: the same supplier, shop, date and total (dated %s). If it really is another invoice, tick the box below and save again.',
+        'same_credit_bill' => 'This credit note looks like one in already: the same supplier, shop, date and total (dated %s). If it really is another credit note, tick the box below '
+            . 'and save again.',
         'file_again' => 'The file you chose before was not kept when the form was refused: choose it again, or tick "Save without a file".',
         'type_exists' => 'That name is on the list already.',
         'bad_kind' => 'Choose whether it is for expenses or for regular costs.',
@@ -11361,6 +11370,9 @@ final class Words
         'period_total' => 'Regular costs of %s from %s to %s: %s without VAT (each line\'s share of those days).',
         'open_other' => 'Open the one in already',
         'same_ok' => 'It is another cost: save it all the same',
+        'same_list' => 'In already for some of these days (open each to check it before you tick the box):',
+        'same_row' => '%s, from %s',
+        'same_row_until' => '%s, from %s until %s',
         'all_lines' => 'Show every line',
         'share' => 'Share of those days (without VAT)',
         'notice_deleted' => 'The regular cost is deleted.',

@@ -117,13 +117,16 @@ final class RegularCostMath
 
     public static function addDays(string $day, int $n): string
     {
-        return gmdate('Y-m-d', (self::epochDay($day) + $n) * 86400);
+        return self::civil(self::epochDay($day) + $n);
     }
 
-    /** Whether $s is a real day written YYYY-MM-DD. */
+    /**
+     * Whether $s is a real day written YYYY-MM-DD in the years 2000 to 2099 (the days a person or a link may ask for: the fix round 2 of
+     * 8dbee81, Codex C4: "0027-11-01" was read as 2027 by the clock functions, skipped the cap and made a share minus; docs/decisions.md EX57).
+     */
     public static function isDay(string $s): bool
     {
-        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $s, $m) !== 1) {
+        if (preg_match('/^(20\d{2})-(\d{2})-(\d{2})$/D', $s, $m) !== 1) {
             return false;
         }
         return checkdate((int) $m[2], (int) $m[3], (int) $m[1]);
@@ -137,7 +140,13 @@ final class RegularCostMath
             return [sprintf('%04d-01-01', $y), sprintf('%04d-12-31', $y)];
         }
         $m = (int) substr($day, 5, 2);
-        return [sprintf('%04d-%02d-01', $y, $m), sprintf('%04d-%02d-%s', $y, $m, gmdate('t', gmmktime(0, 0, 0, $m, 1, $y)))];
+        return [sprintf('%04d-%02d-01', $y, $m), sprintf('%04d-%02d-%02d', $y, $m, self::monthLength($y, $m))];
+    }
+
+    /** The days of month $m of year $y (the Gregorian calendar, any year as written). */
+    private static function monthLength(int $y, int $m): int
+    {
+        return $m === 2 ? (($y % 4 === 0 && $y % 100 !== 0) || $y % 400 === 0 ? 29 : 28) : (in_array($m, [4, 6, 9, 11], true) ? 30 : 31);
     }
 
     /** whole + num / den with num reduced below den and the fraction in lowest terms. @return array{0: int, 1: int, 2: int} */
@@ -160,10 +169,32 @@ final class RegularCostMath
         return $a;
     }
 
-    /** Days since 1970-01-01 of a YYYY-MM-DD day (UTC: no clock change). */
+    /**
+     * Days since 1970-01-01 of a YYYY-MM-DD day, the year exactly as written (the Gregorian calendar worked out in whole numbers; the clock
+     * functions read a year below 100 as 19xx or 20xx: Codex C4, EX57).
+     */
     private static function epochDay(string $day): int
     {
-        $t = gmmktime(0, 0, 0, (int) substr($day, 5, 2), (int) substr($day, 8, 2), (int) substr($day, 0, 4));
-        return intdiv($t, 86400);
+        [$y, $m, $d] = [(int) substr($day, 0, 4), (int) substr($day, 5, 2), (int) substr($day, 8, 2)];
+        $y -= $m <= 2 ? 1 : 0;
+        $era = intdiv($y >= 0 ? $y : $y - 399, 400);
+        $yoe = $y - $era * 400;
+        $doy = intdiv(153 * ($m + ($m > 2 ? -3 : 9)) + 2, 5) + $d - 1;
+        $doe = $yoe * 365 + intdiv($yoe, 4) - intdiv($yoe, 100) + $doy;
+        return $era * 146097 + $doe - 719468;
+    }
+
+    /** The YYYY-MM-DD day $z days after 1970-01-01 (epochDay's inverse). */
+    private static function civil(int $z): string
+    {
+        $z += 719468;
+        $era = intdiv($z >= 0 ? $z : $z - 146096, 146097);
+        $doe = $z - $era * 146097;
+        $yoe = intdiv($doe - intdiv($doe, 1460) + intdiv($doe, 36524) - intdiv($doe, 146096), 365);
+        $doy = $doe - (365 * $yoe + intdiv($yoe, 4) - intdiv($yoe, 100));
+        $mp = intdiv(5 * $doy + 2, 153);
+        $d = $doy - intdiv(153 * $mp + 2, 5) + 1;
+        $m = $mp < 10 ? $mp + 3 : $mp - 9;
+        return sprintf('%04d-%02d-%02d', $yoe + $era * 400 + ($m <= 2 ? 1 : 0), $m, $d);
     }
 }

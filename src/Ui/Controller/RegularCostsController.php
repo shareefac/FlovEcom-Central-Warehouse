@@ -183,7 +183,7 @@ final class RegularCostsController
             'errorField' => is_string($error?->detail['field'] ?? null) ? $error->detail['field'] : null,
             'sameAsk' => $error?->errorCode === 'same_cost',
             'sameIds' => is_string($error?->detail['confirm'] ?? null) ? $error->detail['confirm'] : '',
-            'other' => is_int($error?->detail['other'] ?? null) ? self::PATH . '/' . $error->detail['other'] : null,
+            'sameList' => ExpensesController::sameList($error),
             'formKey' => ExpensesController::formKey($ctx, $error),
             'vatPct' => ExpensesController::vatPct($ctx),
             'howCounts' => self::howCounts($ctx),
@@ -229,9 +229,10 @@ final class RegularCostsController
         $rate = (int) $r['vat_rate_bp'];
         $included = (int) $r['vat_included'] === 1;
         [$vat, $cost] = ExpenseViews::vatAndCost((int) $r['amount_pence'], $rate);
-        // A line continuing another (a new amount): the line before ends the day before this one starts, and stays so when this one is deleted
-        // (the Fable review of 70ab3d2, M1): its page says so on the delete form and once deleted.
-        $before = $r['replaces_id'] === null ? null : $ctx->db->one('SELECT id, until_day, deleted_at FROM regular_cost WHERE id = ?', [$r['replaces_id']]);
+        // A line continuing another (a new amount): the live line just before it by date in its chain (ExpenseViews: read with the line, in one
+        // moment) ends before this one starts, and stays so when this one is deleted (the Fable review of 70ab3d2, M1; the Codex re-check of
+        // 8dbee81, C5: by date across the whole chain): its page says so on the delete form and once deleted.
+        $before = $r['replaces_id'] === null ? null : $r['prev'];
         return $ctx->page('profit_regular_one', [
             'r' => $r,
             'types' => $types,
@@ -255,7 +256,8 @@ final class RegularCostsController
             'seen' => $seen ?? (int) $r['version'],
             'sameAsk' => $error?->errorCode === 'same_cost',
             'sameIds' => is_string($error?->detail['confirm'] ?? null) ? $error->detail['confirm'] : '',
-            'before' => $before === null || $before['deleted_at'] !== null || $before['until_day'] === null ? null
+            'sameList' => ExpensesController::sameList($error),
+            'before' => $before === null || $before['until_day'] === null ? null
                 : ['id' => (int) $before['id'], 'until' => (string) $before['until_day']],
             'vatPct' => ExpensesController::vatPct($ctx),
         ], $status, ['title' => (string) $r['name'], 'notice' => $notice]);

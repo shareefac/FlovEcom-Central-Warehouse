@@ -33,6 +33,18 @@ final class ProfitSettings
         return is_string($v) ? (ProfitMath::vatBp($v) ?? self::DEFAULT_VAT_BP) : self::DEFAULT_VAT_BP;
     }
 
+    /**
+     * The shops' VAT rate as vatBp() reads it, from its setting's row read with a shared lock (inside the caller's transaction: a change of
+     * the rate waits for it to end, and it waits for a change in flight), for a writer that must keep ONE rate to its commit (the regular
+     * costs' seed: the Codex re-check of 8dbee81, C6; docs/decisions.md EX62).
+     */
+    public static function lockedVatBp(Db $db): int
+    {
+        $raw = $db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'profit.vat_rate_pct' FOR SHARE");
+        $v = $raw === null ? null : json_decode((string) $raw, true);
+        return is_string($v) ? (ProfitMath::vatBp($v) ?? self::DEFAULT_VAT_BP) : self::DEFAULT_VAT_BP;
+    }
+
     /** The UK day CW's own buying price starts. */
     public function costStartDay(): string
     {

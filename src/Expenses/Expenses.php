@@ -296,36 +296,55 @@ final class Expenses
     }
 
     /**
-     * 409 same_invoice when this expense is the same as others not deleted (other than $self), unless $same confirms exactly those (their ids,
-     * ascending, comma-separated: detail.confirm of the 409 the person answered; the final review of 70ab3d2, astra MEDIUM: a confirmation is
-     * for the records it was asked about, checked again here under the supplier's lock; EX43). The same: the same supplier and shop and
+     * 409 same_invoice when this expense is the same as others not deleted (other than $self), unless $same confirms exactly those: the
+     * confirmation (detail.confirm of the 409 the person answered) is a digest of this bill's supplier, shop, number, day and total and of the
+     * WHOLE set of the ones it meets, in order, worked out again here under the supplier's lock, so it holds only while exactly the records the
+     * page listed are the ones met (the final review of 70ab3d2, astra MEDIUM; the fix round 2 of 8dbee81, Codex C1: no cap of 20, a bill
+     * arriving meanwhile asks again; EX43, EX58). The same: the same supplier and shop and
      *  - with a number: the same number and kind (an invoice, or a credit note: the sign of its amount; EX37), or a bill of NO number of the same
      *    day and total (typed in first without its number);
      *  - with no number: the same day and total (signed: a credit note meets only a credit note), with a number or not (astra HIGH 4; EX42).
-     * detail: the first one's id and date, whether this is a credit note, and the confirmation that would hold.
+     * detail: every one met (matches: id, number, day, total and why: number | day_total), why (number when every one met has this number,
+     * else day_total: its own words, the Fable re-check F-B), the first one's id and date, whether this is a credit note, the confirmation.
      *
      * @param array{shop: int, invoice_date: string, invoice_no: string, net: int, vat: int} $v
      */
     private function checkSame(Db $db, int $supplier, array $v, ?int $self, string $same): void
     {
         $total = $v['net'] + $v['vat'];
-        $ids = array_map('intval', $v['invoice_no'] !== ''
-            ? $db->column('SELECT id FROM expense WHERE supplier_id = ? AND channel_id = ? AND deleted_at IS NULL AND id <> ? '
-                . "AND ((invoice_no = ? AND (net_pence < 0) = ?) OR (invoice_no = '' AND invoice_date = ? AND total_pence = ?)) ORDER BY id LIMIT 20",
+        $rows = $v['invoice_no'] !== ''
+            ? $db->all('SELECT id, invoice_no, invoice_date, total_pence FROM expense WHERE supplier_id = ? AND channel_id = ? AND deleted_at IS NULL AND id <> ? '
+                . "AND ((invoice_no = ? AND (net_pence < 0) = ?) OR (invoice_no = '' AND invoice_date = ? AND total_pence = ?)) ORDER BY id",
                 [$supplier, $v['shop'], $self ?? 0, $v['invoice_no'], $v['net'] < 0 ? 1 : 0, $v['invoice_date'], $total])
-            : $db->column('SELECT id FROM expense WHERE supplier_id = ? AND channel_id = ? AND invoice_date = ? AND total_pence = ? AND deleted_at IS NULL '
-                . 'AND id <> ? ORDER BY id LIMIT 20', [$supplier, $v['shop'], $v['invoice_date'], $total, $self ?? 0]));
-        if ($ids === []) {
+            : $db->all('SELECT id, invoice_no, invoice_date, total_pence FROM expense WHERE supplier_id = ? AND channel_id = ? AND invoice_date = ? AND total_pence = ? '
+                . 'AND deleted_at IS NULL AND id <> ? ORDER BY id', [$supplier, $v['shop'], $v['invoice_date'], $total, $self ?? 0]);
+        if ($rows === []) {
             return;
         }
-        $confirm = implode(',', $ids);
+        $matches = array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'invoice_no' => (string) $r['invoice_no'], 'date' => (string) $r['invoice_date'],
+            'total' => (int) $r['total_pence'], 'why' => $v['invoice_no'] !== '' && (string) $r['invoice_no'] === $v['invoice_no'] ? 'number' : 'day_total'], $rows);
+        $confirm = self::confirmation('expense', [$supplier, $v['shop'], $v['invoice_no'], $v['invoice_date'], $total], array_column($matches, 'id'));
         if (hash_equals($confirm, $same)) {
             return;
         }
-        $other = (string) $db->value('SELECT invoice_date FROM expense WHERE id = ?', [$ids[0]]);
-        throw new CwException('same_invoice', $v['net'] < 0 ? 'this credit note is in already (the same supplier, number and shop)'
-            : 'this invoice is in already (the same supplier, invoice number and shop)', 409,
-            ['other' => $ids[0], 'date' => $other, 'credit' => $v['net'] < 0, 'confirm' => $confirm]);
+        $why = in_array('day_total', array_column($matches, 'why'), true) ? 'day_total' : 'number';
+        throw new CwException('same_invoice', match (true) {
+            $why === 'day_total' => ($v['net'] < 0 ? 'this credit note' : 'this bill') . ' is in already (the same supplier, shop, date and total)',
+            $v['net'] < 0 => 'this credit note is in already (the same supplier, number and shop)',
+            default => 'this invoice is in already (the same supplier, invoice number and shop)',
+        }, 409, ['other' => $matches[0]['id'], 'date' => $matches[0]['date'], 'credit' => $v['net'] < 0, 'why' => $why, 'matches' => $matches, 'confirm' => $confirm]);
+    }
+
+    /**
+     * The confirmation of a "same one" question: a sha256 of what the record is ($what, $key) and of every record it meets ($ids, in order), so a
+     * confirmation holds for that record against exactly that set, whatever its size (Codex C1; EX58).
+     *
+     * @param list<int|string> $key
+     * @param list<int> $ids
+     */
+    public static function confirmation(string $what, array $key, array $ids): string
+    {
+        return hash('sha256', (string) json_encode([$what, $key, $ids], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
     }
 
     /**

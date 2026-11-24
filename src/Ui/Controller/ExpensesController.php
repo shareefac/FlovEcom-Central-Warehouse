@@ -116,11 +116,38 @@ final class ExpensesController
         return $ctx->error(403, $e->errorCode, Words::error($e->errorCode, $e->getMessage()));
     }
 
-    /** The confirmation a form carries: the ids it was asked about (same_ids), when "it is another one" is ticked; else none (EX43). */
+    /**
+     * The confirmation a form carries (same_ids: the digest of the 409 it answers, of the record and every one it met: Expenses::confirmation),
+     * when "it is another one" is ticked; else none (EX43, EX58).
+     */
     public static function same(Context $ctx): string
     {
-        $ids = (string) ($ctx->req->field('same_ids') ?? '');
-        return $ctx->req->field('same_ok') === '1' && preg_match('/^[1-9]\d{0,19}(,[1-9]\d{0,19}){0,19}$/D', $ids) === 1 ? $ids : '';
+        $digest = (string) ($ctx->req->field('same_ids') ?? '');
+        return $ctx->req->field('same_ok') === '1' && preg_match('/^[0-9a-f]{64}$/D', $digest) === 1 ? $digest : '';
+    }
+
+    /**
+     * Every record a "same one" question met, as the forms list them (the Codex re-check of 8dbee81, C1; the Fable re-check F-B): its link and its
+     * words (an expense: its number or "no invoice number", its date, its total and why; a regular cost: its name and days).
+     *
+     * @return list<array{href: string, text: string}>
+     */
+    public static function sameList(?CwException $error): array
+    {
+        $out = [];
+        foreach (is_array($error?->detail['matches'] ?? null) ? $error->detail['matches'] : [] as $m) {
+            if (!is_array($m) || !is_int($m['id'] ?? null)) {
+                continue;
+            }
+            $out[] = $error->errorCode === 'same_cost'
+                ? ['href' => RegularCostsController::PATH . '/' . $m['id'], 'text' => is_string($m['until'] ?? null)
+                    ? Words::say('REGULAR', 'same_row_until', (string) ($m['name'] ?? ''), Html::day((string) ($m['from'] ?? '')), Html::day($m['until']))
+                    : Words::say('REGULAR', 'same_row', (string) ($m['name'] ?? ''), Html::day((string) ($m['from'] ?? '')))]
+                : ['href' => self::PATH . '/' . $m['id'], 'text' => Words::say('EXPENSES', ($m['why'] ?? '') === 'number' ? 'same_row_number' : 'same_row_day',
+                    (string) ($m['invoice_no'] ?? '') !== '' ? (string) $m['invoice_no'] : Words::EXPENSES['same_no_number'], Html::day((string) ($m['date'] ?? '')),
+                    ExpenseMoney::gbp((int) ($m['total'] ?? 0)))];
+        }
+        return $out;
     }
 
     /** GET new: the add form (empty; the shop never picked for you). */
@@ -206,7 +233,7 @@ final class ExpensesController
         }
         // The same rules as the general file address: bytes that are also a supplier's invoice copy need invoices.view as well (the Codex check
         // r2, H8; EX24).
-        $refused = FilesController::refusal($ctx, (int) $x['file_id']);
+        $refused = FilesController::refusal($ctx, (int) $x['file_id'], self::PERM_VIEW);
         if ($refused !== null) {
             return $refused;
         }
@@ -269,8 +296,9 @@ final class ExpensesController
     public static function plain(CwException $e): string
     {
         return match ($e->errorCode) {
-            'same_invoice' => Words::say('EXPENSES_ERROR', ($e->detail['credit'] ?? false) === true ? 'same_credit' : 'same_invoice',
-                is_string($e->detail['date'] ?? null) ? Html::day($e->detail['date']) : ''),
+            // In its own words when a bill of no number is why (the same supplier, shop, date and total: the Fable re-check F-B).
+            'same_invoice' => Words::say('EXPENSES_ERROR', (($e->detail['credit'] ?? false) === true ? 'same_credit' : 'same_invoice')
+                . (($e->detail['why'] ?? '') === 'day_total' ? '_bill' : ''), is_string($e->detail['date'] ?? null) ? Html::day($e->detail['date']) : ''),
             'same_cost' => Words::say('EXPENSES_ERROR', 'same_cost', is_string($e->detail['from'] ?? null) ? Html::day($e->detail['from']) : ''),
             'file_too_large', 'too_large' => Words::say('EXPENSES_ERROR', 'file_too_large', intdiv(ExpenseFiles::MAX_BYTES, 1_048_576)),
             'changed_meanwhile' => Words::say('EXPENSES_ERROR', 'changed_meanwhile', (string) ($e->detail['by'] ?? '?')),
@@ -364,7 +392,7 @@ final class ExpensesController
             'sameAsk' => $error?->errorCode === 'same_invoice',
             // What "it is another one" confirms: exactly the expenses it was asked about (EX43).
             'sameIds' => is_string($error?->detail['confirm'] ?? null) ? $error->detail['confirm'] : '',
-            'other' => is_int($error?->detail['other'] ?? null) ? self::PATH . '/' . $error->detail['other'] : null,
+            'sameList' => self::sameList($error),
             'maxMb' => intdiv(ExpenseFiles::MAX_BYTES, 1_048_576),
             'fileAgain' => $error !== null && self::fileChosen($ctx),
             'formKey' => self::formKey($ctx, $error),
@@ -424,6 +452,7 @@ final class ExpensesController
             'errorField' => is_string($error?->detail['field'] ?? null) ? $error->detail['field'] : null,
             'sameAsk' => $error?->errorCode === 'same_invoice',
             'sameIds' => is_string($error?->detail['confirm'] ?? null) ? $error->detail['confirm'] : '',
+            'sameList' => self::sameList($error),
             'maxMb' => intdiv(ExpenseFiles::MAX_BYTES, 1_048_576),
             'vatPct' => self::vatPct($ctx),
             'listHref' => Html::url(self::PATH, ['month' => substr((string) $x['invoice_date'], 0, 7)]),

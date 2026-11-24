@@ -10,8 +10,9 @@ $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
 ?>
 <?= $head($X['new_title'], intro: 'profit_expense_new', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_expenses'], [$vatPct]), back: ['/ui/profit/expenses', $X['back']]) ?>
 <?php if ($error !== null): ?>
-<p class="error" role="alert" data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?><?php if ($other !== null): ?> <a href="<?= $e($other) ?>"><?= $word('EXPENSES', 'open_other') ?></a><?php endif; ?></p>
+<p class="error" role="alert" data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
+<?= $partial('same_list', ['items' => $sameList, 'group' => 'EXPENSES']) ?>
 <form class="record expense-form" method="post" action="/ui/profit/expenses/new" enctype="multipart/form-data" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">

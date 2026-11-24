@@ -288,9 +288,11 @@ final class ExpensesFinalReviewTest extends KernelUiTestCase
         $a = $s->add($job, $this->form(['invoice_no' => 'INV-101', 'net' => '480.00', 'vat' => '96.00']));
         $b = $s->add($job, $this->form(['invoice_no' => 'INV-102', 'net' => '480.00', 'vat' => '96.00']));
         $e = self::refused(409, 'same_invoice', fn () => $s->add($job, $this->form(['invoice_no' => 'INV-101', 'net' => '480.00', 'vat' => '96.00'])));
-        self::assertSame((string) $a['id'], $e->detail['confirm']);
-        self::refused(409, 'same_invoice', fn () => $s->add($job, $this->form(['invoice_no' => 'INV-102', 'net' => '480.00', 'vat' => '96.00']), null, (string) $a['id']));
-        $s->add($job, $this->form(['invoice_no' => 'INV-102', 'net' => '480.00', 'vat' => '96.00']), null, (string) $b['id']);
+        self::assertSame([$a['id']], array_column($e->detail['matches'], 'id'));
+        $e102 = self::refused(409, 'same_invoice', fn () => $s->add($job, $this->form(['invoice_no' => 'INV-102', 'net' => '480.00', 'vat' => '96.00']), null,
+            $e->detail['confirm']));
+        self::assertSame([$b['id']], array_column($e102->detail['matches'], 'id'));
+        $s->add($job, $this->form(['invoice_no' => 'INV-102', 'net' => '480.00', 'vat' => '96.00']), null, $e102->detail['confirm']);
         self::assertSame(3, (int) self::$db->value('SELECT COUNT(*) FROM expense'));
         $rc = new RegularCosts(self::$db);
         $rent = self::type('regular', 'Rent');
@@ -298,10 +300,12 @@ final class ExpensesFinalReviewTest extends KernelUiTestCase
         $l6 = $rc->add($job, ['name' => 'Unit 6', 'shop' => $this->vpg, 'type' => $rent, 'vat' => 'none', 'every' => 'week', 'amount' => '140.00', 'from' => '2026-11-01']);
         $again = self::refused(409, 'same_cost', fn () => $rc->add($job, ['name' => 'Unit 5', 'shop' => $this->vpg, 'type' => $rent, 'vat' => 'none', 'every' => 'week',
             'amount' => '140.00', 'from' => '2026-11-01']));
-        self::assertSame((string) $l5, $again->detail['confirm']);
-        self::refused(409, 'same_cost', fn () => $rc->add($job, ['name' => 'Unit 6', 'shop' => $this->vpg, 'type' => $rent, 'vat' => 'none', 'every' => 'week',
-            'amount' => '140.00', 'from' => '2026-11-01'], (string) $l5));
-        $rc->add($job, ['name' => 'Unit 6', 'shop' => $this->vpg, 'type' => $rent, 'vat' => 'none', 'every' => 'week', 'amount' => '140.00', 'from' => '2026-11-01'], (string) $l6);
+        self::assertSame([$l5], array_column($again->detail['matches'], 'id'));
+        $six = self::refused(409, 'same_cost', fn () => $rc->add($job, ['name' => 'Unit 6', 'shop' => $this->vpg, 'type' => $rent, 'vat' => 'none', 'every' => 'week',
+            'amount' => '140.00', 'from' => '2026-11-01'], $again->detail['confirm']));
+        self::assertSame([$l6], array_column($six->detail['matches'], 'id'));
+        $rc->add($job, ['name' => 'Unit 6', 'shop' => $this->vpg, 'type' => $rent, 'vat' => 'none', 'every' => 'week', 'amount' => '140.00', 'from' => '2026-11-01'],
+            $six->detail['confirm']);
         self::assertSame(3, (int) self::$db->value('SELECT COUNT(*) FROM regular_cost'));
     }
 

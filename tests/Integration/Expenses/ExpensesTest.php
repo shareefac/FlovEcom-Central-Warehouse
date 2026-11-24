@@ -159,7 +159,7 @@ final class ExpensesTest extends MappingTestCase
         $this->service()->add($job, $this->form(['invoice_no' => '58812291']));
         $this->service()->add($job, $this->form(['supplier' => 'Amazon']));
         // Confirmed (for the one it was asked about: EX43): kept as a second one.
-        $second = $this->service()->add($job, $this->form(), null, (string) $first['id']);
+        $second = $this->service()->add($job, $this->form(), null, $e->detail['confirm']);
         self::assertSame(2, (int) self::$db->value("SELECT COUNT(*) FROM expense WHERE invoice_no = '58812290' AND channel_id = ? AND supplier_id = ?",
             [$this->vpg, $first['supplier_id']]));
         // A bill with no number: the same supplier, shop, day and total is the same one.
@@ -170,7 +170,7 @@ final class ExpensesTest extends MappingTestCase
         $v = (int) self::$db->value('SELECT version FROM expense WHERE id = ?', [$first['id']]);
         $this->service()->delete($job, $first['id'], $v, 'entered twice by mistake');
         $this->service()->add($job, $this->form(['shop' => $this->vb]));
-        $this->service()->add($job, $this->form(), null, (string) $second['id']);
+        $this->service()->add($job, $this->form(), null, self::refused(409, 'same_invoice', fn () => $this->service()->add($job, $this->form()))->detail['confirm']);
     }
 
     public function testAChangeAndADeleteKeepWhoWhenBeforeAndAfter(): void

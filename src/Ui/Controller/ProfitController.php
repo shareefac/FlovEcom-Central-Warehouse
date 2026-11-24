@@ -152,8 +152,8 @@ final class ProfitController
      */
     public function real(Context $ctx): HtmlResponse
     {
-        $views = new ProfitViews($ctx->db);
-        $stores = $views->stores();
+        // The three shops only, offered and taken (the Codex re-check of 8dbee81, C7; EX44): another channel asked for shows all three.
+        $stores = (new \CW\Expenses\ExpenseViews($ctx->db))->shops();
         $store = self::store($ctx, $stores);
         // This month unless other days are asked for (the drawing's month), through the same choices and limit as a period chosen (the Codex
         // check r1, H6: the first page is exactly "This month" chosen).

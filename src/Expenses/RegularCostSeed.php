@@ -18,9 +18,10 @@ use CW\Profit\ProfitSettings;
  *            same name in the shop that is not deleted with the same figures (group, amount, VAT choice and rate, every week, first and last
  *            day) is "already there"; with other figures, or two of them, the whole run is refused. The shops' VAT rate is read ONCE.
  *   apply()  in ONE transaction, under the locks every add takes: the whole plan checked again (for each line, the live lines of its name in
- *            the shop: none for a line to add, exactly the one planned with the same group and figures for one already there; the VAT rate
- *            still the planned one), then every line added with THAT rate (astra MEDIUM x2): anything changed meanwhile refuses the whole run
- *            (409 seed_changed), nothing written.
+ *            the shop: none for a line to add, exactly the one planned with the same group and figures for one already there; its group
+ *            locked and still the planned one by id AND name, switched on; the shop still Vape and Go; the VAT rate read from its setting's row
+ *            with a lock held to the commit, still the planned one), then every line added with THAT rate (astra MEDIUM x2; the Codex re-check
+ *            of 8dbee81, C6; EX62): anything changed meanwhile refuses the whole run (409 seed_changed), nothing written.
  */
 final class RegularCostSeed
 {
@@ -94,7 +95,8 @@ final class RegularCostSeed
                 continue;
             }
             $same = $this->live((int) $shop['id'], $name, false);
-            $p = ['what' => 'add', 'name' => $name, 'amount' => $amount, 'pence' => $pence, 'group' => $groups[$group]['id'], 'until' => $until, 'line' => $line, 'id' => null];
+            $p = ['what' => 'add', 'name' => $name, 'amount' => $amount, 'pence' => $pence, 'group' => $groups[$group]['id'], 'group_name' => $group, 'until' => $until,
+                'line' => $line, 'id' => null];
             if ($same === []) {
                 $out['lines'][] = $p;
                 continue;
@@ -127,9 +129,17 @@ final class RegularCostSeed
         $rc = new RegularCosts($this->db);
         $caller = Caller::system('seed_regular_costs');
         return $this->db->transaction(function (Db $db) use ($plan, $rc, $caller): array {
-            // The locks every add takes (the groups' rows, in their order), first: every add, change of name or end of a regular cost waits.
-            $db->all("SELECT id FROM expense_type WHERE kind = 'regular' ORDER BY id FOR UPDATE");
-            $rate = (new ProfitSettings($db))->vatBp();
+            // The locks every add takes (the groups' rows, in their order), first: every add, change of name or end of a regular cost waits, and
+            // a group renamed or switched off on Settings waits too; the rows as they are now, by id AND name (C6).
+            $groups = [];
+            foreach ($db->all("SELECT id, name, is_active FROM expense_type WHERE kind = 'regular' ORDER BY id FOR UPDATE") as $g) {
+                $groups[(int) $g['id']] = ['name' => (string) $g['name'], 'active' => (int) $g['is_active'] === 1];
+            }
+            if ((string) $db->value('SELECT code FROM channel WHERE id = ? FOR SHARE', [$plan['shop']['id']]) !== self::SHOP) {
+                throw new CwException('seed_changed', 'the shop changed while the seed ran', 409);
+            }
+            // The rate from its row, locked to the commit: a change of it waits for the seed (or the seed for it), never in between (C6).
+            $rate = ProfitSettings::lockedVatBp($db);
             if ($rate !== $plan['rate']) {
                 throw new CwException('seed_changed', 'the shops\' VAT rate changed while the seed ran (' . RegularCostMath::percent($plan['rate']) . ' planned, '
                     . RegularCostMath::percent($rate) . ' now)', 409);
@@ -138,8 +148,11 @@ final class RegularCostSeed
                 $live = $this->live($plan['shop']['id'], (string) $p['name'], true);
                 $ok = $p['what'] === 'add' ? $live === []
                     : count($live) === 1 && (int) $live[0]['id'] === $p['id'] && self::sameFigures($live[0], $p, $plan['from'], $rate);
-                $group = (int) ($db->value("SELECT is_active FROM expense_type WHERE id = ? AND kind = 'regular'", [$p['group']]) ?? 0) === 1;
-                if (!$ok || !$group) {
+                $g = $groups[(int) $p['group']] ?? null;
+                if ($g === null || !$g['active'] || $g['name'] !== (string) ($p['group_name'] ?? '')) {
+                    throw new CwException('seed_changed', "{$p['name']}: its group {$p['group_name']} changed while the seed ran", 409, ['name' => $p['name']]);
+                }
+                if (!$ok) {
                     throw new CwException('seed_changed', "{$p['name']} changed while the seed ran", 409, ['name' => $p['name']]);
                 }
             }

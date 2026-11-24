@@ -61,7 +61,7 @@ final class ExpensesCodexR2Test extends MappingTestCase
         $rc->add($job, ['shop' => $this->ef] + $form);
         $rc->add($job, ['from' => '2027-02-01', 'until' => ''] + $form);
         self::assertSame(15200, (new ExpenseViews(self::$db))->regularBy('2026-11-01', '2026-11-07', $this->vpg)[$this->vpg], 'one charge of £152.00, never £304.00');
-        $rc->add($job, $form, (string) $first);
+        $rc->add($job, $form, self::refused(409, 'same_cost', fn () => $rc->add($job, $form))->detail['confirm']);
         self::assertSame(30400, (new ExpenseViews(self::$db))->regularBy('2026-11-01', '2026-11-07', $this->vpg)[$this->vpg], 'confirmed: a second one');
     }
 

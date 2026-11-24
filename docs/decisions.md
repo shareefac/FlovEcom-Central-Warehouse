@@ -20672,3 +20672,43 @@ random cases checked against the loop it replaces), so a one-day report years af
 **EX56. Profit by shop's three columns are Real profit's own figures of the shop (astra MEDIUM).** Read in the row's snapshot from
 ExpenseViews::realProfit: counted from the shop's first day (EX39), marked "not complete" while any unit counted has no buying price or waits
 for it (one unpriced unit of 1,000 is marked, below the margin pages' 0.5%).
+
+**Fix round 2 (the Codex re-check of 8dbee81, `runs/expenses_recheck_astra_report.txt`, C1-C7, and the Fable re-check F-A, F-B): each first as a
+failing test (`tests/Integration/Expenses/ExpensesFix2Test.php`, `runs/expenses_fix2_red.log`: 9 of 9 red on 8dbee81), then fixed (EX57-EX63).**
+
+**EX57. Days are strict, a share is never minus (C4).** A day a person or a link asks for is YYYY-MM-DD in the years 2000-2099
+(RegularCostMath::isDay): "0027-11-01" is no day (the clock functions read it as 2027, the range cap was skipped and a £70-a-week line's
+share of "0027-11-01 to 30 Nov 2026" came out -£3,350.00). The day arithmetic (days, addDays, month lengths) is the Gregorian calendar in
+whole numbers with the year as written, so a share is the same for any span and never minus: 1-30 Nov 2026 of £70 a week = £300.00.
+
+**EX58. A "same one" question lists every record it met and its confirmation covers exactly them (C1, F-B).** No cap of 20: the check reads
+every expense (or regular cost line) it meets; the 409 carries each one (id, number or "No invoice number", date, total and why) and the forms
+(add AND change, expenses and regular costs) list them all, each with its link. The confirmation (same_ids) is a sha256 of the record's
+supplier, shop, number, day and total (a regular cost: shop, name, days) and of the whole ordered set it met, worked out again under the
+lock: a bill arriving meanwhile, or another number typed, asks again. Example: INV-1 and INV-2 of £576.00 from Tabsyst on 12 Nov, then the
+same with no number: both are listed and linked, "the same supplier, shop, date and total" (its own words when a bill of no number is why);
+INV-3 added meanwhile: asked again with three.
+
+**EX59. Deleting a "new amount" line names the live line just before it by date in the whole chain (C5).** £70 from 1 Nov, £98 from 15 Nov,
+then £84 backdated from 8 Nov on the first line: the £98 line's delete form and its page after say "the line before ends on 14 Nov" and link
+the £84 line (never the £70 line ending 7 Nov). Read with the line, in one moment.
+
+**EX60. Protected reads use the jobs of their own moment (C3).** The file rules (FilesController::refusal, used by /ui/files/{id} and an
+expense's download) read the person's jobs and the stored map of what they may do inside the same snapshot as the file's rows, and the
+route's own permission again there (documents.view; expenses.view); the expenses' supplier list and the regular costs' list read the viewer's
+jobs and their rows in one snapshot. A Finance person who loses the job after the request began gets "not allowed", never the £480 PDF.
+
+**EX61. Every file named as a supplier's evidence is kept in supplier_file (C2).** A seventh 0079 table (append-only: SELECT, INSERT), written
+by Suppliers each time a supplier names a due-diligence or import-route evidence file (create, update, setEvidence), and filled once by 0079
+from each supplier's evidence of now and every one its audit history names (before and after of each change). The file rules ask it by its
+file_id index: a PDF once named as evidence needs suppliers.view also after it is replaced, whatever kind it was stored as first.
+
+**EX62. The seed locks and re-checks its groups by id and name, its shop and the VAT rate's row (C6).** apply() locks the regular groups and
+refuses (409 seed_changed, nothing written) when a planned group was renamed, switched off or is gone ("Rent" renamed after the plan: never
+£207.69 a week reported under Rent and written under another name); the shop must still be Vape and Go; the VAT rate is read from its setting's
+row FOR SHARE and held to the commit (a change of the rate waits for the seed or the seed for it), and must still be the planned one.
+
+**EX63. A shop's first real profit day is never before CW holds its sales (F-A).** profit.real_from_<shop> (Settings > Profit) refuses a day
+before the shop's first day in profit_day (derived from the data, never a second setting: Vape and Go's 29 Oct 2026 and Electrofag's and Vape
+Big's 17 Nov 2026 on live, as the lead measured) or after 2099-12-31, and any day while CW holds no sales of that shop. Real profit's shop
+choice offers and takes the three shops only (C7).

@@ -59,8 +59,10 @@ final class ExpensesOwnerAnswersTest extends MappingTestCase
         $s->change($job, $c['id'], 1, $this->form(['credit' => true, 'invoice_no' => 'CN-0042', 'net' => '10.50', 'vat' => '2.10', 'invoice_date' => '2026-11-20',
             'new_supplier' => false]));
         self::assertSame(-1050, (int) self::$db->value('SELECT net_pence FROM expense WHERE id = ?', [$c['id']]));
-        $s->change($job, $c['id'], 2, $this->form(['credit' => false, 'invoice_no' => 'CN-0042', 'net' => '10.50', 'vat' => '2.10', 'invoice_date' => '2026-11-20',
-            'new_supplier' => false]), null, (string) $inv['id']);
+        $asInvoice = $this->form(['credit' => false, 'invoice_no' => 'CN-0042', 'net' => '10.50', 'vat' => '2.10', 'invoice_date' => '2026-11-20', 'new_supplier' => false]);
+        $asked = self::refused(409, 'same_invoice', fn () => $s->change($job, $c['id'], 2, $asInvoice));
+        self::assertSame([$inv['id']], array_column($asked->detail['matches'], 'id'));
+        $s->change($job, $c['id'], 2, $asInvoice, null, $asked->detail['confirm']);
         self::assertSame(1050, (int) self::$db->value('SELECT net_pence FROM expense WHERE id = ?', [$c['id']]));
         self::assertSame(['add', 'change', 'change'], self::$db->column("SELECT action FROM expense_history WHERE subject = 'expense' AND subject_id = ? ORDER BY version", [$c['id']]));
         self::assertSame([], ExpenseInvariants::check(self::$db));

@@ -286,22 +286,25 @@ final class RegularCosts
 
     /**
      * 409 same_cost when lines of this name (any case) in this shop, not deleted, other than $self, count on days meeting $from..$until, unless
-     * $same confirms exactly those (their ids ascending, comma-separated: detail.confirm; EX28, EX43). Call under the groups' locks.
+     * $same confirms exactly those: a digest of the line and of the WHOLE set it meets, in order, worked out again here (Expenses::confirmation;
+     * no cap of 20: the fix round 2 of 8dbee81, Codex C1; EX28, EX43, EX58). detail.matches: every one met (id, name, from, until), each linked
+     * by the forms. Call under the groups' locks.
      */
     private static function checkSame(Db $db, int $shop, string $name, string $from, ?string $until, ?int $self, string $same, ?string $field): void
     {
-        $ids = array_map('intval', $db->column("SELECT id FROM regular_cost WHERE channel_id = ? AND name = ? AND deleted_at IS NULL AND id <> ? "
-            . "AND from_day <= COALESCE(?, '9999-12-31') AND COALESCE(until_day, '9999-12-31') >= ? ORDER BY id LIMIT 20", [$shop, $name, $self ?? 0, $until, $from]));
-        if ($ids === []) {
+        $rows = $db->all("SELECT id, name, from_day, until_day FROM regular_cost WHERE channel_id = ? AND name = ? AND deleted_at IS NULL AND id <> ? "
+            . "AND from_day <= COALESCE(?, '9999-12-31') AND COALESCE(until_day, '9999-12-31') >= ? ORDER BY id", [$shop, $name, $self ?? 0, $until, $from]);
+        if ($rows === []) {
             return;
         }
-        $confirm = implode(',', $ids);
+        $matches = array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'name' => (string) $r['name'], 'from' => (string) $r['from_day'],
+            'until' => $r['until_day'] === null ? null : (string) $r['until_day']], $rows);
+        $confirm = Expenses::confirmation('regular_cost', [$shop, $name, $from, $until ?? '', $self ?? 0], array_column($matches, 'id'));
         if (hash_equals($confirm, $same)) {
             return;
         }
         throw new CwException('same_cost', 'a regular cost of this name in this shop counts on these days already', 409,
-            ['other' => $ids[0], 'from' => (string) $db->value('SELECT from_day FROM regular_cost WHERE id = ?', [$ids[0]]), 'confirm' => $confirm]
-            + ($field === null ? [] : ['field' => $field]));
+            ['other' => $matches[0]['id'], 'from' => $matches[0]['from'], 'matches' => $matches, 'confirm' => $confirm] + ($field === null ? [] : ['field' => $field]));
     }
 
     private static function id(mixed $v): ?int
