@@ -151,6 +151,9 @@ final class AlertDispatch
             // a website bug (docs/decisions.md LP9): the store, the landing page as the website names it, its option number, the order
             'landing_order' => Words::say('ALERT', $n('open') > 1 ? 'landing_orders' : 'landing_order', $store, (string) ($d['title'] ?? $d['option'] ?? ''),
                 (string) ($d['variant'] ?? ''), (string) ($d['order'] ?? ''), $n('open')),
+            // Royal Mail delivery cost, phase 1 (docs/decisions.md DL84): a week with no Click & Drop report, a bill's days waiting long
+            'rm_report_missing' => Words::say('ALERT', 'rm_report_missing', (string) ($d['account'] ?? ''), $n('days'), (string) ($d['from'] ?? ''), (string) ($d['to'] ?? '')),
+            'rm_days_waiting' => Words::say('ALERT', 'rm_days_waiting', (string) ($d['account'] ?? ''), $n('days'), $n('limit'), (string) ($d['oldest'] ?? '')),
             default => (string) ($p['detail'] ?? $p['kind']),
         };
     }

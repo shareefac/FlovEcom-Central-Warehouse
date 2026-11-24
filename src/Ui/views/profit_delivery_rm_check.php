@@ -2,7 +2,7 @@
 // Profit › Delivery bills › a Royal Mail bill checked, nothing stored (0078; docs/decisions.md DL79; the plan, section 6 step 3): what CW read
 // (account, bill date, days, that its lines add up to its totals, its rows, net, VAT, total), the bill it replaces, where its money would go
 // (as its page shows it once stored: on orders per shop, a shop's "not on an order", the days' lines, Hayati Vapes, before CW start per shop,
-// held per reason), a red line when days wait for their labels, its flat days (labels, billed by every bill with it, priced, the day's line),
+// held per reason), a red line when days wait (each with its reason: DL84), its flat days (labels, billed by every bill with it, priced, the day's line),
 // what moves on the bills already live (DL80), its rows as read, and the Store button for who checked it (the bill as read is kept for it,
 // never the file), or "in the profit already".
 $W = \CW\Ui\Words::DELIVERY;
@@ -103,7 +103,7 @@ $waiting = count(array_filter($days, static fn (array $d): bool => $d['waiting']
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_billed_with') ?>"><?= $n($d['billed']) ?></td>
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_priced') ?>"><?= $n($d['priced']) ?></td>
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_line') ?>"><?= $e($gbp($d['line'])) ?></td>
-      <td data-label="<?= $word('DELIVERY', 'status') ?>"><?php if ($d['removed']): ?><?= $word('DELIVERY', 'rm_check_removed') ?> <?php endif; ?><?php if ($d['waiting']): ?><?= $word('DELIVERY', 'rm_check_waiting_day') ?><?php else: ?><?= $word('DELIVERY', ['open' => 'rm_open', 'closed' => 'rm_closed', 'look' => 'rm_look'][$d['status']]) ?><?php endif; ?></td>
+      <td data-label="<?= $word('DELIVERY', 'status') ?>"><?php if ($d['removed']): ?><?= $word('DELIVERY', 'rm_check_removed') ?> <?php endif; ?><?php if ($d['waiting']): ?><?= $word('DELIVERY', 'rm_check_waiting_day') ?><?php if (($d['reason'] ?? null) !== null): ?> - <?= $e($W['rm_held_' . $d['reason']] ?? (string) $d['reason']) ?><?php endif; ?><?php else: ?><?= $word('DELIVERY', ['open' => 'rm_open', 'closed' => 'rm_closed', 'look' => 'rm_look'][$d['status']]) ?><?php endif; ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>
@@ -126,7 +126,7 @@ $waiting = count(array_filter($days, static fn (array $d): bool => $d['waiting']
 <?php foreach ($gone as $w): ?>
     <tr>
       <th scope="row"><?= $day($w['day']) ?></th>
-      <td data-label="<?= $word('DELIVERY', 'state') ?>"><?= $e($groupText($w)) ?></td>
+      <td data-label="<?= $word('DELIVERY', 'state') ?>"><?= $e($groupText($w)) ?><?php if (!empty($w['credit'])): ?> <span class="muted"><?= $word('DELIVERY', 'rm_credit') ?></span><?php endif; ?></td>
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_moves_out') ?>"><?= $e($gbp($w['pence'])) ?></td>
     </tr>
 <?php endforeach; ?>

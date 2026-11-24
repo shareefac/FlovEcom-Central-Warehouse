@@ -37,8 +37,9 @@ exit(Cli::main('match_delivery_bills', [], 'usage: php bin/match_delivery_bills.
         // CW parcel that came since takes its price), and the allocations of bills no longer counting ended.
         try {
             $m = (new RoyalMailBills($cli->db))->replan(Caller::system('delivery_match'));
-        } catch (CwException $e) {
-            $cli->error('Royal Mail bills not planned again: ' . $e->getMessage());
+        } catch (CwException | \PDOException $e) {
+            // a group or an account that could not be planned is said once every other was (DL84 7: 'partial'); its days stay due
+            $cli->error('Royal Mail bills not all planned again: ' . ($e instanceof CwException ? $e->getMessage() : 'database error ' . (\CW\Db::driverCode($e) ?? 'unknown')));
             return Cli::PROBLEM;
         }
         $cli->log("{$m} Royal Mail allocations ended or added");

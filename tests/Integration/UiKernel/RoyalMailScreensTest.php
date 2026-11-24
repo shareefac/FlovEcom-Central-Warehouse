@@ -98,10 +98,19 @@ final class RoyalMailScreensTest extends KernelUiTestCase
         self::assertFalse($fin->get('/ui/profit/delivery')->hasForm('/ui/profit/delivery/labels'), 'Finance looks only');
         self::assertSame(403, $fin->postMultipart('/ui/profit/delivery/labels', ['csrf' => $this->token($fin), 'account' => (string) $acct],
             ['file' => ['path' => $xls, 'name' => 'r.xls']])->status);
-        $read = $job->postMultipart('/ui/profit/delivery/labels', ['account' => (string) $acct] + $list->form('/ui/profit/delivery/labels'),
-            ['file' => ['path' => $xls, 'name' => 'r.xls']]);
+        // the days the report was run for (DL84): none given, or a To not over, refused with nothing saved
+        foreach ([['from' => '', 'to' => ''], ['from' => '2026-11-09', 'to' => (new \DateTimeImmutable('now', new \DateTimeZone('Europe/London')))->format('Y-m-d')]] as $days) {
+            $no = $job->postMultipart('/ui/profit/delivery/labels', ['account' => (string) $acct] + $days + $list->form('/ui/profit/delivery/labels'),
+                ['file' => ['path' => $xls, 'name' => 'r.xls']]);
+            self::assertSame(422, $no->status, $no->describe());
+            self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM carrier_label'));
+        }
+        $read = $job->postMultipart('/ui/profit/delivery/labels', ['account' => (string) $acct, 'from' => '2026-11-09', 'to' => '2026-11-09']
+            + $list->form('/ui/profit/delivery/labels'), ['file' => ['path' => $xls, 'name' => 'r.xls']]);
         self::assertSame(200, $read->status, $read->describe() . ' ' . implode(' | ', self::$log));
-        self::assertStringContainsString(Words::say('DELIVERY', 'rm_labels_read', '3', '3', '0', '0'), $read->text());
+        self::assertStringContainsString(Words::say('DELIVERY', 'rm_labels_read', '3', '3', '0', '0', '2026-11-09', '2026-11-09'), $read->text());
+        self::assertSame(['2026-11-09'], array_map('strval', self::$db->column('SELECT day FROM carrier_day_cover WHERE import_id = '
+            . '(SELECT MAX(id) FROM carrier_report_import WHERE account_id = ?)', [$acct])), 'the day the report covers');
         self::assertSame(3, (int) self::$db->value('SELECT COUNT(*) FROM carrier_label'));
         // a bill page with no account chosen: refused, nothing stored; with it: stored, and its page
         $path = $this->dir . '/bill.html';

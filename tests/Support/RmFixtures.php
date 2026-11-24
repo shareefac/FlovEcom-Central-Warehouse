@@ -30,9 +30,9 @@ final class RmFixtures
         $p = $party('vapeandgo', 'Vape and Go', $vpg);
         $e = $ef === null ? null : $party('electrofag', 'Electrofag', $ef, 5457);
         $h = $party('hayativapes', 'Hayati Vapes', null);
-        // a key name is one account's (0078; DL82): the shared account's; another account is read by report only (no key name) as 0078 seeds Vape Big's
+        // phase 1 is report-only (DL84): no account has a key name
         $a = $db->insert("INSERT INTO carrier_account (carrier, account_no, name, bill_format, label_source, key_name, main_party_id, state) VALUES ('royal_mail', ?, "
-            . "'Royal Mail OBA', 'rm_oba_page', 'click_and_drop', ?, ?, ?)", [$number, $number === self::ACCOUNT ? 'click_and_drop_0706703000' : null, $p, $state]);
+            . "'Royal Mail OBA', 'rm_oba_page', 'click_and_drop', NULL, ?, ?)", [$number, $p, $state]);
         foreach (array_filter([$p, $e, $h]) as $party) {
             $db->exec("INSERT INTO carrier_account_party (account_id, party_id, from_day) VALUES (?, ?, '2020-01-01')", [$a, $party]);
         }
@@ -46,23 +46,34 @@ final class RmFixtures
             $db->exec("INSERT INTO carrier_party_rule (account_id, priority, channel_code, ref_form, party_id, before_first) VALUES (?, 5, 'api', 'digits_4', ?, 1)", [$a, $e]);
         }
         if ($pulled) {
-            // its days read by a successful pull (an account with a key waits for that on every day: the Codex check r4, HIGH; DL80): July to
-            // December 2026, so a test of the planning needs no pull; a test of the wait takes the days it needs away
-            self::pulled($db, $a, '2026-07-01', '2026-12-31');
+            // its days covered by a report import (a day moves money only so: DL84): July to December 2026, so a test of the planning needs no
+            // import; a test of the wait takes the days it needs away (uncover())
+            self::covered($db, $a, '2026-07-01', '2026-12-31');
         }
         return ['account' => $a, 'vpg_party' => $p, 'ef_party' => $e, 'hayati' => $h];
     }
 
-    /** The days a successful pull read, as RoyalMailBills::pull() records them. */
-    public static function pulled(Db $db, int $account, string $from, string $to): void
+    /** The days a report import covers, as RoyalMailBills::importReportLabels() records them (its labels given apart). @return int the import */
+    public static function covered(Db $db, int $account, string $from, string $to): int
     {
         $days = [];
         for ($d = $from; $d <= $to; $d = (new \DateTimeImmutable($d))->modify('+1 day')->format('Y-m-d')) {
             $days[] = $d;
         }
+        $id = $db->insert("INSERT INTO carrier_report_import (account_id, from_day, to_day, file_sha256, rows_read, labels, staff_user_id, actor, imported_at) "
+            . "VALUES (?, ?, ?, ?, 0, 0, NULL, 'system:rm_test', '2026-12-31 00:00:00')", [$account, $from, $to, str_repeat('f', 64)]);
         foreach (array_chunk($days, 200) as $chunk) {
-            $db->exec('INSERT IGNORE INTO carrier_label_pull_day (account_id, day, read_at) VALUES ' . implode(', ', array_fill(0, count($chunk), "(?, ?, '2026-12-31 00:00:00')")),
-                array_merge(...array_map(static fn (string $d): array => [$account, $d], $chunk)));
+            $db->exec('INSERT IGNORE INTO carrier_day_cover (account_id, day, import_id) VALUES ' . implode(', ', array_fill(0, count($chunk), '(?, ?, ?)')),
+                array_merge(...array_map(static fn (string $d): array => [$account, $d, $id], $chunk)));
+        }
+        return $id;
+    }
+
+    /** These days covered by no import any more (a test of the wait). */
+    public static function uncover(Db $db, int $account, string ...$days): void
+    {
+        foreach ($days as $d) {
+            $db->exec('DELETE FROM carrier_day_cover WHERE account_id = ? AND day = ?', [$account, $d]);
         }
     }
 

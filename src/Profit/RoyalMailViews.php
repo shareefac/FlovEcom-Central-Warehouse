@@ -16,7 +16,7 @@ use CW\Db;
  *    next bill not stored yet and the day less than OPEN_DAYS old) or closed, "needs a look" only on a closed day LOOK_PCT and LOOK_LABELS apart;
  *  - its Special Delivery manifests (labels, billed, by weight or the average);
  *  - its rows as printed (the reference in its known form only);
- *  - the accounts' labels: read up to which day, the last pull, how many labels CW holds.
+ *  - the accounts' labels: covered up to which day, the last report import, the days waiting, how many labels CW holds (DL84).
  */
 final class RoyalMailViews
 {
@@ -78,6 +78,9 @@ final class RoyalMailViews
             'totals' => $totals,
             'adds_up' => $sum === (int) $b['net_pence'] && $rowsNet === (int) $b['net_pence'] && count($rows) === (int) $b['line_count'],
             'days' => $account === null ? [] : $this->days((int) $account['id'], $b, $rows),
+            // the days whose money waits, each with why (DL84: a day moves money only when a report covers it and its labels tie)
+            'waiting' => $live ? $this->db->all("SELECT day, held_reason AS reason, COUNT(*) AS n, SUM(pence) AS pence FROM carrier_allocation WHERE invoice_id = ? "
+                . "AND ended_at IS NULL AND how = 'waiting' GROUP BY day, held_reason ORDER BY day, held_reason", [$id]) : [],
             'manifests' => $this->manifests($id),
             'rows' => $rows,
             'not_stored' => $b['status'] === 'undone' && $b['ended_actor'] === RoyalMailBills::NOT_STORED,
@@ -148,16 +151,18 @@ final class RoyalMailViews
     /**
      * What the bill a correction replaces takes out of the profit (DL83), by day and destination, in checkWhere()'s groups.
      *
-     * @param array<string, int> $gone RoyalMailBills::preview()['gone']: "day|dest|shop|party|reason|day_line" => pence
-     * @return list<array{day: string, group: string, name: string, reason: ?string, pence: int}>
+     * @param array<string, int> $gone RoyalMailBills::preview()['gone']: "day|dest|shop|party|reason|day_line|sign" => pence (charges + and credits - apart)
+     * @return list<array{day: string, credit: bool, group: string, name: string, reason: ?string, pence: int}>
      */
     public function checkGone(array $gone): array
     {
         $out = [];
         foreach ($gone as $k => $pence) {
             [$day, $rest] = array_pad(explode('|', (string) $k, 2), 2, '');
+            $sign = substr($rest, (int) strrpos($rest, '|') + 1);
+            $rest = substr($rest, 0, (int) strrpos($rest, '|')); // charges and credits apart in the key: a line each, never netted (the Codex check r8)
             foreach ($this->checkWhere([$rest => (int) $pence]) as $w) {
-                $out[] = ['day' => $day] + $w;
+                $out[] = ['day' => $day, 'credit' => $sign === '-'] + $w;
             }
         }
         return $out;
@@ -229,15 +234,21 @@ final class RoyalMailViews
     }
 
     /**
-     * The pooled accounts with their labels: how many CW holds, read up to which day, the last pull and its error.
+     * The pooled accounts with their labels (DL84): how many CW holds, the latest day a report import covers, the last import (its From..To,
+     * when), the days of its live bills whose money waits.
      *
      * @return list<array<string, mixed>>
      */
     public function accounts(): array
     {
-        return $this->db->all("SELECT a.id, a.account_no, a.name, a.state, a.key_name, p.read_to, p.last_try_at, p.last_ok_at, p.last_error, "
-            . '(SELECT COUNT(*) FROM carrier_label l WHERE l.account_id = a.id) AS labels, (SELECT MAX(l.manifest_day) FROM carrier_label l WHERE l.account_id = a.id) AS last_day '
-            . "FROM carrier_account a JOIN carrier c ON c.code = a.carrier AND c.family = 'pooled' LEFT JOIN carrier_label_pull p ON p.account_id = a.id ORDER BY a.id");
+        return $this->db->all("SELECT a.id, a.account_no, a.name, a.state, "
+            . '(SELECT COUNT(*) FROM carrier_label l WHERE l.account_id = a.id) AS labels, (SELECT MAX(l.manifest_day) FROM carrier_label l WHERE l.account_id = a.id) AS last_day, '
+            . '(SELECT MAX(c.day) FROM carrier_day_cover c WHERE c.account_id = a.id) AS covered_to, '
+            . 'r.from_day AS last_from, r.to_day AS last_to, r.imported_at AS last_at, '
+            . "(SELECT COUNT(DISTINCT x.day) FROM carrier_allocation x JOIN carrier_invoice i ON i.id = x.invoice_id AND i.status = 'live' AND i.carrier = a.carrier "
+            . "AND i.account = a.account_no WHERE x.ended_at IS NULL AND x.how = 'waiting') AS waiting_days "
+            . "FROM carrier_account a JOIN carrier c ON c.code = a.carrier AND c.family = 'pooled' "
+            . 'LEFT JOIN carrier_report_import r ON r.id = (SELECT MAX(r2.id) FROM carrier_report_import r2 WHERE r2.account_id = a.id) ORDER BY a.id');
     }
 
     /**

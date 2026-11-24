@@ -23,7 +23,8 @@ use CW\Reports\ReportRefresh;
  *  replace()       a corrected file of a live bill: the old one superseded, its allocations ended, the days planned again; one write.
  *  undo()          "Undo this upload": the bill undone, its allocations ended, the days it touched planned again on the bills left.
  *  importReport()  the labels of Click & Drop's "Manifested Orders" report (ClickAndDropReport): new labels added, empty fields filled.
- *  pull()          the labels read from Click & Drop's API (ClickAndDropClient, GET only) from the account's checkpoint less 3 days.
+ *  importReportLabels()  a report's labels with the days it covers (its From..To), one transaction (phase 1 is report-only: DL84; the
+ *                  Click & Drop API pull is phase 2).
  *  replan()        the nightly: every key (day x product, manifest, sales order) of the live rows of the last REPLAN_DAYS planned again (a label or
  *                  a CW parcel that came since takes its price; a held amount settled).
  *  drift()         the live allocations against a plan from scratch: [] when they are what the rows and labels say.
@@ -37,12 +38,6 @@ final class RoyalMailBills
 {
     /** The nightly plans again the keys of the live rows of this many days back. */
     public const REPLAN_DAYS = 120;
-    /** A pull starts this many days before the last day read whole (an outage of any length is caught up; nothing is skipped). */
-    public const PULL_OVERLAP_DAYS = 3;
-    /** A first pull (no checkpoint yet) reads this many days back. */
-    public const PULL_FIRST_DAYS = 14;
-    /** Labels with no manifest yet, created this many days back, are asked for again by their Click & Drop number. */
-    public const PULL_OPEN_DAYS = 14;
     /** Keys planned in one guarded write (a day x product key alone holds a day's labels: FLAT_PER_WRITE of them a write). */
     public const KEYS_PER_WRITE = 50;
     public const FLAT_PER_WRITE = 1;
@@ -50,6 +45,8 @@ final class RoyalMailBills
     public const SERVICE_CODE = '/^[A-Z]{1,6}[0-9][A-Z0-9]{0,9}$/D';
     /** A label's tracking number in its carrier's shape (a pooled carrier's: Royal Mail's two letters, nine digits, GB). */
     public const TRACKING = ['royal_mail' => '/^[A-Z]{2}[0-9]{9}GB$/D'];
+    /** The health alert says the days of a bill waiting longer than this (DL84 8). */
+    public const WAIT_ALERT_DAYS = 14;
     /** Rounds a plan's keys are closed over (Special Delivery groups) before the plan is tried again. */
     public const CLOSURE_ROUNDS = 10;
     /** Tries of a chunk of a loading bill's allocations whose row wait ran out. */
@@ -66,6 +63,8 @@ final class RoyalMailBills
     private readonly DeliveryBills $bills;
     /** @var \Closure(): \DateTimeImmutable */
     private readonly \Closure $clock;
+    /** @var list<string> the keys of this run that could not be planned (busy, a database error): left due, said at the end (DL84 7) */
+    private array $failed = [];
 
     /** @param (\Closure(): \DateTimeImmutable)|null $clock */
     public function __construct(private readonly Db $db, ?\Closure $clock = null, int $lockWaitSec = DeliveryBills::LOCK_WAIT_SEC)
@@ -368,7 +367,7 @@ final class RoyalMailBills
                 . 'WHERE account_id = ? AND manifest_day = ? AND service_code = ?', [$account['id'], $r['service_date'], (string) $p['service_code']]),
                 'billed' => array_sum(array_map(static fn (array $x): int => (int) $x['qty'], array_filter($s['rows'], static fn (array $x): bool
                     => (string) $x['service_date'] === (string) $r['service_date'] && (string) $x['product_code'] === (string) $r['product_code']))),
-                'priced' => 0, 'line' => 0, 'waiting' => false, 'status' => 'open', 'removed' => !isset($here[$k])];
+                'priced' => 0, 'line' => 0, 'waiting' => false, 'reason' => null, 'status' => 'open', 'removed' => !isset($here[$k])];
         }
         // across the whole plan (every bill of the day with this one: the Codex check r5, MEDIUM 5): labels priced, the day's line, waiting
         foreach ($s['desired'] as $a) {
@@ -379,7 +378,10 @@ final class RoyalMailBills
             }
             $days[$k]['priced'] += $a['kind'] === 'label' ? 1 : 0;
             $days[$k]['line'] += $a['kind'] === 'day_line' ? (int) $a['pence'] : 0;
-            $days[$k]['waiting'] = $days[$k]['waiting'] || ($a['held_reason'] ?? null) === 'no_report';
+            if ($a['how'] === 'waiting') {
+                $days[$k]['waiting'] = true;
+                $days[$k]['reason'] ??= (string) $a['held_reason'];
+            }
         }
         // closed as the bill's page says it (RoyalMailViews::days): a bill of the account after the day's first one, or the day older than OPEN_DAYS;
         // "needs a look" when closed and its labels and units billed far apart
@@ -449,7 +451,8 @@ final class RoyalMailBills
         foreach ($replaces === null ? [] : ($s['existing'] ?? []) as $a) {
             if ((int) $a['invoice_id'] === $replaces) {
                 $gone[] = PooledPlanner::identity($a);
-                $k = $a['day'] . '|' . $key($a);
+                // charges and credits apart (the Codex check r8: a charge and a credit of one day and destination never cancel in the table)
+                $k = $a['day'] . '|' . $key($a) . '|' . ((int) $a['pence'] < 0 ? '-' : '+');
                 $takesOut[$k] = ($takesOut[$k] ?? 0) + (int) $a['pence'];
             }
         }
@@ -484,10 +487,11 @@ final class RoyalMailBills
      *
      * @return array<string, mixed>
      */
-    public function importReport(Caller $caller, int $accountId, string $bytes): array
+    public function importReport(Caller $caller, int $accountId, string $bytes, string $from, string $to): array
     {
         $this->bills->authoriseWrite($caller);
         $account = CarrierSettings::account($this->db, $accountId);
+        self::reportDays($from, $to, ($this->clock)());
         $r = ClickAndDropReport::read($bytes, CarrierSettings::channels($this->db, $accountId));
         // the report is the account's: every label of it in one of the account's own Click & Drop channels (another account's report would put
         // its labels on this account's bills: the Codex check r1, HIGH 2). A channel CW does not know is never named (it is free text).
@@ -496,8 +500,60 @@ final class RoyalMailBills
             throw new CwException('other_account', sprintf('this report has %d labels of no Click & Drop channel or of one account %s does not have: is it this account\'s report? '
                 . 'Nothing was saved.', $others, $account['account_no']), 422, ['field' => 'file']);
         }
-        return ['rows' => $r['rows'], 'skipped' => $r['skipped'], 'sha256' => $r['sha256']] + $this->importLabels($caller, $account['id'], $r['labels'], 'report',
-            ['sha256' => $r['sha256']]);
+        return ['rows' => $r['rows'], 'skipped' => $r['skipped'], 'sha256' => $r['sha256']] + $this->importReportLabels($caller, $account['id'], $r['labels'], $from, $to,
+            $r['sha256'], (int) $r['rows']);
+    }
+
+    /**
+     * A report's labels AND the days it covers (DL84): its From..To as it was run in Click & Drop, every label's manifest day inside them, its
+     * To before today (a day not over is never covered); the labels, the import and its days covered written in ONE transaction, then every
+     * group touching those days planned again (kept due until a plan takes them).
+     *
+     * @param list<array<string, mixed>> $labels
+     * @return array<string, mixed> importLabels()'s, with the import's id and its days
+     */
+    public function importReportLabels(Caller $caller, int $accountId, array $labels, string $from, string $to, string $sha256, int $rows): array
+    {
+        $this->bills->authoriseWrite($caller);
+        $days = self::reportDays($from, $to, ($this->clock)());
+        foreach ($labels as $i => $l) {
+            $d = $l['manifest_day'] ?? null;
+            if (!is_string($d) || $d < $from || $d > $to) {
+                throw new CwException('bad_report_days', sprintf('row %d of the report is %s, outside the days it was run for (%s to %s): run the report for the days it '
+                    . 'holds, then upload it again. Nothing was saved.', $i + 1, is_string($d) ? 'of ' . $d : 'not manifested', $from, $to), 422, ['field' => 'file']);
+            }
+        }
+        if (preg_match('/^[0-9a-f]{64}$/D', $sha256) !== 1) {
+            throw new CwException('bad_report', 'the report\'s fingerprint is not one', 500);
+        }
+        return $this->importLabels($caller, $accountId, $labels, 'report', ['sha256' => $sha256, 'from' => $from, 'to' => $to], ['from' => $from, 'to' => $to,
+            'days' => $days, 'sha256' => $sha256, 'rows' => $rows]);
+    }
+
+    /**
+     * The days a report covers: its From..To, From not after To, To before today (UK), at most 93 days.
+     *
+     * @return list<string>
+     */
+    private static function reportDays(string $from, string $to, \DateTimeImmutable $now): array
+    {
+        $today = $now->setTimezone(new \DateTimeZone('Europe/London'))->format('Y-m-d');
+        $ok = static fn (string $d): bool => preg_match('/^\d{4}-\d{2}-\d{2}$/D', $d) === 1 && checkdate((int) substr($d, 5, 2), (int) substr($d, 8, 2), (int) substr($d, 0, 4));
+        if (!$ok($from) || !$ok($to) || $from > $to) {
+            throw new CwException('bad_report_days', 'give the From and To days the report was run for in Click & Drop (From not after To). Nothing was saved.', 422,
+                ['field' => 'from']);
+        }
+        if ($to >= $today) {
+            throw new CwException('bad_report_days', "the report's To day ({$to}) is not over yet: run it up to yesterday at the latest. Nothing was saved.", 422, ['field' => 'to']);
+        }
+        $days = [];
+        for ($d = $from; $d <= $to; $d = (new \DateTimeImmutable($d))->modify('+1 day')->format('Y-m-d')) {
+            $days[] = $d;
+            if (count($days) > 93) {
+                throw new CwException('bad_report_days', 'a report of more than 93 days: run it for a shorter time. Nothing was saved.', 422, ['field' => 'from']);
+            }
+        }
+        return $days;
     }
 
     /**
@@ -505,13 +561,18 @@ final class RoyalMailBills
      * filled, the first source's value stays), then the keys they touch planned again (a failure there leaves the labels stored: the nightly
      * plans them; said in replan_error).
      *
-     * @param list<array<string, mixed>> $labels ClickAndDropReport / ClickAndDropClient::labels() shapes
+     * @param list<array<string, mixed>> $labels ClickAndDropReport shapes
      * @param array<string, mixed> $audit more for the audit row (never a label)
-     * @param array{from: string, to: string, days: list<string>}|null $read a pull's days: the ones read whole (DL82), stored with its labels
+     * @param array{from: string, to: string, days: list<string>, sha256: string, rows: int}|null $read a report import's From..To and days covered (DL84),
+     *   stored with its labels
      * @return array{labels: int, added: int, filled: int, differs: int, replanned: ?int, replan_error: ?string}
      */
     public function importLabels(Caller $caller, int $accountId, array $labels, string $source, array $audit = [], ?array $read = null): array
     {
+        if ($source !== 'report') {
+            // phase 1 is report-only: the Click & Drop API pull is phase 2, nothing of it moves money (DL84)
+            throw new CwException('phase_2', 'labels come from Click & Drop\'s "Manifested Orders" report only (the API pull is phase 2). Nothing was saved.', 422);
+        }
         $this->bills->authoriseWrite($caller);
         $account = CarrierSettings::account($this->db, $accountId);
         return $this->bills->inLock(function () use ($caller, $account, $labels, $source, $audit, $read): array {
@@ -522,50 +583,45 @@ final class RoyalMailBills
             // the pins earlier writes left due done first: no plan here moves a label off the parcel its first price was on (the Codex check r5,
             // MEDIUM 6; DL81)
             $this->drainPins();
-            // the labels, and a pull's days read with its checkpoint, in ONE transaction (a day is never read without its labels: the Codex check r6,
-            // F4; DL82): a day of an account with a key waits until it is here; the checkpoint moves only over the days read from the first one
+            // the labels, the import and the days it covers in ONE transaction (a day is never covered without its labels: DL84), and the days
+            // made due with them
             $u = $this->db->transaction(function (Db $db) use ($caller, $account, $labels, $source, $audit, $read): array {
                 $u = $this->upsert($caller, $account, $labels, $source, $audit);
                 $at = Clock::db(($this->clock)());
-                // the days whose groups this changes, kept due with the labels until a plan takes them (a plan that cannot run now is never lost,
-                // however old the day: the Codex check r7, H5; DL83)
-                $due = array_values(array_unique(array_filter([...($u['all'] === [] ? [] : array_map('strval', $db->column('SELECT DISTINCT manifest_day FROM carrier_label '
-                    . 'WHERE manifest_day IS NOT NULL AND id IN (' . implode(', ', array_fill(0, count($u['all']), '?')) . ')', $u['all']))),
-                    ...($read['days'] ?? []), ...($read['unread'] ?? [])])));
+                // the days whose groups this changes: its labels' manifest days (in chunks: a long catch-up has many labels) and a report's days,
+                // kept due with the labels until a plan takes them, however old the day (DL83, DL84)
+                $due = [];
+                foreach (array_chunk($u['all'], 500) as $chunk) {
+                    foreach ($db->column('SELECT DISTINCT manifest_day FROM carrier_label WHERE manifest_day IS NOT NULL AND id IN (' . implode(', ', array_fill(0, count($chunk), '?'))
+                        . ')', $chunk) as $d) {
+                        $due[(string) $d] = true;
+                    }
+                }
+                foreach ($read['days'] ?? [] as $d) {
+                    $due[$d] = true;
+                }
+                ksort($due);
+                $due = array_keys($due);
                 foreach (array_chunk($due, 200) as $chunk) {
                     $db->exec('INSERT INTO carrier_replan_due (account_id, day, since) VALUES ' . implode(', ', array_fill(0, count($chunk), '(?, ?, ?)'))
                         . ' AS n ON DUPLICATE KEY UPDATE since = carrier_replan_due.since', array_merge(...array_map(static fn (string $d): array => [$account['id'], $d, $at], $chunk)));
                 }
                 $u['due'] = $due;
-                if ($read === null) {
-                    return $u;
+                $u['import_id'] = null;
+                if ($read !== null) {
+                    // the report import and the days it covers, with its labels (a day is never covered without them: DL84)
+                    $u['import_id'] = $db->insert('INSERT INTO carrier_report_import (account_id, from_day, to_day, file_sha256, rows_read, labels, staff_user_id, actor, '
+                        . 'imported_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [$account['id'], $read['from'], $read['to'], $read['sha256'], $read['rows'], count($labels),
+                            $caller->staffUserId, $caller->actor, $at]);
+                    foreach (array_chunk($read['days'], 200) as $chunk) {
+                        $db->exec('INSERT INTO carrier_day_cover (account_id, day, import_id) VALUES ' . implode(', ', array_fill(0, count($chunk), '(?, ?, ?)')),
+                            array_merge(...array_map(static fn (string $d): array => [$account['id'], $d, $u['import_id']], $chunk)));
+                    }
                 }
-                // a day this pull could not read whole is read no more, whatever an earlier pull said (the Codex check r7, H3; DL83)
-                foreach (array_chunk($read['unread'] ?? [], 200) as $chunk) {
-                    $db->exec('DELETE FROM carrier_label_pull_day WHERE account_id = ? AND day IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')',
-                        [$account['id'], ...$chunk]);
-                }
-                foreach (array_chunk($read['days'], 200) as $chunk) {
-                    $db->exec('INSERT IGNORE INTO carrier_label_pull_day (account_id, day, read_at) VALUES ' . implode(', ', array_fill(0, count($chunk), '(?, ?, ?)')),
-                        array_merge(...array_map(static fn (string $d): array => [$account['id'], $d, $at], $chunk)));
-                }
-                $upTo = null; // the last day of the run read from the first day without a gap
-                for ($d = $read['from']; $d <= $read['to'] && in_array($d, $read['days'], true); $d = (new \DateTimeImmutable($d))->modify('+1 day')->format('Y-m-d')) {
-                    $upTo = $d;
-                }
-                // the earliest day not read whole, kept for the next pull (DL83): one before this pull's first day stays; else this pull's first
-                // unread day, or none
-                $old = $db->value('SELECT unread_from FROM carrier_label_pull WHERE account_id = ? FOR UPDATE', [$account['id']]);
-                $first = ($read['unread'] ?? []) === [] ? null : min($read['unread']);
-                $keep = $old !== null && (string) $old < $read['from'] ? (string) $old : null;
-                $unreadFrom = $keep !== null ? ($first === null ? $keep : min($keep, $first)) : $first;
-                $db->exec('INSERT INTO carrier_label_pull (account_id, read_to, last_try_at, last_ok_at, unread_from) VALUES (?, ?, ?, ?, ?) AS n ON DUPLICATE KEY UPDATE '
-                    . 'read_to = IF(n.read_to IS NOT NULL AND (carrier_label_pull.read_to IS NULL OR ? <= DATE_ADD(carrier_label_pull.read_to, INTERVAL 1 DAY)), '
-                    . 'GREATEST(COALESCE(carrier_label_pull.read_to, n.read_to), n.read_to), carrier_label_pull.read_to), last_ok_at = n.last_ok_at, last_error = NULL, '
-                    . 'unread_from = n.unread_from', [$account['id'], $upTo, $at, $at, $unreadFrom, $read['from']]);
                 return $u;
             });
-            $out = ['labels' => count($labels), 'added' => $u['added'], 'filled' => $u['filled'], 'differs' => $u['differs'], 'replanned' => null, 'replan_error' => null];
+            $out = ['labels' => count($labels), 'added' => $u['added'], 'filled' => $u['filled'], 'differs' => $u['differs'], 'replanned' => null, 'replan_error' => null,
+                'import_id' => $u['import_id'], 'days' => $read['days'] ?? []];
             if ($u['due'] === [] || $account['state'] !== 'active') {
                 return ['replanned' => 0] + $out;
             }
@@ -573,7 +629,13 @@ final class RoyalMailBills
                 // every group touching a day whose labels or reading changed: its rows of that date, and the groups (day, manifest, sales order) of
                 // every label of the account manifested that day, billed under another date or not (the Codex checks r1 MEDIUM 5, r5 MEDIUM 3, r6 F5,
                 // r7 H5; DL82, DL83); then those days are due no more
+                $this->failed = [];
                 $out['replanned'] = $this->replanDays($caller, $account, $u['due']);
+                if ($this->failed !== []) {
+                    $out['replan_error'] = count(array_unique($this->failed)) . ' group(s) of the bills could not be planned just now (an order busy): their days stay due and '
+                        . 'the nightly run plans them';
+                    $this->failed = [];
+                }
             } catch (CwException | \PDOException $e) {
                 $code = $e instanceof \PDOException ? Db::driverCode($e) : null;
                 $out['replan_error'] = $e instanceof CwException ? $e->getMessage() : 'the bills could not be planned again just now (database error ' . ($code ?? 'unknown')
@@ -581,104 +643,6 @@ final class RoyalMailBills
             }
             return $out;
         });
-    }
-
-    /**
-     * The account's labels read from Click & Drop (DL49): every order created from the checkpoint less PULL_OVERLAP_DAYS (a first pull:
-     * PULL_FIRST_DAYS back) to yesterday (UK), each asked for by its number (tracking number, manifest time), plus the labels with no
-     * manifest yet of the last PULL_OPEN_DAYS; then stored as importLabels() does. The network is read OUTSIDE the lock; the checkpoint
-     * moves only when everything was read and stored.
-     *
-     * @return array<string, mixed>
-     */
-    public function pull(Caller $caller, int $accountId, ClickAndDropClient $client, ?string $from = null, ?string $to = null): array
-    {
-        $this->bills->authoriseWrite($caller);
-        $account = CarrierSettings::account($this->db, $accountId);
-        $today = ($this->clock)()->setTimezone(new \DateTimeZone('Europe/London'));
-        $to ??= $today->modify('-1 day')->format('Y-m-d');
-        $cp = $this->db->one('SELECT read_to, unread_from FROM carrier_label_pull WHERE account_id = ?', [$account['id']]) ?? [];
-        $read = $cp['read_to'] ?? null;
-        $from ??= min($read === null ? $today->modify('-' . self::PULL_FIRST_DAYS . ' days')->format('Y-m-d')
-            // the checkpoint less PULL_OVERLAP_DAYS, and the last PULL_OPEN_DAYS at least: an order that got its label days after it was made is
-            // read when it does (the Codex check r1, MEDIUM 10)
-            : min((new \DateTimeImmutable((string) $read))->modify('-' . self::PULL_OVERLAP_DAYS . ' days')->format('Y-m-d'),
-                $today->modify('-' . self::PULL_OPEN_DAYS . ' days')->format('Y-m-d')),
-            // and from the earliest day a pull could not read whole, however long ago (the Codex check r7, H3; DL83)
-            ($cp['unread_from'] ?? null) === null ? '9999-12-31' : (string) $cp['unread_from']);
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $from) !== 1 || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $to) !== 1 || $from > $to) {
-            throw new CwException('bad_days', 'the days to read are not days, or the first is after the last', 422);
-        }
-        $now = Clock::db(($this->clock)());
-        $this->db->exec('INSERT INTO carrier_label_pull (account_id, last_try_at) VALUES (?, ?) AS n ON DUPLICATE KEY UPDATE last_try_at = n.last_try_at',
-            [$account['id'], $now]);
-        $days = [];
-        for ($d = $from; $d <= $to; $d = (new \DateTimeImmutable($d))->modify('+1 day')->format('Y-m-d')) {
-            $days[] = $d;
-        }
-        try {
-            $ids = [];
-            $listed = [];
-            foreach ($days as $d) {
-                foreach ($client->orders($d . 'T00:00:00', $d . 'T23:59:59') as $o) {
-                    if (isset($o['orderIdentifier']) && is_int($o['orderIdentifier'])) {
-                        $ids[$o['orderIdentifier']] = true;
-                        $listed[$o['orderIdentifier']] = $d;
-                    }
-                }
-            }
-            foreach ($this->db->column('SELECT source_id FROM carrier_label WHERE account_id = ? AND manifest_day IS NULL AND source_id IS NOT NULL AND created_on >= ?',
-                [$account['id'], $today->modify('-' . self::PULL_OPEN_DAYS . ' days')->format('Y-m-d')]) as $sid) {
-                $ids[(int) $sid] = true;
-            }
-            ksort($ids);
-            $orders = $client->ordersByIds(array_keys($ids));
-            // DL82: a day is READ only when every order its list named came with its details AND every manifested one of them has its tracking
-            // numbers; else that day is not read (its labels that came are kept, the next pull reads it again: the Codex checks r5 HIGH 1, r6 F1).
-            // An older label asked for again may be gone from Click & Drop: left as it is.
-            // An incomplete order blocks its listing day AND its manifest day (UK); its manifest day not known (no details, or not in their shapes):
-            // its listing day and every later day of the pull (the Codex check r7, H1, H2; DL83).
-            $unread = [];
-            $came = [];
-            $block = static function (string $listedOn, ?string $manifested) use (&$unread, $days): void {
-                $unread[$listedOn] = true;
-                if ($manifested === null) {
-                    foreach ($days as $d) {
-                        if ($d >= $listedOn) {
-                            $unread[$d] = true;
-                        }
-                    }
-                } else {
-                    $unread[$manifested] = true;
-                }
-            };
-            foreach ($orders as $o) {
-                $came[(int) $o['orderIdentifier']] = true;
-                if (isset($listed[(int) $o['orderIdentifier']]) && !ClickAndDropClient::complete($o)) {
-                    $at = ($o['whole'] ?? false) && is_string($o['manifestedOn'] ?? null) ? ClickAndDropClient::manifestDay((string) $o['manifestedOn']) : null;
-                    $block($listed[(int) $o['orderIdentifier']], $at);
-                }
-            }
-            foreach (array_diff_key($listed, $came) as $d) {
-                $block($d, null);
-            }
-            $labels = ClickAndDropClient::labels($orders);
-        } catch (CwException $e) {
-            // CW's own words only (a code and an HTTP status): never an answer of the API, never the key.
-            $this->db->exec('UPDATE carrier_label_pull SET last_error = ? WHERE account_id = ?', [mb_substr($e->errorCode . ': ' . $e->getMessage(), 0, 160), $account['id']]);
-            throw $e;
-        }
-        // the labels, the days read and the checkpoint stored in ONE transaction, then every group touching those days planned again (importLabels;
-        // DL80-DL82)
-        $read = array_values(array_filter($days, static fn (string $d): bool => !isset($unread[$d])));
-        ksort($unread);
-        $r = $this->importLabels($caller, $account['id'], $labels, 'api', ['from' => $from, 'to' => $to, 'orders' => count($ids), 'unread' => count($unread)],
-            ['from' => $from, 'to' => $to, 'days' => $read, 'unread' => array_keys($unread)]);
-        if ($unread !== []) {
-            $this->db->exec('UPDATE carrier_label_pull SET last_error = ? WHERE account_id = ?', [mb_substr(count($unread) . ' day(s) not read whole (an order\'s details or its '
-                . 'tracking number missing): read again by the next pull', 0, 160), $account['id']]);
-        }
-        return $r + ['from' => $from, 'to' => $to, 'orders' => count($ids), 'unread' => array_keys($unread)];
     }
 
     /**
@@ -698,24 +662,106 @@ final class RoyalMailBills
             $this->db->exec('DELETE FROM carrier_bill_check WHERE expires_at < ?', [Clock::db(($this->clock)()->modify('-1 day'))]);
         });
         // the days whose labels changed and whose groups no plan took yet, however old (DL83)
+        $this->failed = [];
         $n = $this->drainReplans($caller);
         foreach (CarrierSettings::pooledAccounts($this->db) as $account) {
             if (($accountId !== null && $account['id'] !== $accountId) || $account['state'] !== 'active') {
                 continue;
             }
-            $n += $this->bills->inLock(function () use ($caller, $account, $days): int {
-                // read again once the lock is held: switched off meanwhile, not planned (the Codex check r3, new MEDIUM 3)
-                $account = CarrierSettings::account($this->db, $account['id']);
-                if ($account['state'] !== 'active') {
-                    return 0;
-                }
-                $since = ($this->clock)()->setTimezone(new \DateTimeZone('Europe/London'))->modify("-{$days} days")->format('Y-m-d');
-                $ctx = self::ctx($this->db, $account);
-                $rows = self::rowsWhere($this->db, $account, 'r.service_date >= ?', [$since]);
-                return $this->replanKeys($caller, $account, self::keysOf($this->db, $account, $ctx, $rows));
-            });
+            try {
+                $n += $this->replanAccount($caller, $account, $days);
+            } catch (CwException | \PDOException) {
+                // one account's error never stops the others (DL84 7): said at the end
+                $this->failed[] = 'account:' . $account['account_no'];
+            }
+        }
+        if ($this->failed !== []) {
+            // said once every other group was planned (DL84 7): the days of these stay due, the next run tries them again
+            $k = count(array_unique($this->failed));
+            $this->failed = [];
+            throw new CwException('partial', "{$k} group(s) of the bills could not be planned just now (an order busy, or a database error): their days stay due "
+                . "and the next run plans them. Every other group was planned ({$n} allocations changed).", 409);
         }
         return $n;
+    }
+
+    /** replan()'s one account, under the lock. @param array<string, mixed> $account */
+    private function replanAccount(Caller $caller, array $account, int $days): int
+    {
+        return $this->bills->inLock(function () use ($caller, $account, $days): int {
+            // read again once the lock is held: switched off meanwhile, not planned (the Codex check r3, new MEDIUM 3)
+            $account = CarrierSettings::account($this->db, $account['id']);
+            if ($account['state'] !== 'active') {
+                return 0;
+            }
+            $since = ($this->clock)()->setTimezone(new \DateTimeZone('Europe/London'))->modify("-{$days} days")->format('Y-m-d');
+            $ctx = self::ctx($this->db, $account);
+            $rows = self::rowsWhere($this->db, $account, 'r.service_date >= ?', [$since]);
+            return $this->replanKeys($caller, $account, self::keysOf($this->db, $account, $ctx, $rows));
+        });
+    }
+
+    /**
+     * The Royal Mail health alert (DL84 8), for every active pooled account: rm_report_missing when a day of the last whole week (Monday to
+     * Sunday) is covered by no report import by the Tuesday after it, 12:00 UK; rm_days_waiting when a day of a live bill has waited more
+     * than WAIT_ALERT_DAYS days (counted from the day itself). A schema before 0078 has none.
+     *
+     * @return list<array{key: string, kind: string, detail: string, data: array<string, int|string|null>}>
+     */
+    public static function health(Db $db, \DateTimeImmutable $now): array
+    {
+        if ($db->value("SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'carrier_day_cover'") === null) {
+            return [];
+        }
+        $uk = $now->setTimezone(new \DateTimeZone('Europe/London'));
+        // the newest Tuesday 12:00 at or before now: the week before it (its Monday to Sunday) is due
+        $tue = $uk->modify('tuesday this week')->setTime(12, 0);
+        if ($tue > $uk) {
+            $tue = $tue->modify('-7 days');
+        }
+        $sunday = $tue->modify('-2 days')->format('Y-m-d');
+        $monday = $tue->modify('-8 days')->format('Y-m-d');
+        $old = $uk->modify('-' . self::WAIT_ALERT_DAYS . ' days')->format('Y-m-d');
+        $out = [];
+        foreach (CarrierSettings::pooledAccounts($db) as $a) {
+            if ($a['state'] !== 'active') {
+                continue;
+            }
+            $covered = (int) $db->value('SELECT COUNT(DISTINCT day) FROM carrier_day_cover WHERE account_id = ? AND day BETWEEN ? AND ?', [$a['id'], $monday, $sunday]);
+            if ($covered < 7) {
+                $out[] = ['key' => 'rm_report_missing:' . $a['account_no'], 'kind' => 'rm_report_missing', 'detail' => sprintf('Royal Mail %s: %d day(s) of %s to %s covered by '
+                    . 'no Click & Drop report yet', $a['account_no'], 7 - $covered, $monday, $sunday), 'data' => ['account' => $a['account_no'], 'from' => $monday,
+                    'to' => $sunday, 'days' => 7 - $covered]];
+            }
+            $long = array_filter(self::waitingDays($db, $a['id']), static fn (array $w): bool => $w['day'] < $old);
+            if ($long !== []) {
+                $out[] = ['key' => 'rm_days_waiting:' . $a['account_no'], 'kind' => 'rm_days_waiting', 'detail' => sprintf('Royal Mail %s: %d day(s) of its bills waiting more '
+                    . 'than %d days (the oldest %s)', $a['account_no'], count($long), self::WAIT_ALERT_DAYS, min(array_column($long, 'day'))),
+                    'data' => ['account' => $a['account_no'], 'days' => count($long), 'oldest' => min(array_column($long, 'day')), 'limit' => self::WAIT_ALERT_DAYS]];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The days of an account's live bills whose money waits (DL84: held whole until its day or group is covered and checked), each with its
+     * reasons and pence, oldest first.
+     *
+     * @return list<array{day: string, reasons: list<string>, pence: int}>
+     */
+    public static function waitingDays(Db $db, int $accountId): array
+    {
+        $account = CarrierSettings::account($db, $accountId);
+        $out = [];
+        foreach ($db->all("SELECT a.day, a.held_reason, SUM(a.pence) AS p FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id AND i.status = 'live' "
+            . "AND i.carrier = ? AND i.account = ? WHERE a.ended_at IS NULL AND a.how = 'waiting' GROUP BY a.day, a.held_reason ORDER BY a.day, a.held_reason",
+            [$account['carrier'], $account['account_no']]) as $r) {
+            $d = (string) $r['day'];
+            $out[$d] ??= ['day' => $d, 'reasons' => [], 'pence' => 0];
+            $out[$d]['reasons'][] = (string) $r['held_reason'];
+            $out[$d]['pence'] += (int) $r['p'];
+        }
+        return array_values($out);
     }
 
     /**
@@ -955,13 +1001,19 @@ final class RoyalMailBills
         }
         sort($days, SORT_STRING);
         $ctx = self::ctx($this->db, $account);
-        $marks = implode(', ', array_fill(0, count($days), '?'));
-        $onDays = array_map('intval', $this->db->column("SELECT id FROM carrier_label WHERE account_id = ? AND manifest_day IN ({$marks})", [$account['id'], ...$days]));
-        $keys = array_values(array_unique([...($onDays === [] ? [] : self::keysOfLabels($this->db, $account, $onDays)),
-            ...self::keysOf($this->db, $account, $ctx, self::rowsWhere($this->db, $account, "r.service_date IN ({$marks})", $days))]));
-        sort($keys, SORT_STRING);
-        $n = $this->replanKeys($caller, $account, $keys);
-        $this->db->exec("DELETE FROM carrier_replan_due WHERE account_id = ? AND day IN ({$marks})", [$account['id'], ...$days]);
+        $n = 0;
+        // day by day (DL84 7): a group that cannot be planned now (an order busy) leaves its day due and never stops the others
+        foreach ($days as $day) {
+            $failed = count($this->failed);
+            $onDay = array_map('intval', $this->db->column('SELECT id FROM carrier_label WHERE account_id = ? AND manifest_day = ?', [$account['id'], $day]));
+            $keys = array_values(array_unique([...($onDay === [] ? [] : self::keysOfLabels($this->db, $account, $onDay)),
+                ...self::keysOf($this->db, $account, $ctx, self::rowsWhere($this->db, $account, 'r.service_date = ?', [$day]))]));
+            sort($keys, SORT_STRING);
+            $n += $this->replanKeys($caller, $account, $keys);
+            if (count($this->failed) === $failed) {
+                $this->db->exec('DELETE FROM carrier_replan_due WHERE account_id = ? AND day = ?', [$account['id'], $day]);
+            }
+        }
         return $n;
     }
 
@@ -973,9 +1025,18 @@ final class RoyalMailBills
             if ($account['state'] !== 'active') {
                 continue;
             }
-            $days = array_map('strval', $this->db->column('SELECT day FROM carrier_replan_due WHERE account_id = ? ORDER BY day', [$account['id']]));
-            foreach (array_chunk($days, 31) as $chunk) {
-                $n += $this->bills->inLock(fn (): int => $this->replanDays($caller, CarrierSettings::account($this->db, $account['id']), $chunk));
+            try {
+                $days = array_map('strval', $this->db->column('SELECT day FROM carrier_replan_due WHERE account_id = ? ORDER BY day', [$account['id']]));
+                foreach (array_chunk($days, 31) as $chunk) {
+                    // read again once the lock is held: switched off meanwhile, its days stay due (DL84 7)
+                    $n += $this->bills->inLock(function () use ($caller, $account, $chunk): int {
+                        $now = CarrierSettings::account($this->db, $account['id']);
+                        return $now['state'] === 'active' ? $this->replanDays($caller, $now, $chunk) : 0;
+                    });
+                }
+            } catch (CwException | \PDOException) {
+                // one account's error never stops the others (DL84 7): said at the end, its days stay due
+                $this->failed[] = 'account:' . $account['account_no'];
             }
         }
         return $n;
@@ -1017,22 +1078,43 @@ final class RoyalMailBills
         $other = array_values(array_filter($keys, static fn (string $k): bool => !str_starts_with($k, 'F|')));
         $n = 0;
         foreach ([...array_chunk($flat, self::FLAT_PER_WRITE), ...array_chunk($other, self::KEYS_PER_WRITE)] as $batch) {
-            $n += $this->bills->guardedWrite(function (Db $db) use ($caller, $account, $batch): array {
-                $ctx = self::ctx($db, $account);
-                $s = self::scope($db, $account, $ctx, $batch, [], [], null);
-                return self::guardedPlan($s, function (Db $db) use ($caller, $account, $s): int {
-                    if ($s['end'] === [] && $s['add'] === []) {
-                        return 0;
+            try {
+                $n += $this->replanBatch($caller, $account, $batch);
+            } catch (CwException | \PDOException $e) {
+                // one group that cannot be planned now never blocks the others (DL84 7): its batch key by key, a key that fails left for the next
+                // run (its day stays due) and said at the end
+                foreach (count($batch) > 1 ? $batch : [] as $one) {
+                    try {
+                        $n += $this->replanBatch($caller, $account, [$one]);
+                    } catch (CwException | \PDOException) {
+                        $this->failed[] = $one;
                     }
-                    $this->bills->authoriseWrite($caller);
-                    self::apply($db, $s, Clock::db(($this->clock)()));
-                    Audit::write($db, $caller, 'delivery_bill.replan', 'carrier_account', (string) $account['id'], null, ['keys' => count($s['keys']),
-                        'allocations_ended' => count($s['end']), 'allocations_added' => count($s['add'])]);
-                    return count($s['end']) + count($s['add']);
-                });
-            });
+                }
+                if (count($batch) === 1) {
+                    $this->failed[] = $batch[0];
+                }
+            }
         }
         return $n;
+    }
+
+    /** @param list<string> $batch keys planned in one guarded write @return int the allocations ended or added */
+    private function replanBatch(Caller $caller, array $account, array $batch): int
+    {
+        return $this->bills->guardedWrite(function (Db $db) use ($caller, $account, $batch): array {
+            $ctx = self::ctx($db, $account);
+            $s = self::scope($db, $account, $ctx, $batch, [], [], null);
+            return self::guardedPlan($s, function (Db $db) use ($caller, $account, $s): int {
+                if ($s['end'] === [] && $s['add'] === []) {
+                    return 0;
+                }
+                $this->bills->authoriseWrite($caller);
+                self::apply($db, $s, Clock::db(($this->clock)()));
+                Audit::write($db, $caller, 'delivery_bill.replan', 'carrier_account', (string) $account['id'], null, ['keys' => count($s['keys']),
+                    'allocations_ended' => count($s['end']), 'allocations_added' => count($s['add'])]);
+                return count($s['end']) + count($s['add']);
+            });
+        });
     }
 
     /**
@@ -1282,6 +1364,9 @@ final class RoyalMailBills
             foreach ($cand as $r) {
                 if ($kindOf($r) === 'band' || $kindOf($r) === 'wrong_weight') {
                     $more[PooledPlanner::key($r, $kindOf($r), $labels, $ctx)] = true;
+                    if ($kindOf($r) === 'band' && $r['sales_order'] !== null) {
+                        $more['S|' . $r['sales_order']] = true; // a manifest's row naming a sales order: one group (DL84 4)
+                    }
                     if ((int) $r['invoice_id'] !== 0) {
                         $stored[] = $r;
                     }
@@ -1304,6 +1389,17 @@ final class RoyalMailBills
                     $more['M|' . (int) $m] = true;
                 }
             }
+            // the whole group: every manifest and sales order a Special Delivery label of it names (DL84 4: closed over all live bills and labels)
+            foreach ($labels as $l) {
+                if (in_array($l['service_code'], $bandServices, true)) {
+                    if ($l['manifest_no'] !== null) {
+                        $more['M|' . (int) $l['manifest_no']] = true;
+                    }
+                    if ($l['sales_order'] !== null) {
+                        $more['S|' . $l['sales_order']] = true;
+                    }
+                }
+            }
             $new = array_values(array_diff(array_map('strval', array_keys($more)), $keys));
             if ($new === []) {
                 break;
@@ -1321,39 +1417,7 @@ final class RoyalMailBills
         // check r5, HIGH 2; DL81)
         $days = array_values(array_unique([...array_map(static fn (array $r): string => (string) $r['service_date'], $rows),
             ...array_values(array_filter(array_map(static fn (array $l): string => (string) ($l['manifest_day'] ?? ''), $labels), static fn (string $d): bool => $d !== ''))]));
-        $ctx['waiting'] = [];
-        $known = [];
-        foreach (array_chunk($days, 300) as $chunk) {
-            foreach ($db->all('SELECT manifest_day, COUNT(*) AS n, SUM(service_code IS NULL) AS open FROM carrier_label WHERE account_id = ? AND manifest_day IN ('
-                . $marks(count($chunk)) . ') GROUP BY manifest_day', [$account['id'], ...$chunk]) as $d) {
-                $known[(string) $d['manifest_day']] = (int) $d['open'] === 0;
-            }
-        }
-        // an account with a key (its labels come by the nightly pull): a day waits until a SUCCESSFUL pull read THAT day, whatever a report
-        // brought (a part of a day's labels, a failed first pull, a pull of later days: the Codex checks r3, r4 HIGH; DL80). An account read
-        // by report only has no such record (DL77: Vape Big, off).
-        // EVERY account (with a key: read by its pull; read by report only: recorded by a person, bin/carrier_account.php --report-days): a day
-        // is complete only when it is read whole and all its labels have their service (the Codex check r7, H7; DL83)
-        $pulled = [];
-        foreach (array_chunk($days, 300) as $chunk) {
-            foreach ($db->column('SELECT day FROM carrier_label_pull_day WHERE account_id = ? AND day IN (' . $marks(count($chunk)) . ')', [$account['id'], ...$chunk]) as $d) {
-                $pulled[(string) $d] = true;
-            }
-        }
-        // waiting: the days after the main shop's CW start not complete; incomplete: every day not complete, the days on or before the start too (a
-        // group crossing the start waits on all its days: the Codex check r7, H6); an account switched off holds every day of a plan it makes
-        // (an undo there moves no money: the Codex check r7, M3)
-        $ctx['incomplete'] = [];
-        $start = $ctx['main_start'] ?? null;
-        foreach ($days as $d) {
-            $complete = ($known[$d] ?? false) && isset($pulled[$d]) && empty($ctx['hold_all']);
-            if (!$complete) {
-                $ctx['incomplete'][$d] = true;
-                if (!empty($ctx['hold_all']) || ($start !== null && $d > $start)) {
-                    $ctx['waiting'][$d] = true;
-                }
-            }
-        }
+        [$ctx['waiting'], $ctx['incomplete'], $ctx['product_waiting']] = self::dayStates($db, $account, $ctx, $days, $newRows, $gone, $loading);
         // labels' destinations; a label whose price is on an order now stays on it (sticky)
         // the label's own CW parcel, pinned when a plan first put it on an order (DL74); else a live allocation on an order (labels of before)
         $sticky = [];
@@ -1414,6 +1478,114 @@ final class RoyalMailBills
         usort($end, static fn (array $a, array $b): int => (int) $a['id'] <=> (int) $b['id']);
         return ['keys' => $keys, 'rows' => $rows, 'labels' => $labels, 'sticky' => $sticky, 'dests' => $dests, 'versions' => $versions, 'desired' => $desired,
             'existing' => $existing, 'end' => $end, 'add' => $add, 'gone' => array_map('intval', $gone), 'loading' => $loading];
+    }
+
+    /**
+     * Which days of a plan may move money (DL84): a day is COMPLETE when a report import covers it (carrier_day_cover), every label of it has a
+     * service the plan maps, none differs from its CW parcel's service, and (a) every CW Royal Mail parcel labelled that day (of a shop the
+     * account serves, an outbound service or none given) is in the account's labels; and (b) for a product, the units all live bills have for
+     * it that day are no more than its labels that day. Each incomplete day with its reason; after the main shop's CW start it waits (on or before
+     * the start a day is wholly before CW start: PooledPlanner); an account switched off holds every day of a plan it makes (DL83).
+     *
+     * @param list<string> $days
+     * @param list<array<string, mixed>> $newRows the rows of a bill being stored (invoice 0)
+     * @param list<int> $gone the bills going (undone, replaced)
+     * @return array{0: array<string, string>, 1: array<string, string>, 2: array<string, string>} waiting day => reason, incomplete day => reason,
+     *   "day|product" => billed_more (after the start)
+     */
+    private static function dayStates(Db $db, array $account, array $ctx, array $days, array $newRows, array $gone, ?int $loading): array
+    {
+        $waiting = [];
+        $incomplete = [];
+        $product = [];
+        if ($days === []) {
+            return [$waiting, $incomplete, $product];
+        }
+        sort($days, SORT_STRING);
+        $marks = static fn (int $n): string => implode(', ', array_fill(0, $n, '?'));
+        $flat = [];
+        foreach ($ctx['products'] as $code => $p) {
+            if ($p['service_code'] !== null && in_array($p['kind'], ['flat', 'band'], true)) {
+                $flat[(string) $p['service_code']] = (string) $code;
+            }
+        }
+        $mapped = array_keys($flat);
+        $reason = [];
+        $covered = [];
+        $labelsBy = [];
+        foreach (array_chunk($days, 300) as $chunk) {
+            foreach ($db->column('SELECT DISTINCT day FROM carrier_day_cover WHERE account_id = ? AND day IN (' . $marks(count($chunk)) . ')', [$account['id'], ...$chunk]) as $d) {
+                $covered[(string) $d] = true;
+            }
+            foreach ($db->all('SELECT manifest_day, service_code, COUNT(*) AS n FROM carrier_label WHERE account_id = ? AND manifest_day IN (' . $marks(count($chunk))
+                . ') GROUP BY manifest_day, service_code', [$account['id'], ...$chunk]) as $r) {
+                $d = (string) $r['manifest_day'];
+                if ($r['service_code'] === null) {
+                    $reason[$d] ??= 'no_service';
+                } elseif (!in_array((string) $r['service_code'], $mapped, true)) {
+                    $reason[$d] ??= 'unknown_service';
+                } else {
+                    $labelsBy[$d . '|' . $flat[(string) $r['service_code']]] = (int) $r['n'];
+                }
+            }
+            // a report's service other than its CW parcel's, for the same tracking number
+            foreach ($db->column("SELECT DISTINCT l.manifest_day FROM carrier_label l JOIN sale_parcel p ON p.tracking_no = l.tracking_no AND p.removed_at IS NULL "
+                . "AND p.carrier = 'royal_mail' AND p.service_code <> '' WHERE l.account_id = ? AND l.manifest_day IN (" . $marks(count($chunk)) . ') AND l.service_code IS NOT NULL '
+                . 'AND p.service_code <> l.service_code', [$account['id'], ...$chunk]) as $d) {
+                $reason[(string) $d] ??= 'service_differs';
+            }
+        }
+        // (a) the CW Royal Mail parcels labelled on these days (UK) of the shops the account serves, in no label of the account
+        $shops = array_values(array_filter(array_map(static fn (array $p): ?int => $p['channel_id'], CarrierSettings::parties($db, (int) $account['id']))));
+        if ($shops !== []) {
+            $utc = new \DateTimeZone('UTC');
+            $uk = new \DateTimeZone('Europe/London');
+            $lo = (new \DateTimeImmutable($days[0] . ' 00:00:00', $uk))->setTimezone($utc)->format('Y-m-d H:i:s');
+            $hi = (new \DateTimeImmutable(end($days) . ' 00:00:00', $uk))->modify('+1 day')->setTimezone($utc)->format('Y-m-d H:i:s');
+            $outbound = [...$mapped, ''];
+            foreach ($db->all('SELECT p.label_at FROM sale_parcel p LEFT JOIN carrier_label l ON l.account_id = ? AND l.tracking_no = p.tracking_no '
+                . "WHERE p.carrier = 'royal_mail' AND p.removed_at IS NULL AND p.tracking_no IS NOT NULL AND p.tracking_no <> '' AND p.label_at >= ? AND p.label_at < ? "
+                . 'AND p.channel_id IN (' . $marks(count($shops)) . ') AND p.service_code IN (' . $marks(count($outbound)) . ') AND l.id IS NULL',
+                [$account['id'], $lo, $hi, ...$shops, ...$outbound]) as $p) {
+                $d = ReportRefresh::ukDay((string) $p['label_at']);
+                if (in_array($d, $days, true)) {
+                    $reason[$d] ??= 'parcel_missing';
+                }
+            }
+        }
+        // (b) the units of every live bill (the bills going left out, the one being stored in) per day and product, against its labels
+        $billed = [];
+        foreach (array_chunk($days, 300) as $chunk) {
+            $not = $gone === [] ? '' : ' AND i.id NOT IN (' . $marks(count($gone)) . ')';
+            foreach ($db->all("SELECT r.service_date, r.product_code, SUM(r.qty) AS q FROM carrier_bill_row r JOIN carrier_invoice i ON i.id = r.invoice_id AND (i.status = 'live'"
+                . ($loading === null ? '' : ' OR i.id = ' . $loading) . ") AND i.carrier = ? AND i.account = ? WHERE r.service_date IN (" . $marks(count($chunk)) . "){$not} GROUP BY r.service_date, r.product_code",
+                [$account['carrier'], $account['account_no'], ...$chunk, ...$gone]) as $r) {
+                $billed[$r['service_date'] . '|' . $r['product_code']] = ($billed[$r['service_date'] . '|' . $r['product_code']] ?? 0) + (int) $r['q'];
+            }
+        }
+        foreach ($newRows as $r) {
+            $k = $r['service_date'] . '|' . $r['product_code'];
+            $billed[$k] = ($billed[$k] ?? 0) + (int) $r['qty'];
+        }
+        $start = $ctx['main_start'] ?? null;
+        $hold = !empty($ctx['hold_all']);
+        foreach ($billed as $k => $q) {
+            [$d, $code] = explode('|', $k);
+            $kind = $ctx['products'][$code]['kind'] ?? null;
+            if (in_array($kind, ['flat', 'band'], true) && $q > ($labelsBy[$k] ?? 0) && $start !== null && $d > $start) {
+                $product[$k] = 'billed_more';
+            }
+        }
+        foreach ($days as $d) {
+            $why = $hold ? 'account_off' : (!isset($covered[$d]) ? 'not_covered' : ($reason[$d] ?? null));
+            if ($why !== null) {
+                $incomplete[$d] = $why;
+                if ($hold || ($start !== null && $d > $start)) {
+                    $waiting[$d] = $why;
+                }
+            }
+        }
+        return [$waiting, $incomplete, $product];
     }
 
     /**

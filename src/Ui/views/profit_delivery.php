@@ -6,7 +6,7 @@ $statusWords = ['live' => \CW\Ui\Words::DELIVERY['status_live'], 'superseded' =>
     'undone' => \CW\Ui\Words::DELIVERY['status_undone'], 'loading' => \CW\Ui\Words::DELIVERY['status_loading']];
 $tone = ['live' => 'done', 'superseded' => 'off', 'undone' => 'off', 'loading' => 'waiting'];
 // Royal Mail (0078; DL69): its bills in the same list (their money summed by destination), the account to choose on the upload, the pasted text,
-// and the accounts' labels (read up to which day; the Click & Drop report's upload).
+// and the accounts' labels (covered up to which day, the last report, the days waiting; the Click & Drop report's upload with its From and To: DL84).
 $accounts ??= [];
 $said ??= null;
 $gbp = static fn (int $p): string => \CW\Profit\DpdInvoiceFile::gbp($p);
@@ -70,9 +70,9 @@ $gbp = static fn (int $p): string => \CW\Profit\DpdInvoiceFile::gbp($p);
       <th scope="col"><?= $word('DELIVERY', 'account') ?></th>
       <th scope="col"><?= $word('DELIVERY', 'status') ?></th>
       <th scope="col" class="num"><?= $word('DELIVERY', 'rm_labels_held') ?></th>
-      <th scope="col"><?= $word('DELIVERY', 'rm_read_to') ?></th>
-      <th scope="col"><?= $word('DELIVERY', 'rm_last_ok') ?></th>
-      <th scope="col"><?= $word('DELIVERY', 'rm_last_error') ?></th>
+      <th scope="col"><?= $word('DELIVERY', 'rm_covered_to') ?></th>
+      <th scope="col"><?= $word('DELIVERY', 'rm_last_import') ?></th>
+      <th scope="col" class="num"><?= $word('DELIVERY', 'rm_waiting_days') ?></th>
     </tr>
   </thead>
   <tbody>
@@ -81,9 +81,9 @@ $gbp = static fn (int $p): string => \CW\Profit\DpdInvoiceFile::gbp($p);
       <th scope="row"><?= $e((string) $a['account_no']) ?> <span class="muted"><?= $e((string) $a['name']) ?></span></th>
       <td data-label="<?= $word('DELIVERY', 'status') ?>"><?= $word('DELIVERY', 'rm_state_' . ((string) $a['state'] === 'active' ? 'active' : 'off')) ?></td>
       <td class="num" data-label="<?= $word('DELIVERY', 'rm_labels_held') ?>"><?= $n((int) $a['labels']) ?></td>
-      <td data-label="<?= $word('DELIVERY', 'rm_read_to') ?>"><?php if ($a['read_to'] === null): ?>-<?php else: ?><?= $day((string) $a['read_to']) ?><?php endif; ?></td>
-      <td data-label="<?= $word('DELIVERY', 'rm_last_ok') ?>"><?php if ($a['last_ok_at'] === null): ?>-<?php else: ?><?= $when((string) $a['last_ok_at']) ?><?php endif; ?></td>
-      <td data-label="<?= $word('DELIVERY', 'rm_last_error') ?>"><?= $e((string) ($a['last_error'] ?? '')) ?></td>
+      <td data-label="<?= $word('DELIVERY', 'rm_covered_to') ?>"><?php if ($a['covered_to'] === null): ?>-<?php else: ?><?= $day((string) $a['covered_to']) ?><?php endif; ?></td>
+      <td data-label="<?= $word('DELIVERY', 'rm_last_import') ?>"><?php if ($a['last_from'] === null): ?>-<?php else: ?><?= $day((string) $a['last_from']) ?> - <?= $day((string) $a['last_to']) ?> <span class="muted"><?= $when((string) $a['last_at']) ?></span><?php endif; ?></td>
+      <td class="num" data-label="<?= $word('DELIVERY', 'rm_waiting_days') ?>"><?= $n((int) $a['waiting_days']) ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>
@@ -102,6 +102,10 @@ $gbp = static fn (int $p): string => \CW\Profit\DpdInvoiceFile::gbp($p);
     </select>
     <label for="l-file"><?= $word('DELIVERY', 'file') ?> <span class="hint"><?= $word('DELIVERY', 'rm_report_hint') ?></span></label>
     <input id="l-file" type="file" name="file" accept=".xls,application/vnd.ms-excel">
+    <label for="l-from"><?= $word('DELIVERY', 'rm_report_from') ?></label>
+    <input id="l-from" type="date" name="from" required value="<?= $e((string) ($typed['from'] ?? '')) ?>">
+    <label for="l-to"><?= $word('DELIVERY', 'rm_report_to') ?></label>
+    <input id="l-to" type="date" name="to" required value="<?= $e((string) ($typed['to'] ?? '')) ?>">
   </fieldset>
   <p class="actions"><button type="submit" class="btn"><?= $word('DELIVERY', 'rm_report_upload') ?></button></p>
 </form>

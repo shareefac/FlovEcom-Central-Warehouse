@@ -20169,7 +20169,7 @@ goes on the line's order like the others; a file without the column (the weeks b
 (a column CW did not know, with amounts in it). Tested with a synthetic file only. (DPD account 3012002 stays Vape and Go's only: the
 owner, 23 Nov 2026, Electrofag does not use DPD.)
 
-## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL83; migration 0078)
+## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL84; migration 0078)
 
 <!-- ---- Shipping plan v3 phase 1 (0078): DL43-DL70. ---- -->
 The plan: `cw_work/delivery_cost_20261123/SHIPPING_PLAN_v3.md` (its money rules and the owner's decisions Q1-Q8 of 23 Nov 2026 are the spec);
@@ -20598,6 +20598,60 @@ every group left on its days (no money moves while it is off). (M4) `bin/rm_labe
 plan did not run (the other accounts are read all the same). LEFT: the health alert does not read the pull's state yet (the lead's call).
 The owner's three bills again (`runs/rmbills_realbills_r8.log`): the same split as round 4 to the penny, Special Delivery and wrong weight
 the same, drift 0, the checks clean.
+
+**DL84. PHASE 1 IS REPORT-ONLY (the coordinator, 24 Nov 2026, after the Codex check r8: NO GO, 10 HIGH, 6 MEDIUM; it replaces DL82's and
+DL83's pull parts).** Labels that move money come ONLY from Click & Drop's "Manifested Orders" report, uploaded with the From and To days it
+was run for (the phase-0 labels came from such reports and go in the same way). The Click & Drop API pull is phase 2.
+1. THE PULL IS GONE from phase 1: `ClickAndDropClient`, `CurlHttpGet`, `HttpGet`, `CarrierKeys` and their unit test are deleted (removing them
+   was less risky than keeping a path that could write labels); 0078 has no `carrier_label_pull` / `carrier_label_pull_day`; no cron line
+   (03:20 removed), no key file at go-live; `RoyalMailBills::importLabels` refuses any source but the report (`phase_2`, nothing saved);
+   `bin/rm_labels.php --pull` exits 1 saying "phase 2"; `bin/carrier_account.php` has no `--key-name` and no `--report-days` (cover comes from
+   the import itself, never from a person saying so). `carrier_account.key_name` stays, NULL on every account (0078 seeds none), for phase 2.
+2. A DAY IS COVERED ONLY BY A REPORT IMPORT (`carrier_report_import`: the account, From, To, the file's sha256, rows, labels, who, when;
+   `carrier_day_cover`: account x day x import), written in the SAME transaction as its labels and the days made due. The upload (screen and
+   `bin/rm_labels.php --report --from --to`) needs From and To: a row outside them, a To of today or later (the day is not over), From after
+   To or more than 93 days: refused, nothing saved. Both tables are append-only for the app.
+3. A COVERED DAY MOVES MONEY ONLY WHEN IT IS CHECKED (`RoyalMailBills::dayStates`), else it waits (`how = waiting`, held for its reason,
+   shown on the bill's page "Days whose money waits" and on the check): (a) every CW Royal Mail parcel with a tracking number, of a shop the
+   account serves, of an outbound service or none (a return's service, e.g. TSS, is no label of the account), whose label day (UK) is that day,
+   is among the account's labels (`parcel_missing`); (b) for each day x product (Tracked and Special Delivery), the units on all live bills are
+   no more than that day's labels of its service (`billed_more`). Also (DL84 5) a label of the day with a service the plan does not map
+   (`unknown_service`), with none (`no_service`), or with another service than its CW parcel's `service_code` for the same tracking number
+   (`service_differs`). Not covered: `not_covered`; an account switched off: `account_off`. Each reason in words on the bill's page.
+   WITHDRAWAL IS ATOMIC: (b) is worked in the scope of the write itself, with the bill being stored in and the bills going out, so a later
+   bill that bills more withdraws the money already on that day in its own guarded write (store, replace, undo, replan): never two commits.
+   An import only adds evidence (labels are added or their empty fields filled, never changed; days covered): it can never break (a) or (b).
+   KNOWN WINDOWS, closed in phase 2 (D5): a later import bringing a label with an unmapped or other service onto a day already priced is
+   planned right after the import (DL83's due days, its own guarded writes; busy: the next plan); a CW parcel that reaches CW later, labelled
+   on a day already priced and in no report, makes the day wait at the next plan of that day (the nightly's 120 days, or any import or bill
+   of that day). Until then the money stands as the evidence said when it was planned.
+4. A GROUP (`PooledPlanner::groupReasons`): Special Delivery manifests and wrong-weight sales orders joined by a label (its manifest and its
+   sales order) or by a manifest's row naming a sales order are ONE group, closed over all live bills and all labels (`scope()` adds every
+   manifest and sales order a Special Delivery label of the group names, until nothing new comes). Checked whole BEFORE any pricing or
+   fallback: a day of it not complete (its labels' manifest days, its manifests' rows' days; a group with a row after CW start needs its days
+   on or before the start complete too, DL83 H6), a product of its rows' days billed more than its labels, a label of it with no day or no
+   manifest, a label of its manifests naming no sales order, or no label at all while after CW start (`group_unknown`): all of it waits. A
+   Special Delivery or wrong-weight row CW cannot put in a group (no manifest, its sales order on no label) waits after CW start too.
+5. A SERVICE CODE the plan does not map, or a report's service other than its CW parcel's: that day waits (in 3).
+6. CW START: every day on or before the main shop's CW start is wholly before CW start, the start day included: a label of such a day that the
+   destinations put on an order or a shop's "not on an order" is that shop's before CW start (`PooledPlanner::beforeStartLabels`); a party
+   with no shop (Hayati Vapes) or a label held for doubt stays as it is. Such a day never waits (its money is not in the profit either way).
+7. The r8 MEDIUMs: an account switched off keeps its due days (an import's days written due, never planned or dropped while it is off; the
+   nightly re-reads the state under the lock); one group that cannot be planned now never blocks the others (a batch that fails is planned key
+   by key; a due day stays due only when one of its keys failed; the nightly says "partial" once every other group is planned, exit 1); one
+   account's database error never stops the others (`replan`, `bin/rm_labels.php --status`); every list in a query is in chunks (days 300,
+   labels 500, rows 200-300: no placeholder limit on a big catch-up); the check's take-out table keeps charges and credits apart (a line each,
+   the credit marked).
+8. THE HEALTH ALERT (`RoyalMailBills::health`, in `bin/health_alert.php`'s problems, every active pooled account): `rm_report_missing` when a
+   day of the last whole week (Monday to Sunday) is covered by no report by the Tuesday after, 12:00 UK; `rm_days_waiting` when a day of a live
+   bill has waited more than 14 days (counted from the day). The labels table on Profit > Delivery bills shows per account: labels in CW,
+   covered up to, the last report (From - To, when) and the days waiting.
+9. PHASE 2 (later, not now): the API pull and CW's own `sale_parcel.service_code` (D5) to end Tracked days without the report.
+Red first (`runs/rmbills_r9_red.log`: `RoyalMailReportOnlyTest`, 10 tests, 7 errors 3 failures); green `runs/rmbills_r9_green*.log`. Earlier
+tests changed with the rule (each said in the test): the pull's tests deleted (the pull is gone); "no_report" is now the reason that applies;
+three tests billed more units than labels for a day and now bill as many (`testALabelKeepsItsOrderThroughAWait`, r4 Store's check, the r7
+Special Delivery group gets its second label), one bills its manifest on its label's day (r8 H5); the red test of 3a expected the day priced
+at 254 in all, but 2 labels at 254 with 1 billed is 508 on the order and 254 "not charged" (the day's line), as the day book always did.
 
 ## A count sheet's product box: find an item by its name, as on the adjustment screen (branch `count-picker`, 23 Nov 2026; CP1-CP8; no migration)
 

@@ -30,6 +30,9 @@ use CW\Settings;
  *     landing_order  a WEBSITE BUG (docs/decisions.md LP9): an order the store took for a landing page, not a product, still open on
  *                    Approvals › From the stores › Website bugs. One alert per store (the newest order and how many are open), sent
  *                    again at most once per alerts.repeat_minutes while one is open, "back to normal" when all are handled.
+ *   per active Royal Mail account (docs/decisions.md DL84; RoyalMailBills::health):
+ *     rm_report_missing  a day of the last whole week (Monday to Sunday) covered by no Click & Drop report by the Tuesday after, 12:00 UK
+ *     rm_days_waiting    a day of a live bill waiting more than 14 days (counted from the day)
  *
  * Read only. The probe is injectable (tests).
  */
@@ -77,6 +80,10 @@ final class Alerts
         }
         foreach ($this->landingOrders() as $p) {
             $out[] = $p;
+        }
+        // Royal Mail delivery cost (DL84 8): a week with no Click & Drop report by Tuesday 12:00, a bill's days waiting more than 14 days
+        foreach (\CW\Profit\RoyalMailBills::health($this->db, Clock::now()) as $p) {
+            $out[] = $p + ['channel' => null, 'channel_id' => null, 'name' => null, 'mode' => null];
         }
         return $out;
     }

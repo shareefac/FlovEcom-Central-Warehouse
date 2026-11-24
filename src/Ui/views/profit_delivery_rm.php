@@ -87,6 +87,31 @@ $groupText = static function (array $w) use ($W): string {
 </table>
 </div>
 
+<?php if (($waiting ?? []) !== []): ?>
+<h2><?= $word('DELIVERY', 'rm_waiting_title') ?></h2>
+<p class="hint"><?= $word('DELIVERY', 'rm_waiting_hint') ?></p>
+<div class="table-wrap">
+<table class="stack rp-table delivery-rm-waiting">
+  <thead>
+    <tr>
+      <th scope="col"><?= $word('DELIVERY', 'rm_day') ?></th>
+      <th scope="col"><?= $word('DELIVERY', 'rm_reason') ?></th>
+      <th scope="col" class="num"><?= $word('DELIVERY', 'cost') ?></th>
+    </tr>
+  </thead>
+  <tbody>
+<?php foreach ($waiting as $w): ?>
+    <tr>
+      <th scope="row"><?= $day((string) $w['day']) ?></th>
+      <td data-label="<?= $word('DELIVERY', 'rm_reason') ?>"><?= $e($W['rm_held_' . $w['reason']] ?? (string) $w['reason']) ?></td>
+      <td class="num" data-label="<?= $word('DELIVERY', 'cost') ?>"><?= $e($gbp((int) $w['pence'])) ?></td>
+    </tr>
+<?php endforeach; ?>
+  </tbody>
+</table>
+</div>
+<?php endif; ?>
+
 <?php if ($days !== []): ?>
 <h2><?= $word('DELIVERY', 'rm_days_title') ?></h2>
 <div class="table-wrap">

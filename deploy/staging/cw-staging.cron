@@ -86,10 +86,6 @@ MAILTO=""
 # reads every document since the start not read yet (it waits for a run of every ten minutes that holds the lock).
 */10 * * * *  root  cd /opt/cw-staging && php bin/refresh_item_cost.php --db=cw_staging >> /var/log/cw/refresh_item_cost.log 2>&1
 25 3 * * *  root  cd /opt/cw-staging && php bin/refresh_item_cost.php --db=cw_staging --reconcile >> /var/log/cw/refresh_item_cost.log 2>&1
-# Royal Mail's labels read from Click & Drop (GET only; each account's key in /etc/cw/carrier_keys.env, root only, never logged): every
-# active account from its checkpoint less 3 days to yesterday, then its bills' days planned again (docs/decisions.md DL49), before the
-# bills' nightly below.
-20 3 * * *  root  cd /opt/cw-staging && php bin/rm_labels.php --db=cw_staging --pull >> /var/log/cw/rm_labels.log 2>&1
 # The lines of the live delivery bills not matched yet tried again (a parcel that reached CW after its bill: DL10), before the profit days
 # are checked: a line put on a parcel or an order moves its cost in the same transaction; Royal Mail's bills planned again (DL66).
 35 3 * * *  root  cd /opt/cw-staging && php bin/match_delivery_bills.php --db=cw_staging >> /var/log/cw/match_delivery_bills.log 2>&1

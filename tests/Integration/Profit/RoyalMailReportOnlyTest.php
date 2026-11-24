@@ -172,7 +172,7 @@ final class RoyalMailReportOnlyTest extends StockTestCase
         $id = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line($day, 'TPL', 1, 254, '943')]))['invoice_id'];
         self::assertSame(['held||parcel_missing' => 254], self::where($id), 'JV...922, labelled that day in CW, is in no report');
         $this->report([RmFixtures::label('JV000000922GB', 'TPL48HV', $day, '1369921')], $day, $day);
-        self::assertSame(["order|{$this->vpg}|" => 254], self::where($id), 'both in: the day prices (2 labels, 1 billed)');
+        self::assertSame(["order|{$this->vpg}|" => 508, "shop|{$this->vpg}|" => -254], self::where($id), 'both in: the day prices (2 labels at 254, 1 billed: 1 not charged)');
         $this->assertRebuilds();
     }
 

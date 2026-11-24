@@ -78,8 +78,9 @@ final class Grants
         'opening_replacement', 'relay_mode_seen',
         // 0074 (docs/decisions.md PR17): every move of an item's buying price is a row of its own, so the cost on a past day stays readable.
         'item_cost_event',
-        // 0078 (docs/decisions.md DL50): a pooled carrier bill's rows as printed are never changed or removed.
-        'carrier_bill_row'];
+        // 0078 (docs/decisions.md DL50): a pooled carrier bill's rows as printed are never changed or removed; a Click & Drop report import and
+        // the days it covers are a fact of their own (DL84: a day is covered only by an import, never uncovered by the app).
+        'carrier_bill_row', 'carrier_report_import', 'carrier_day_cover'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -231,9 +232,8 @@ final class Grants
         // rebuilds a day (DELETE + INSERT in one transaction).
         'order_snapshot', 'sale_order', 'sale_line', 'sale_parcel', 'item_cost', 'profit_job', 'item_cost_document',
         // 0078 (docs/decisions.md DL44-DL49): the delivery parties and carrier accounts with their rules (set by bin/carrier_account.php, with
-        // audit; never removed: bills and labels name them), the labels (a second source fills empty fields; never removed) and the pull
-        // checkpoints.
-        'delivery_party', 'carrier_account', 'carrier_account_party', 'carrier_channel', 'carrier_party_rule', 'carrier_label', 'carrier_label_pull'];
+        // audit; never removed: bills and labels name them) and the labels (a second source fills empty fields; never removed).
+        'delivery_party', 'carrier_account', 'carrier_account_party', 'carrier_channel', 'carrier_party_rule', 'carrier_label'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

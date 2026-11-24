@@ -165,22 +165,26 @@ final class DeliveryBillsController
     }
 
     /**
-     * POST labels: Click & Drop's "Manifested Orders" report of an account (RoyalMailBills::importReport, DL48): its labels read (never a name,
-     * address or the file) and the bills' days planned again; the page says how many.
+     * POST labels: Click & Drop's "Manifested Orders" report of an account with the From and To days it was run for (RoyalMailBills::importReport,
+     * DL48, DL84): its labels read (never a name, address or the file), those days covered, the bills' days planned again; the page says how many.
      */
     public function labels(Context $ctx): HtmlResponse
     {
         $account = UiRequest::id($ctx->req->field('account'));
+        // the days the report was run for in Click & Drop (DL84): they are what the import covers
+        $from = substr(trim((string) ($ctx->req->field('from') ?? '')), 0, 10);
+        $to = substr(trim((string) ($ctx->req->field('to') ?? '')), 0, 10);
         try {
             if ($account === null) {
                 throw new CwException('no_account', Words::DELIVERY['rm_no_account'], 422, ['field' => 'account']);
             }
             $file = InvoicesController::upload($ctx);
-            $r = (new RoyalMailBills($ctx->db))->importReport($ctx->caller(), $account, (string) file_get_contents($file['path']));
+            $r = (new RoyalMailBills($ctx->db))->importReport($ctx->caller(), $account, (string) file_get_contents($file['path']), $from, $to);
         } catch (CwException $e) {
-            return $this->listPage($ctx, $e->httpStatus, $e, ['account' => $account, 'carrier' => 'royal_mail']);
+            return $this->listPage($ctx, $e->httpStatus, $e, ['account' => $account, 'carrier' => 'royal_mail', 'from' => $from, 'to' => $to]);
         }
-        $said = Words::say('DELIVERY', 'rm_labels_read', number_format($r['labels']), number_format($r['added']), number_format($r['filled']), number_format($r['skipped']))
+        $said = Words::say('DELIVERY', 'rm_labels_read', number_format($r['labels']), number_format($r['added']), number_format($r['filled']), number_format($r['skipped']),
+            $from, $to)
             . ($r['differs'] > 0 ? ' ' . Words::say('DELIVERY', 'rm_labels_differ', number_format($r['differs'])) : '')
             . ($r['replan_error'] !== null ? ' ' . $r['replan_error'] : '');
         return $this->listPage($ctx, 200, null, [], $said);

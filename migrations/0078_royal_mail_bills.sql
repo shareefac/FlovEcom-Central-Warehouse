@@ -8,8 +8,8 @@
 --    per day and service: Royal Mail). carrier_invoice.carrier links to it (its 0077 CHECK "dpd or royal_mail" is replaced).
 --  * delivery_party: who a parcel's cost belongs to: one row per CW shop, plus parties with no shop in CW (hayativapes: its costs are on
 --    their own line, in no shop's profit; when it joins CW its row gets its shop and a FROM day).
---  * carrier_account: a carrier account (number as printed), its bill format and label source, the NAME of its Click & Drop key in CW's
---    secret file (never the key), its main party (takes the charges of no parcel) and its state (active / off until its first bill ties).
+--  * carrier_account: a carrier account (number as printed), its bill format and label source, a key name for phase 2 (NULL in phase 1:
+--    report-only, DL84), its main party (takes the charges of no parcel) and its state (active / off until its first bill ties).
 --  * carrier_account_party: the parties an account serves, each from a day.
 --  * carrier_channel: an account's Click & Drop channels by their exact names, each with a short code (a label keeps the code only).
 --  * carrier_party_rule: how a label NOT found in CW is given its party, first rule that fits wins: by channel, by the reference's form
@@ -18,9 +18,9 @@
 --    wrong-weight surcharge, surcharge of no parcel, return), and the weight bands (grams, the edge inclusive).
 -- Data:
 --  * carrier_label: one row per label a pooled account made (account x tracking number): the Click & Drop fields the matching needs, from
---    the API pull or the "Manifested Orders" report; never a name, address, postcode, email or phone. carrier_label_pull: each account's
---    pull checkpoint (the last day fully read); carrier_label_pull_day: each day a successful pull read (an account with a key waits for
---    that on every day after its main shop's CW start: DL80).
+--    the "Manifested Orders" report (phase 1 is report-only: DL84); never a name, address, postcode, email or phone. carrier_report_import:
+--    each report read (its From..To as it was run in Click & Drop); carrier_day_cover: the days each import covers WHOLE (a day after the
+--    main shop's CW start moves money only when covered and checked: DL84).
 --  * carrier_bill_row: a pooled bill's rows as printed (day, product, quantity, net, gross, VAT code, the reference only in a known form).
 --  * carrier_allocation: where every penny of a bill row went (an order's parcel, a shop's "not on an order", a party with no shop, before
 --    CW start, held), adding up to the row's net; ended (never deleted) when it no longer counts.
@@ -90,8 +90,8 @@ CREATE TABLE IF NOT EXISTS carrier_account (
   account_no     VARCHAR(32)       NOT NULL COMMENT 'as the carrier prints it on its bills',
   name           VARCHAR(64)       NOT NULL,
   bill_format    VARCHAR(16)       NOT NULL COMMENT 'dpd_csv, rm_oba_page',
-  label_source   VARCHAR(16)       NOT NULL COMMENT 'connector (the shops'' own parcels), click_and_drop (the API pull and the report upload)',
-  key_name       VARCHAR(64)       NULL COMMENT 'the NAME of its key in CW''s secret file /etc/cw/carrier_keys.env (never the key)',
+  label_source   VARCHAR(16)       NOT NULL COMMENT 'connector (the shops'' own parcels), click_and_drop (the Manifested Orders report upload; its API pull is phase 2: DL84)',
+  key_name       VARCHAR(64)       NULL COMMENT 'phase 2 only (the Click & Drop API pull, DL84): the NAME of its key in CW''s secret file, never the key; NULL in phase 1',
   main_party_id  SMALLINT UNSIGNED NOT NULL COMMENT 'takes the charges that belong to no parcel; a party with a shop',
   state          ENUM('active','off') NOT NULL COMMENT 'active: its bills and labels count; off: refused (Vape Big''s until its first bill ties)',
   created_at     DATETIME(6)       NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -111,12 +111,12 @@ INSERT INTO carrier_account (carrier, account_no, name, bill_format, label_sourc
   SELECT 'dpd', '3012002', 'DPD (Vape and Go)', 'dpd_csv', 'connector', NULL, p.id, 'active' FROM delivery_party p WHERE p.code = 'vapeandgo'
   ON DUPLICATE KEY UPDATE carrier = carrier_account.carrier;
 INSERT INTO carrier_account (carrier, account_no, name, bill_format, label_source, key_name, main_party_id, state)
-  SELECT 'royal_mail', '0706703000', 'Royal Mail OBA (Vape and Go, Electrofag, Hayati Vapes)', 'rm_oba_page', 'click_and_drop', 'click_and_drop_0706703000', p.id, 'active'
+  SELECT 'royal_mail', '0706703000', 'Royal Mail OBA (Vape and Go, Electrofag, Hayati Vapes)', 'rm_oba_page', 'click_and_drop', NULL, p.id, 'active'
   FROM delivery_party p WHERE p.code = 'vapeandgo'
   ON DUPLICATE KEY UPDATE carrier = carrier_account.carrier;
 -- Vape Big's own Royal Mail account: its number is not known yet (the owner sends its first bill); off until that bill ties by the day rule.
 -- Only while Vape Big has no Royal Mail account (its number set later by bin/carrier_account.php: a run again never makes a second one). Read
--- by report only (no key name) until its key is in the key file and named by bin/carrier_account.php --key-name (DL81).
+-- by report only, as every account in phase 1 (DL84).
 INSERT INTO carrier_account (carrier, account_no, name, bill_format, label_source, key_name, main_party_id, state)
   SELECT 'royal_mail', 'vapebig-pending', 'Royal Mail OBA (Vape Big)', 'rm_oba_page', 'click_and_drop', NULL, p.id, 'off'
   FROM delivery_party p WHERE p.code = 'vapebig'
@@ -240,7 +240,7 @@ CREATE TABLE IF NOT EXISTS carrier_label (
   id             BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
   account_id     SMALLINT UNSIGNED NOT NULL,
   tracking_no    VARCHAR(32)       NOT NULL,
-  source         ENUM('api','report') NOT NULL COMMENT 'what brought it first; the other only fills empty fields',
+  source         ENUM('api','report') NOT NULL COMMENT 'what brought it first; the other only fills empty fields (phase 1: report only, DL84; api is phase 2)',
   source_id      BIGINT UNSIGNED   NULL COMMENT 'Click & Drop''s order identifier',
   reference      VARCHAR(12)       NULL COMMENT 'the shop order number the label carried: up to 9 digits, or # and digits; anything else (a phone number) not kept',
   channel_code   VARCHAR(16)       NULL COMMENT 'its Click & Drop channel as the code of one of the account''s (carrier_channel), else other',
@@ -277,26 +277,34 @@ CREATE TABLE IF NOT EXISTS carrier_label (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='one row per label of a pooled carrier account (docs/decisions.md DL48): never a name, address, postcode, email or phone';
 
-CREATE TABLE IF NOT EXISTS carrier_label_pull (
+CREATE TABLE IF NOT EXISTS carrier_report_import (
+  id             BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
   account_id     SMALLINT UNSIGNED NOT NULL,
-  read_to        DATE              NULL COMMENT 'the last UK day read whole from Click & Drop: the next pull starts 3 days before it',
-  last_try_at    DATETIME(6)       NULL,
-  last_ok_at     DATETIME(6)       NULL,
-  last_error     VARCHAR(160)      NULL COMMENT 'what went wrong, in CW''s words (an HTTP status, a code): never an answer of the API, never the key',
-  unread_from    DATE              NULL COMMENT 'the earliest day a pull could not read whole: the next pull starts there at the latest (DL83)',
-  PRIMARY KEY (account_id),
-  CONSTRAINT fk_carrier_label_pull_account FOREIGN KEY (account_id) REFERENCES carrier_account (id)
+  from_day       DATE              NOT NULL COMMENT 'the first day the report was run for in Click & Drop',
+  to_day         DATE              NOT NULL COMMENT 'the last day (before the day of the import: a day not over is never covered)',
+  file_sha256    CHAR(64)          NOT NULL COMMENT 'of the file read (never the file: it holds names and addresses)',
+  rows_read      INT UNSIGNED      NOT NULL,
+  labels         INT UNSIGNED      NOT NULL,
+  staff_user_id  INT UNSIGNED      NULL,
+  actor          VARCHAR(64)       NOT NULL,
+  imported_at    DATETIME(6)       NOT NULL,
+  PRIMARY KEY (id),
+  KEY ix_carrier_report_import_account (account_id, to_day),
+  CONSTRAINT fk_carrier_report_import_account FOREIGN KEY (account_id) REFERENCES carrier_account (id),
+  CONSTRAINT ck_carrier_report_import CHECK (from_day <= to_day AND REGEXP_LIKE(file_sha256, '^[0-9a-f]{64}$', 'c'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='each account''s Click & Drop pull checkpoint (docs/decisions.md DL49)';
+  COMMENT='each Click & Drop "Manifested Orders" report read (docs/decisions.md DL84): its days, never the file';
 
-CREATE TABLE IF NOT EXISTS carrier_label_pull_day (
+CREATE TABLE IF NOT EXISTS carrier_day_cover (
   account_id     SMALLINT UNSIGNED NOT NULL,
-  day            DATE              NOT NULL COMMENT 'a UK day whose Click & Drop orders a successful pull read (and stored)',
-  read_at        DATETIME(6)       NOT NULL COMMENT 'when it was first read',
-  PRIMARY KEY (account_id, day),
-  CONSTRAINT fk_carrier_label_pull_day_account FOREIGN KEY (account_id) REFERENCES carrier_account (id)
+  day            DATE              NOT NULL,
+  import_id      BIGINT UNSIGNED   NOT NULL COMMENT 'the report import that covers it (written in the same transaction as its labels)',
+  PRIMARY KEY (account_id, day, import_id),
+  KEY ix_carrier_day_cover_import (import_id),
+  CONSTRAINT fk_carrier_day_cover_account FOREIGN KEY (account_id) REFERENCES carrier_account (id),
+  CONSTRAINT fk_carrier_day_cover_import FOREIGN KEY (import_id) REFERENCES carrier_report_import (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='each day read whole (docs/decisions.md DL80, DL83): by a pull, or recorded by a person for a report-only account; a day waits until it is here';
+  COMMENT='the days a report import covers whole (docs/decisions.md DL84): only these may move money, once checked';
 
 CREATE TABLE IF NOT EXISTS carrier_bill_row (
   invoice_id    BIGINT UNSIGNED   NOT NULL,
@@ -327,7 +335,7 @@ CREATE TABLE IF NOT EXISTS carrier_allocation (
   row_no       INT UNSIGNED      NOT NULL,
   kind         ENUM('label','wrong_weight','day_line','row') NOT NULL
                COMMENT 'label: a label''s price; wrong_weight: a label''s share of a wrong-weight row; day_line: the day''s labels not charged / billed with no label; row: a row on no label (surcharge, return, no batch, pence left over)',
-  how          VARCHAR(16)       NOT NULL COMMENT 'flat, band, average, shared, left_over, no_label, no_batch, surcharge, return, tail',
+  how          VARCHAR(16)       NOT NULL COMMENT 'flat, band, average, shared, left_over, no_label, no_batch, surcharge, return, tail, day; waiting: held whole until its day or group is covered and checked (DL84)',
   label_id     BIGINT UNSIGNED   NULL,
   dest         ENUM('order','shop','party','before_start','held') NOT NULL
                COMMENT 'order: on an order''s parcel (in its shop''s profit, its paid day); shop: a shop''s "not on an order" on the day; party: a party with no shop (in no profit); before_start: before CW start (in no profit); held: shop not known or a conflict (in no profit)',
