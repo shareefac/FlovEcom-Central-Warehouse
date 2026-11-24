@@ -126,18 +126,18 @@ final class RoyalMailViews
     /**
      * What moves on the bills already live when a checked bill is stored (DL81): by bill and service day, in checkWhere()'s groups.
      *
-     * @param array<string, int> $others RoyalMailBills::preview()['others']: "invoice|day|dest|shop|party|reason|day_line" => pence
-     * @return list<array{invoice_no: string, day: string, group: string, name: string, reason: ?string, pence: int}>
+     * @param array<string, array{in: int, out: int}> $others RoyalMailBills::preview()['others']: "invoice|day|dest|shop|party|reason|day_line" => in, out
+     * @return list<array{invoice_no: string, day: string, group: string, name: string, reason: ?string, pence: int, in: int, out: int}>
      */
     public function checkOthers(array $others): array
     {
         $out = [];
         $numbers = [];
-        foreach ($others as $k => $pence) {
+        foreach ($others as $k => $m) {
             [$inv, $day, $rest] = array_pad(explode('|', (string) $k, 3), 3, '');
             $numbers[(int) $inv] ??= (string) ($this->db->value('SELECT invoice_no FROM carrier_invoice WHERE id = ?', [(int) $inv]) ?? $inv);
-            foreach ($this->checkWhere([$rest => (int) $pence]) as $w) {
-                $out[] = ['invoice_no' => $numbers[(int) $inv], 'day' => $day] + $w;
+            foreach ($this->checkWhere([$rest => (int) $m['in'] - (int) $m['out']]) as $w) {
+                $out[] = ['invoice_no' => $numbers[(int) $inv], 'day' => $day, 'in' => (int) $m['in'], 'out' => (int) $m['out']] + $w;
             }
         }
         usort($out, static fn (array $a, array $b): int => [$a['invoice_no'], $a['day'], $a['group'], $a['name']] <=> [$b['invoice_no'], $b['day'], $b['group'], $b['name']]);

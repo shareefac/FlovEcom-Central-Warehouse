@@ -127,6 +127,33 @@ final class ClickAndDropClient
     }
 
     /**
+     * Whether an order's details are whole for its day to count as read (DL82): an order not manifested yet always is (it is read again when it
+     * is); a manifested one needs a manifest time CW reads and a Royal Mail tracking number on every package (or on the order, with no packages).
+     *
+     * @param array<string, mixed> $o a reduce()d order
+     */
+    public static function complete(array $o): bool
+    {
+        if (($o['manifestedOn'] ?? null) === null || $o['manifestedOn'] === '') {
+            return true;
+        }
+        if (self::time($o['manifestedOn']) === null) {
+            return false;
+        }
+        $rm = static fn (mixed $t): bool => is_string($t) && preg_match('/^[A-Z]{2}[0-9]{9}GB$/D', strtoupper(trim($t))) === 1;
+        $packages = (array) ($o['packages'] ?? []);
+        if ($packages === []) {
+            return $rm($o['trackingNumber'] ?? null);
+        }
+        foreach ($packages as $p) {
+            if (!is_array($p) || !$rm($p['trackingNumber'] ?? null)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * The labels in these orders: one per package's tracking number (else the order's own), each field only in its known shape.
      *
      * @param list<array<string, mixed>> $orders reduce()d orders

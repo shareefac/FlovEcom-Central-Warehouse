@@ -213,19 +213,15 @@ final class PooledPlanner
     private static function band(array $rows, array $labels, array $ctx): array
     {
         $out = [];
+        // DL82: the manifest is ONE group across all its rows and days, checked whole BEFORE any pricing or fallback: when any of its days
+        // (its rows', its labels' manifest days) waits, or it has no label (unless all of it is before CW start), all of it waits (the Codex
+        // checks r5 HIGH 2, r6 F2)
+        if (self::groupWaits($rows, $labels, $ctx, true)) {
+            return self::waitAll($rows);
+        }
         if ($labels === []) {
             foreach ($rows as $r) {
-                $wait = self::waiting($r, $ctx);
-                self::push($out, self::alloc($r, 'row', $wait ? 'no_report' : 'no_label', null, $wait ? self::held('no_report')
-                    : self::mainDest($ctx, (string) $r['service_date']), (int) $r['net']));
-            }
-            return $out;
-        }
-        // a manifest whose day (its rows', its labels') waits for its labels: the whole manifest held, never priced on a part of its labels
-        // (the Codex check r5, HIGH 2; DL81)
-        if (array_filter($rows, static fn (array $r): bool => self::waiting($r, $ctx)) !== [] || self::labelsWait($labels, $ctx)) {
-            foreach ($rows as $r) {
-                self::push($out, self::alloc($r, 'row', 'no_report', null, self::held('no_report'), (int) $r['net']));
+                self::push($out, self::alloc($r, 'row', 'no_label', null, self::mainDest($ctx, (string) $r['service_date']), (int) $r['net']));
             }
             return $out;
         }
@@ -309,17 +305,16 @@ final class PooledPlanner
     private static function wrongWeight(array $rows, array $labels, array $ctx): array
     {
         $out = [];
+        // DL82: the sales order is ONE group across all its rows, checked whole first: when its labels' manifest days wait, or it has no label
+        // (unless all of it is before CW start), all of it waits. Its rows' own dates are the adjustments' (no label is made on them): its days
+        // are its labels' (the Codex checks r5 HIGH 2, r6 F2)
+        if (self::groupWaits($rows, $labels, $ctx, false)) {
+            return self::waitAll($rows);
+        }
         foreach ($rows as $r) {
             $net = (int) $r['net'];
             if ($labels === []) {
-                $wait = self::waiting($r, $ctx);
-                self::push($out, self::alloc($r, 'row', $wait ? 'no_report' : 'no_batch', null, $wait ? self::held('no_report')
-                    : self::mainDest($ctx, (string) $r['service_date']), $net));
-                continue;
-            }
-            if (self::labelsWait($labels, $ctx)) {
-                // its sales order's labels' day waits for its labels: held, never shared over a part of them (the Codex check r5, HIGH 2)
-                self::push($out, self::alloc($r, 'row', 'no_report', null, self::held('no_report'), $net));
+                self::push($out, self::alloc($r, 'row', 'no_batch', null, self::mainDest($ctx, (string) $r['service_date']), $net));
                 continue;
             }
             $each = intdiv($net, count($labels));
@@ -438,6 +433,36 @@ final class PooledPlanner
      *
      * @param array<string, mixed> $r
      */
+    /**
+     * Whether a Special Delivery manifest or a wrong-weight sales order waits WHOLE (DL82): a day of it waits (its labels' manifest days; a
+     * manifest's rows' days too), or it has no label while a row of it is after the main shop's CW start (no label is no sign its labels are
+     * all in). Before CW start it never waits (its money is before CW start).
+     *
+     * @param list<array<string, mixed>> $rows
+     * @param list<array<string, mixed>> $labels
+     */
+    private static function groupWaits(array $rows, array $labels, array $ctx, bool $rowDays): bool
+    {
+        if (self::labelsWait($labels, $ctx) || ($rowDays && array_filter($rows, static fn (array $r): bool => self::waiting($r, $ctx)) !== [])) {
+            return true;
+        }
+        if ($labels !== [] || !array_key_exists('main_start', $ctx)) {
+            return false;
+        }
+        $start = $ctx['main_start'];
+        return $start !== null && array_filter($rows, static fn (array $r): bool => (string) $r['service_date'] > (string) $start) !== [];
+    }
+
+    /** Every row of a group held whole, waiting for its labels (DL82). @param list<array<string, mixed>> $rows @return list<array<string, mixed>> */
+    private static function waitAll(array $rows): array
+    {
+        $out = [];
+        foreach ($rows as $r) {
+            self::push($out, self::alloc($r, 'row', 'no_report', null, self::held('no_report'), (int) $r['net']));
+        }
+        return $out;
+    }
+
     /** Whether the manifest day of any of these labels waits for its labels (ctx waiting). @param list<array<string, mixed>> $labels */
     private static function labelsWait(array $labels, array $ctx): bool
     {

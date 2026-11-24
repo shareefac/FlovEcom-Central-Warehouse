@@ -1306,9 +1306,9 @@ final class RoyalMailBillsTest extends StockTestCase
     public function testR7AReplacementsCheckHoldsTheOldBillAndItsDroppedDays(): void
     {
         $person = self::person('rm7');
-        self::order($this->vpg, '1442', '1361442', '2026-11-13T09:00:00Z', ['JV000000442GB' => '2026-11-13T10:00:00Z']);
-        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000441GB', 'TPL48HV', '2026-11-12', '1361441'),
-            RmFixtures::label('JV000000442GB', 'TPL48HV', '2026-11-13', '1361442')], 'report');
+        self::order($this->vpg, '1442', '1361440', '2026-11-13T09:00:00Z', ['JV000000442GB' => '2026-11-13T10:00:00Z']);
+        self::rm()->importLabels(self::system(), $this->acct['account'], [RmFixtures::label('JV000000441GB', 'TPL48HV', '2026-11-12', '1361449'),
+            RmFixtures::label('JV000000442GB', 'TPL48HV', '2026-11-13', '1361440')], 'report');
         $old = self::rm()->upload(self::system(), $this->acct['account'], RmBill::page([RmBill::line('2026-11-12', 'TPL', 1, 254, '943'),
             RmBill::line('2026-11-13', 'TPL', 1, 254, '943')], ['invoice' => '9070000441']))['invoice_id'];
         self::assertSame(["order|{$this->vpg}|" => 254, "shop|{$this->vpg}|" => 254], self::where($old));
@@ -1317,7 +1317,7 @@ final class RoyalMailBillsTest extends StockTestCase
         self::assertSame([['2026-11-12', 'TPL', true], ['2026-11-13', 'TPL', false]], array_map(static fn (array $d): array => [$d['day'], $d['product'], $d['removed']],
             $c['preview']['days']), 'the day the correction drops stays in the table, marked removed');
         // the old bill's 12th moves to an order before Store (its parcel came, the nightly ran): Store refuses
-        self::order($this->vpg, '1441', '1361441', '2026-11-12T09:00:00Z', ['JV000000441GB' => '2026-11-12T10:00:00Z']);
+        self::order($this->vpg, '1441', '1361449', '2026-11-12T09:00:00Z', ['JV000000441GB' => '2026-11-12T10:00:00Z']);
         self::rm()->replan(self::system(), null, 3650);
         self::assertSame(["order|{$this->vpg}|" => 508], self::where($old));
         try {

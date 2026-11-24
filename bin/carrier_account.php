@@ -87,6 +87,11 @@ function carrier_account_change(Cli $cli, array $opts, string $no): int
             $cli->error("account {$a['account_no']} has a key name already: nothing changed");
             return Cli::PROBLEM;
         }
+        if ($cli->db->value('SELECT 1 FROM carrier_account WHERE key_name = ? LIMIT 1', [$name]) !== null) {
+            // a key is one account's (0078's uq_carrier_account_key): no account reads through another's (the Codex check r6, F3; DL82)
+            $cli->error("the key name {$name} is another account's: nothing changed");
+            return Cli::PROBLEM;
+        }
         $cli->db->transaction(static function (Db $db) use ($a, $name, $caller): void {
             $db->exec('UPDATE carrier_account SET key_name = ? WHERE id = ? AND key_name IS NULL', [$name, (int) $a['id']]);
             Audit::write($db, $caller, 'carrier_account.set', 'carrier_account', (string) $a['id'], null, ['key_name' => [null, $name]]);

@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS carrier_account (
   created_at     DATETIME(6)       NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (id),
   UNIQUE KEY uq_carrier_account (carrier, account_no),
+  UNIQUE KEY uq_carrier_account_key (key_name) COMMENT 'a key is one account''s: no account reads through another''s (DL82)',
   KEY ix_carrier_account_party (main_party_id),
   CONSTRAINT fk_carrier_account_carrier FOREIGN KEY (carrier) REFERENCES carrier (code),
   CONSTRAINT fk_carrier_account_party FOREIGN KEY (main_party_id) REFERENCES delivery_party (id),

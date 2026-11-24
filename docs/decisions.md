@@ -20169,7 +20169,7 @@ goes on the line's order like the others; a file without the column (the weeks b
 (a column CW did not know, with amounts in it). Tested with a synthetic file only. (DPD account 3012002 stays Vape and Go's only: the
 owner, 23 Nov 2026, Electrofag does not use DPD.)
 
-## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL81; migration 0078)
+## Delivery cost, phase 1: Royal Mail's bills, account-generic (branch `rm-bills`, 23-24 Nov 2026; DL43-DL82; migration 0078)
 
 <!-- ---- Shipping plan v3 phase 1 (0078): DL43-DL70. ---- -->
 The plan: `cw_work/delivery_cost_20261123/SHIPPING_PLAN_v3.md` (its money rules and the owner's decisions Q1-Q8 of 23 Nov 2026 are the spec);
@@ -20547,6 +20547,33 @@ by report only (no key name, 0078) until its key is in the key file and named (`
 --key-name=<name>`, audited, only while it has none). (LOW 9) the check of the very bill live, on the screen and in `bin/rm_bill.php`, shows
 the split it HAS (its live allocations). (LOW 10) a busy Store offers its check again only while it is open, with the minutes left; one that
 ran out meanwhile says to check again. (LOW 11) the account tool never gives an account another account's number (nor 3012002 / 0706703000).
+
+**DL82. THE RULE: money reaches a shop only when all it depends on is complete (the coordinator, 24 Nov 2026, after the Codex check r6 of
+70e24a2: NO GO, 3 HIGH, 5 MEDIUM, 2 LOW; one strict rule instead of case by case).** Money of a Royal Mail row goes to a shop (an order, a
+shop's "not on an order", or the day's line) ONLY when everything it depends on is complete. When any part is incomplete the WHOLE group waits
+(held `no_report`, said "waiting for its labels from Click & Drop" on the bill's page), never a part of it; waiting money is never lost: it
+shows on the bill's page and the next pull, report or nightly plans it again. What "complete" is:
+- A DAY of an account with a key is READ only when the pull got every order its day's list named with its details AND every manifested
+  order of them has a manifest time CW reads and a Royal Mail tracking number on every package (`ClickAndDropClient::complete`). Anything
+  missing: that day is not read (`unread` in the pull's result, said in the account's last problem), its labels that came are kept, and the
+  next pull reads it again; an order not manifested yet stays eligible as before (r6 F1). The checkpoint moves only over the days read from
+  the pull's first day without a gap.
+- A TRACKED DAY (day x product) waits whole while its day is not read or a label of it has no service (DL71, DL80).
+- A SPECIAL DELIVERY MANIFEST and a WRONG-WEIGHT SALES ORDER are each ONE group across all their bill rows and days, checked whole BEFORE
+  any pricing or fallback (band, average, the main shop's "not on an order"): when any day of the group waits, or the group has no label
+  while a row of it is after the main shop's CW start, all of its rows wait (`PooledPlanner::groupWaits`; r6 F2). A manifest's days are its
+  rows' dates and its labels' manifest days; a sales order's days are its labels' manifest days (its rows' dates are the adjustments', on
+  which no label is made). A group all on or before CW start is before CW start, as before. (Before this, a manifest or a sales order with
+  no label went to Vape and Go's "not on an order": it now waits.)
+- A PULL that reads a day plans again every group touching it: its rows of that date and the groups (day, manifest, sales order) of every
+  label of the account manifested that day, billed under another date or not (r6 F5).
+Also fixed with it, each failing first (`runs/rmbills_r7_red.log`, green `runs/rmbills_r7_green*.log`): (r6 F3) a key name is one account's
+(`uq_carrier_account_key`, 0078; `bin/carrier_account.php --key-name` refuses one in use): no account reads through another's key. (r6 F4)
+a pull's labels, the days it read and its checkpoint commit in ONE transaction (a day is never read without its labels). (r6 F6) a
+replacement's check fingerprints the old bill's live allocations too: Store refuses when they moved since the check. (r6 F7) the check shows
+what moves on the bills live IN and OUT apart (gross), never only the net. (r6 F8) a day a correction drops stays in the check's day table,
+marked "Removed by this correction". ACCEPTED (LOW, not built): (r6 F9) the check of the very bill live shows its live split but its day
+table from a plan; (r6 F10) a busy Store's retry counts its time left in whole seconds and shows whole minutes.
 
 ## A count sheet's product box: find an item by its name, as on the adjustment screen (branch `count-picker`, 23 Nov 2026; CP1-CP8; no migration)
 
