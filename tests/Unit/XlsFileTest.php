@@ -45,7 +45,8 @@ final class XlsFileTest extends TestCase
             1 => [0 => 'plain text', 1 => 1.5, 2 => 7.0],
             2 => [0 => 12, 1 => 3.25, 2 => -0.123456789, 3 => -5],
             3 => [0 => 1, 1 => 2.5, 2 => -3],
-            4 => [0 => 'a label', 1 => 2.5, 2 => 'formula text', 3 => true, 4 => true, 5 => null, 7 => 'after a gap'],
+            // an error cell: a value given that cannot be read, never a blank (the astra re-check of b581e70, F6)
+            4 => [0 => 'a label', 1 => 2.5, 2 => 'formula text', 3 => true, 4 => true, 5 => \CW\Profit\XlsFile::ERROR_CELL, 7 => 'after a gap'],
         ];
     }
 

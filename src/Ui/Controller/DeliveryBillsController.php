@@ -187,15 +187,18 @@ final class DeliveryBillsController
         } catch (CwException $e) {
             return $this->listPage($ctx, $e->httpStatus, $e, ['account' => $account, 'carrier' => 'royal_mail', 'from' => $from, 'to' => $to]);
         }
+        // what is still to be planned of the report's days said apart (the astra re-check of b581e70, F12): never an ordinary success
+        $due = (int) ($r['still_due'] ?? 0) > 0 ? ' ' . Words::say('DELIVERY', 'rm_labels_still_due', number_format((int) $r['still_due'])) : '';
         if ($r['already'] ?? false) {
-            // the same report for the same days again (DL86 10): nothing written
+            // the same report for the same days again (DL86 10): its labels not saved again; what its first load left to be planned, planned now
             return $this->listPage($ctx, 200, null, [], Words::say('DELIVERY', 'rm_labels_already', $from, $to)
-                . ($r['replan_error'] !== null ? ' ' . $r['replan_error'] : ''));
+                . ((int) ($r['replanned'] ?? 0) > 0 ? ' ' . Words::say('DELIVERY', 'rm_labels_replanned', number_format((int) $r['replanned'])) : '')
+                . ($r['replan_error'] !== null ? ' ' . $r['replan_error'] : '') . $due);
         }
         $said = Words::say('DELIVERY', 'rm_labels_read', number_format($r['labels']), number_format($r['added']), number_format($r['filled']), number_format($r['skipped']),
             $from, $to)
             . ($r['differs'] > 0 ? ' ' . Words::say('DELIVERY', 'rm_labels_differ', number_format($r['differs'])) : '')
-            . ($r['replan_error'] !== null ? ' ' . $r['replan_error'] : '');
+            . ($r['replan_error'] !== null ? ' ' . $r['replan_error'] : '') . $due;
         return $this->listPage($ctx, 200, null, [], $said);
     }
 

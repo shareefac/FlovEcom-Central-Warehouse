@@ -23,6 +23,9 @@ use CW\CwException;
  */
 final class XlsFile
 {
+    /** What an Excel error cell (#N/A, #VALUE!, ...) reads as: a value given that cannot be read, never a blank (no text cell holds a NUL byte). */
+    public const ERROR_CELL = "\0#error";
+
     /** The largest file read. */
     public const MAX_BYTES = 32 * 1_048_576;
     /** The most rows a worksheet may have (BIFF8 itself stops at 65,536). */
@@ -136,8 +139,19 @@ final class XlsFile
         $size = $stream['size'];
         if ($size < $f['cutoff']) {
             // In the mini stream (64-byte sectors in the root entry's chain), followed through the mini FAT.
+            // the mini FAT bound before it is expanded (the astra re-check of b581e70, F9): the root's mini stream no larger than the file, the
+            // header's mini FAT sector count = its chain's length, enough of it for the mini stream's sectors, and only those entries read
+            if ($root['size'] > $len || $f['miniStart'] >= self::MARKS || $f['nMini'] < 1 || $f['nMini'] > $nsec) {
+                throw self::refuse();
+            }
+            $need = intdiv($root['size'] + 63, 64);
+            $miniChain = $chain($f['miniStart']);
+            $use = intdiv($need + $per - 1, $per);
+            if (count($miniChain) !== $f['nMini'] || $use > count($miniChain) || $need < 1) {
+                throw self::refuse();
+            }
             $mini = substr($read($root['start']), 0, $root['size']);
-            $minifat = $f['miniStart'] < self::MARKS ? array_values((array) unpack('V*', $read($f['miniStart']))) : [];
+            $minifat = array_values((array) unpack('V' . $need, implode('', array_map($sector, array_slice($miniChain, 0, $use)))));
             $parts = [];
             $seen = [];
             for ($s = $stream['start']; $s < self::MARKS; $s = $minifat[$s]) {
@@ -273,7 +287,7 @@ final class XlsFile
                         } elseif ($kind === 3) {
                             self::emit($cell, $v['row'], $v['col'], '');
                         } else {
-                            self::emit($cell, $v['row'], $v['col'], null); // an error
+                            self::emit($cell, $v['row'], $v['col'], self::ERROR_CELL); // an error: a value given that cannot be read (F6)
                         }
                     } else {
                         self::emit($cell, $v['row'], $v['col'], unpack('e', $d, 6)[1]);
@@ -288,7 +302,8 @@ final class XlsFile
                     break;
                 case 0x0205: // BOOLERR
                     $v = self::need($d, 8, 'vrow/vcol/vxf/Cval/Cerr');
-                    self::emit($cell, $v['row'], $v['col'], $v['err'] === 0 ? $v['val'] !== 0 : null);
+                    // an error cell is a value given that cannot be read, never a blank cell (the astra re-check of b581e70, F6)
+                    self::emit($cell, $v['row'], $v['col'], $v['err'] === 0 ? $v['val'] !== 0 : self::ERROR_CELL);
                     break;
             }
         }

@@ -208,7 +208,8 @@ final class RoyalMailViews
         foreach ($keys as [$day, $product]) {
             $labels = (int) $this->db->value('SELECT COUNT(*) FROM carrier_label WHERE account_id = ? AND manifest_day = ? AND service_code = ?',
                 [$accountId, $day, $flat[$product]]);
-            $billed = $this->db->one("SELECT COALESCE(SUM(r.qty), 0) AS q, COALESCE(SUM(r.net_pence), 0) AS p, MAX(i.invoice_date) AS last, MIN(i.invoice_date) AS first "
+            // billed units: the charges' (quantity > 0, net > 0), the planner's rule; the money signed (the astra re-check of b581e70, F1/F11)
+            $billed = $this->db->one("SELECT COALESCE(SUM(CASE WHEN r.qty > 0 AND r.net_pence > 0 THEN r.qty ELSE 0 END), 0) AS q, COALESCE(SUM(r.net_pence), 0) AS p, MAX(i.invoice_date) AS last, MIN(i.invoice_date) AS first "
                 . "FROM carrier_bill_row r JOIN carrier_invoice i ON i.id = r.invoice_id AND i.status = 'live' AND i.carrier = ? AND i.account = ? "
                 . 'WHERE r.service_date = ? AND r.product_code = ?', [(string) $bill['carrier'], (string) $bill['account'], $day, $product]) ?? [];
             $alloc = $this->db->one("SELECT SUM(a.kind = 'label') AS priced, SUM(a.how = 'waiting') AS waiting, COALESCE(SUM(CASE WHEN a.kind = 'label' THEN a.pence ELSE 0 END), 0) AS priced_p, "
@@ -241,17 +242,25 @@ final class RoyalMailViews
     private function manifests(int $id): array
     {
         $by = [];
-        foreach ($this->db->all("SELECT r.row_no, r.ref_kind, r.ref_no, r.qty, r.net_pence, (SELECT MIN(l.manifest_no) FROM carrier_allocation a JOIN carrier_label l ON l.id = a.label_id "
-            . 'WHERE a.invoice_id = r.invoice_id AND a.row_no = r.row_no AND a.ended_at IS NULL) AS lm, (SELECT COUNT(DISTINCT l.manifest_no) FROM carrier_allocation a '
-            . 'JOIN carrier_label l ON l.id = a.label_id WHERE a.invoice_id = r.invoice_id AND a.row_no = r.row_no AND a.ended_at IS NULL) AS lmn FROM carrier_bill_row r '
-            . "JOIN carrier_product p ON p.carrier = 'royal_mail' AND p.product_code = r.product_code AND p.kind = 'band' WHERE r.invoice_id = ? ORDER BY r.row_no", [$id]) as $r) {
+        // a row naming only its sales order: on the ONE manifest of that sales order's usable labels (of a Special Delivery service), as the
+        // planner resolves it, whatever its money's destination (a credit goes to the main shop with no label: the astra re-check of b581e70, F11);
+        // read from the labels, so an old bill's page shows it the same
+        $acct = $this->db->value('SELECT a.id FROM carrier_account a JOIN carrier_invoice i ON i.carrier = a.carrier AND i.account = a.account_no WHERE i.id = ?', [$id]);
+        foreach ($this->db->all("SELECT r.row_no, r.ref_kind, r.ref_no, r.qty, r.net_pence, (SELECT MIN(l.manifest_no) FROM carrier_label l JOIN carrier_product lp "
+            . "ON lp.carrier = 'royal_mail' AND lp.service_code = l.service_code AND lp.kind = 'band' WHERE l.account_id = ? AND l.sales_order = COALESCE(r.sales_order, "
+            . "CASE WHEN r.ref_kind = 'sales_order' THEN r.ref_no END) AND l.manifest_no IS NOT NULL) AS lm, (SELECT COUNT(DISTINCT l.manifest_no) FROM carrier_label l "
+            . "JOIN carrier_product lp ON lp.carrier = 'royal_mail' AND lp.service_code = l.service_code AND lp.kind = 'band' WHERE l.account_id = ? AND l.sales_order = "
+            . "COALESCE(r.sales_order, CASE WHEN r.ref_kind = 'sales_order' THEN r.ref_no END) AND l.manifest_no IS NOT NULL) AS lmn FROM carrier_bill_row r "
+            . "JOIN carrier_product p ON p.carrier = 'royal_mail' AND p.product_code = r.product_code AND p.kind = 'band' WHERE r.invoice_id = ? ORDER BY r.row_no",
+            [$acct, $acct, $id]) as $r) {
             $m = $r['ref_kind'] === 'manifest' ? (string) (int) $r['ref_no'] : ((int) $r['lmn'] === 1 ? (string) (int) $r['lm'] : null);
             if ($m === null) {
                 continue; // on no single manifest: on the "needs a look" list (no label)
             }
             $by[$m] ??= ['rows' => [], 'qty' => 0, 'net' => 0];
             $by[$m]['rows'][] = (int) $r['row_no'];
-            $by[$m]['qty'] += (int) $r['qty'];
+            // units: the charges' only (a credit is no billed unit); the money signed (F1/F11)
+            $by[$m]['qty'] += (int) $r['qty'] > 0 && (int) $r['net_pence'] > 0 ? (int) $r['qty'] : 0;
             $by[$m]['net'] += (int) $r['net_pence'];
         }
         ksort($by, SORT_NUMERIC);

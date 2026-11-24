@@ -11186,7 +11186,10 @@ final class Words
         'rm_report_upload' => 'Read the labels',
         'rm_labels_read' => 'Labels read: %s (%s new, %s with empty fields filled, %s rows skipped). Days %s to %s are covered.',
         'rm_labels_differ' => '%s labels say something else than CW holds already: CW keeps what it read first.',
-        'rm_labels_already' => 'This report was loaded already for %s to %s: nothing was saved again.', // DL86 10
+        'rm_labels_already' => 'This report was loaded already for %s to %s: its labels and days were not saved again.', // DL86 10
+        // the same report again plans what its first load left waiting (F12): said apart, with what is still to be planned (the astra re-check of b581e70)
+        'rm_labels_replanned' => 'The bills\' days it left to be planned were planned now: %s allocation(s) changed.',
+        'rm_labels_still_due' => '%s day(s) of this report are still to be planned (an order was busy): upload the same report again in a minute, or the nightly run plans them.',
         // the upload's check, then Store (DL79)
         'rm_check_title' => 'Check Royal Mail bill %s before you store it',
         'rm_check_intro' => 'Nothing is stored yet. This is what CW read from the bill and where its money would go. If it looks right, press "Store this bill".',

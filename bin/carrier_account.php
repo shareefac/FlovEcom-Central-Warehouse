@@ -54,7 +54,7 @@ exit(Cli::main('carrier_account', ['list', 'account:', 'number:', 'switch-on', '
                 throw new InvalidArgumentException('--first-order=<the shop\'s first order number in CW: digits, not 0>');
             }
             try {
-                return (new DeliveryBills($cli->db))->inLock(static fn (): int => carrier_party_first_order($cli, $code, (int) $first));
+                return (new DeliveryBills($cli->db))->inLock(static fn (): int => carrier_not_held($cli) ?? carrier_party_first_order($cli, $code, (int) $first));
             } catch (CwException $e) {
                 $cli->error(($e->errorCode === 'busy' ? 'busy: ' : '') . $e->getMessage());
                 return Cli::PROBLEM;
@@ -64,12 +64,25 @@ exit(Cli::main('carrier_account', ['list', 'account:', 'number:', 'switch-on', '
         // Under the delivery bills' lock, the account read again inside it: a bill of the account being stored meanwhile waits, or this does (the
         // Codex check r1, HIGH 4: a number changed while a first bill was being stored would strand that bill).
         try {
-            return (new DeliveryBills($cli->db))->inLock(static fn (): int => carrier_account_change($cli, $opts, $no));
+            return (new DeliveryBills($cli->db))->inLock(static fn (): int => carrier_not_held($cli) ?? carrier_account_change($cli, $opts, $no));
         } catch (CwException $e) {
             $cli->error(($e->errorCode === 'busy' ? 'busy: ' : '') . $e->getMessage());
             return Cli::PROBLEM;
         }
     }, true, true));
+
+/**
+ * Null while the go-live kit's undo does not hold the Royal Mail writes; else PROBLEM, said: the matching set-up never changes under the hold (read
+ * under the bills' lock: the astra re-check of b581e70, K2 MEDIUM; DL91).
+ */
+function carrier_not_held(Cli $cli): ?int
+{
+    if (\CW\Profit\RoyalMailBills::heldBy($cli->db) === null) {
+        return null;
+    }
+    $cli->error('Royal Mail writes are on hold just now (CW is being rolled back): nothing changed');
+    return Cli::PROBLEM;
+}
 
 /** @param array<string, mixed> $opts */
 function carrier_account_change(Cli $cli, array $opts, string $no): int

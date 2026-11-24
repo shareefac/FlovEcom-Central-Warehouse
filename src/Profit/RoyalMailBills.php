@@ -146,16 +146,21 @@ final class RoyalMailBills
         }
         $token = bin2hex(random_bytes(32));
         $now = ($this->clock)();
-        $this->db->transaction(function (Db $db) use ($caller, $account, $bill, $old, $token, $now, $out): void {
-            // the checks of more than a day ago gone (none was ever the file; a stored one's bill is in carrier_bill_row)
-            $db->exec('DELETE FROM carrier_bill_check WHERE expires_at < ?', [Clock::db($now->modify('-1 day'))]);
-            $id = $db->insert('INSERT INTO carrier_bill_check (token_sha256, staff_user_id, account_id, replace_id, file_sha256, bill_sha256, plan_sha256, bill, created_at, '
-                . 'expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [hash('sha256', $token), $caller->staffUserId, $account['id'], $old === null ? null : (int) $old['id'],
-                    $out['file_sha256'], $out['bill_sha256'], (string) $out['preview']['plan_sha256'], json_encode($bill, JSON_THROW_ON_ERROR), Clock::db($now),
-                    Clock::db($now->modify('+' . self::CHECK_MINUTES . ' minutes'))]);
-            Audit::write($db, $caller, 'delivery_bill.check', 'carrier_account', (string) $account['id'], null, ['check' => $id, 'carrier' => $account['carrier'],
-                'account' => $bill['account'], 'invoice' => $bill['invoice_no'], 'rows' => count($bill['rows']), 'net_pence' => $bill['net'],
-                'file_sha256' => $out['file_sha256'], 'sha256' => $bill['sha256']] + ($old === null ? [] : ['replaces' => (int) $old['id']]));
+        // the check and its audit written under the bills' lock with the hold read again: a check that started before the kit's hold writes
+        // nothing after it (the astra re-check of b581e70, K2 MEDIUM)
+        $this->bills->inLock(function () use ($caller, $account, $bill, $old, $token, $now, $out): void {
+            $this->notHeld();
+            $this->db->transaction(function (Db $db) use ($caller, $account, $bill, $old, $token, $now, $out): void {
+                // the checks of more than a day ago gone (none was ever the file; a stored one's bill is in carrier_bill_row)
+                $db->exec('DELETE FROM carrier_bill_check WHERE expires_at < ?', [Clock::db($now->modify('-1 day'))]);
+                $id = $db->insert('INSERT INTO carrier_bill_check (token_sha256, staff_user_id, account_id, replace_id, file_sha256, bill_sha256, plan_sha256, bill, created_at, '
+                    . 'expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [hash('sha256', $token), $caller->staffUserId, $account['id'], $old === null ? null : (int) $old['id'],
+                        $out['file_sha256'], $out['bill_sha256'], (string) $out['preview']['plan_sha256'], json_encode($bill, JSON_THROW_ON_ERROR), Clock::db($now),
+                        Clock::db($now->modify('+' . self::CHECK_MINUTES . ' minutes'))]);
+                Audit::write($db, $caller, 'delivery_bill.check', 'carrier_account', (string) $account['id'], null, ['check' => $id, 'carrier' => $account['carrier'],
+                    'account' => $bill['account'], 'invoice' => $bill['invoice_no'], 'rows' => count($bill['rows']), 'net_pence' => $bill['net'],
+                    'file_sha256' => $out['file_sha256'], 'sha256' => $bill['sha256']] + ($old === null ? [] : ['replaces' => (int) $old['id']]));
+            });
         });
         return ['token' => $token] + $out;
     }
@@ -175,6 +180,8 @@ final class RoyalMailBills
         if ($caller->staffUserId === null || preg_match('/^[0-9a-f]{64}$/D', $token) !== 1 || preg_match('/^[0-9a-f]{64}$/D', $billSha256) !== 1) {
             throw $gone;
         }
+        // held: refused before the check is taken (it stays open); the store's own write reads the hold again under the bills' lock (K2)
+        $this->notHeld();
         $now = Clock::db(($this->clock)());
         $row = $this->db->transaction(function (Db $db) use ($caller, $token, $billSha256, $now, $gone): array {
             $r = $db->one('SELECT * FROM carrier_bill_check WHERE token_sha256 = ? AND staff_user_id = ? AND bill_sha256 = ? AND used_at IS NULL AND expires_at > ? FOR UPDATE',
@@ -196,7 +203,8 @@ final class RoyalMailBills
             return $row['replace_id'] === null ? $this->uploadBill($caller, (int) $row['account_id'], $bill, $audit) + ['mode' => 'upload']
                 : $this->replaceBill($caller, (int) $row['replace_id'], $bill, $audit) + ['mode' => 'replace'];
         } catch (CwException $e) {
-            if ($e->errorCode === 'busy') {
+            // busy, or the kit's hold set meanwhile: the check stays open to press again (the astra re-check of b581e70, K2 MEDIUM)
+            if (in_array($e->errorCode, ['busy', 'writes_held'], true)) {
                 $this->db->exec('UPDATE carrier_bill_check SET used_at = NULL WHERE id = ?', [(int) $row['id']]);
             }
             throw $e;
@@ -298,6 +306,7 @@ final class RoyalMailBills
                         'allocations_ended' => count($s['end']), 'allocations_added' => count($s['add'])]);
                 });
             }));
+            $this->pinAfter($caller, null);
             $this->sweepLater();
         });
     }
@@ -382,8 +391,9 @@ final class RoyalMailBills
             $k = $r['service_date'] . '|' . $r['product_code'];
             $days[$k] ??= ['day' => (string) $r['service_date'], 'product' => (string) $r['product_code'], 'labels' => (int) $this->db->value('SELECT COUNT(*) FROM carrier_label '
                 . 'WHERE account_id = ? AND manifest_day = ? AND service_code = ?', [$account['id'], $r['service_date'], (string) $p['service_code']]),
-                'billed' => array_sum(array_map(static fn (array $x): int => (int) $x['qty'], array_filter($s['rows'], static fn (array $x): bool
-                    => (string) $x['service_date'] === (string) $r['service_date'] && (string) $x['product_code'] === (string) $r['product_code']))),
+                // a charge's units only (quantity > 0, net > 0), the planner's rule: a credit is no billed unit (the astra re-check of b581e70, F1/F11)
+                'billed' => array_sum(array_map(static fn (array $x): int => (int) $x['qty'] > 0 && (int) $x['net'] > 0 ? (int) $x['qty'] : 0, array_filter($s['rows'],
+                    static fn (array $x): bool => (string) $x['service_date'] === (string) $r['service_date'] && (string) $x['product_code'] === (string) $r['product_code']))),
                 'priced' => 0, 'line' => 0, 'waiting' => false, 'reason' => null, 'status' => 'open', 'removed' => !isset($here[$k])];
         }
         // across the whole plan (every bill of the day with this one: the Codex check r5, MEDIUM 5): labels priced, the day's line, waiting
@@ -551,6 +561,42 @@ final class RoyalMailBills
         });
     }
 
+    /**
+     * The go-live kit's hold (HOLD_SETTING) set or cleared, under the bills' lock, only from the run it names now ($expected: null = not held):
+     * set from "not held" to a run (U1), cleared by that run only (U4, or the lead's unhold). The kit only (a system caller): the settings screen
+     * and bin/settings.php never move it (Settings::change refuses the key: the astra re-check of b581e70, K2; DL91). History and audit as a setting.
+     */
+    public function setHold(Caller $caller, ?string $expected, ?string $run, string $reason = 'the Royal Mail go-live kit'): void
+    {
+        if ($caller->staffUserId !== null) {
+            throw new CwException('forbidden', 'the Royal Mail hold is set and cleared by the go-live kit only', 403);
+        }
+        if ($run !== null && preg_match('/^[a-z0-9][a-z0-9_.:-]{7,63}$/D', $run) !== 1) {
+            throw new CwException('bad_run', 'a run id is 8-64 of a-z, 0-9, _ . : -', 422);
+        }
+        $reason = \CW\Admin\ConfigHistory::reason($reason);
+        $this->bills->inLock(function () use ($caller, $expected, $run, $reason): void {
+            $this->db->transaction(function (Db $db) use ($caller, $expected, $run, $reason): void {
+                $row = $db->one('SELECT JSON_UNQUOTE(value_json) AS v FROM app_setting WHERE setting_key = ? FOR UPDATE', [self::HOLD_SETTING])
+                    ?? throw new CwException('no_hold_setting', 'this schema has no setting ' . self::HOLD_SETTING, 409);
+                $now = $row['v'] === null || (string) $row['v'] === '' ? null : (string) $row['v'];
+                if ($now !== $expected) {
+                    throw new CwException('not_held', sprintf('the Royal Mail hold is %s, not %s: nothing was changed', $now ?? 'not set', $expected ?? 'not set'), 409);
+                }
+                if ($now === $run) {
+                    return;
+                }
+                $old = \CW\Admin\ConfigHistory::state($db, 'setting', self::HOLD_SETTING);
+                $db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON), updated_actor = ?, updated_at = NOW(6) WHERE setting_key = ?',
+                    [json_encode($run ?? '', JSON_THROW_ON_ERROR), $caller->actor, self::HOLD_SETTING]);
+                $new = \CW\Admin\ConfigHistory::state($db, 'setting', self::HOLD_SETTING) ?? throw new \LogicException('the hold setting vanished');
+                $v = \CW\Admin\ConfigHistory::record($db, $caller, 'setting', self::HOLD_SETTING, 'change', $old ?? $new, $new, $reason);
+                Audit::write($db, $caller, 'setting.change', 'app_setting', self::HOLD_SETTING, null, ['key' => self::HOLD_SETTING, 'before' => $now ?? '',
+                    'after' => $run ?? '', 'reason' => $reason, 'version' => $v['version']]);
+            });
+        });
+    }
+
     /** The run that holds every Royal Mail write (HOLD_SETTING), null when none does. */
     public static function heldBy(Db $db): ?string
     {
@@ -558,11 +604,20 @@ final class RoyalMailBills
         return $v === null || (string) $v === '' ? null : (string) $v;
     }
 
-    /** Refuses a Royal Mail write while the writes are held by another run than $run (DL90 K2). */
+    /**
+     * Refuses a Royal Mail write while the writes are held (DL90 K2); with $run (the kit's undo), refuses unless the hold names EXACTLY that run:
+     * a run the lead gave up (its hold cleared) undoes nothing more (the astra re-check of b581e70, K2; DL91).
+     */
     private function notHeld(?string $run = null): void
     {
         $held = self::heldBy($this->db);
-        if ($held !== null && $held !== $run) {
+        if ($run !== null) {
+            if ($held !== $run) {
+                throw new CwException('not_held', 'the Royal Mail writes are not held by this run' . ($held === null ? ' (not held at all)' : '') . ': nothing was done', 409);
+            }
+            return;
+        }
+        if ($held !== null) {
             throw new CwException('writes_held', 'Royal Mail bills are on hold just now (CW is being rolled back): nothing was saved. Try again later, or ask the CW '
                 . 'team.', 423);
         }
@@ -708,6 +763,8 @@ final class RoyalMailBills
                     $due = array_map('strval', $this->db->column('SELECT day FROM carrier_replan_due WHERE account_id = ? AND day BETWEEN ? AND ? ORDER BY day',
                         [$account['id'], $read['from'], $read['to']]));
                     if ($due !== [] && $account['state'] === 'active') {
+                        // the pins earlier writes left due done first, as for any import (the Fable re-check of b581e70, L2; DL81)
+                        $this->drainPins();
                         $this->replanNow($caller, $account, $due, $out);
                     }
                     $out['still_due'] = (int) $this->db->value('SELECT COUNT(*) FROM carrier_replan_due WHERE account_id = ? AND day BETWEEN ? AND ?',
@@ -803,18 +860,30 @@ final class RoyalMailBills
     public function replan(Caller $caller, ?int $accountId = null, int $days = self::REPLAN_DAYS): int
     {
         $this->bills->authoriseWrite($caller);
+        $at = Clock::db(($this->clock)());
+        $edge = self::edgeDays(($this->clock)(), $days);
         // the allocations of bills that no longer count ended, whatever the accounts' state (the Codex check r1, MEDIUM 8), and every label whose
         // committed price is on an order pinned (a pin a write left undone: DL75)
-        $this->bills->inLock(function (): void {
+        $this->bills->inLock(function () use ($at, $edge, $accountId): void {
             $this->notHeld();
+            // FIRST, before the sweep or anything is read: the days about to leave the window made due for every pooled account, in one
+            // statement (a run that dies anywhere after never leaves one to age out: the astra re-check of b581e70, F8; DL91); this run's own
+            // rows (its `since`) are taken away by replanAccount once every key of the account was planned
+            $ids = array_values(array_filter(array_map('intval', $this->db->column("SELECT a.id FROM carrier_account a JOIN carrier c ON c.code = a.carrier "
+                . "AND c.family = 'pooled' WHERE a.state = 'active' ORDER BY a.id")), static fn (int $id): bool => $accountId === null || $id === $accountId));
+            if ($ids !== []) {
+                $this->db->exec('INSERT IGNORE INTO carrier_replan_due (account_id, day, since) VALUES ' . implode(', ', array_fill(0, count($ids) * count($edge), '(?, ?, ?)')),
+                    array_merge(...array_map(static fn (array $x): array => [$x[0], $x[1], $at], array_merge(...array_map(static fn (int $id): array
+                        => array_map(static fn (string $d): array => [$id, $d], $edge), $ids)))));
+            }
             $this->sweep();
-            self::pinCommitted($this->db);
+            $this->pinCommitted();
             // the checks of the upload screen a day past their time gone (the Codex check r4, D3 LOW 6)
             $this->db->exec('DELETE FROM carrier_bill_check WHERE expires_at < ?', [Clock::db(($this->clock)()->modify('-1 day'))]);
         });
         // the days whose labels changed and whose groups no plan took yet, however old (DL83)
         $this->failed = [];
-        $n = $this->drainReplans($caller);
+        $n = $this->drainReplans($caller, $at, $edge);
         foreach (CarrierSettings::pooledAccountIds($this->db) as $id) {
             if ($accountId !== null && $id !== $accountId) {
                 continue;
@@ -825,7 +894,7 @@ final class RoyalMailBills
                 if ($account['state'] !== 'active') {
                     continue;
                 }
-                $n += $this->replanAccount($caller, $account, $days);
+                $n += $this->replanAccount($caller, $account, $days, $at);
             } catch (CwException | \PDOException) {
                 // one account's error never stops the others (DL84 7): said at the end
                 $this->failed[] = 'account:' . $id;
@@ -841,10 +910,25 @@ final class RoyalMailBills
         return $n;
     }
 
-    /** replan()'s one account, under the lock. @param array<string, mixed> $account */
-    private function replanAccount(Caller $caller, array $account, int $days): int
+    /**
+     * The first EDGE_DAYS calendar days of the nightly's window of $days days ending today (UK): the days about to leave it.
+     *
+     * @return list<string>
+     */
+    private static function edgeDays(\DateTimeImmutable $now, int $days): array
     {
-        return $this->bills->inLock(function () use ($caller, $account, $days): int {
+        $since = $now->setTimezone(new \DateTimeZone('Europe/London'))->modify("-{$days} days")->format('Y-m-d');
+        $out = [];
+        for ($i = 0; $i < self::EDGE_DAYS; $i++) {
+            $out[] = (new \DateTimeImmutable($since))->modify("+{$i} days")->format('Y-m-d');
+        }
+        return $out;
+    }
+
+    /** replan()'s one account, under the lock ($at: the run's time, its edge rows' `since`). @param array<string, mixed> $account */
+    private function replanAccount(Caller $caller, array $account, int $days, string $at): int
+    {
+        return $this->bills->inLock(function () use ($caller, $account, $days, $at): int {
             // read again once the lock is held: switched off meanwhile, not planned (the Codex check r3, new MEDIUM 3); held: nothing (DL90 K2)
             $this->notHeld();
             $account = CarrierSettings::account($this->db, $account['id']);
@@ -855,11 +939,7 @@ final class RoyalMailBills
             // the days about to leave the window (its first EDGE_DAYS calendar days) made due FIRST, before anything is read, in their own
             // statement (the final review, F8: a run that died reading never leaves one to age out; the Codex check r11 H6); a day already due keeps
             // its row (INSERT IGNORE), so only the rows of THIS run (its own `since`) are taken away again when every key of the run was planned
-            $mine = [];
-            for ($i = 0; $i < self::EDGE_DAYS; $i++) {
-                $mine[] = (new \DateTimeImmutable($since))->modify("+{$i} days")->format('Y-m-d');
-            }
-            $at = Clock::db(($this->clock)());
+            $mine = self::edgeDays(($this->clock)(), $days);
             $this->db->exec('INSERT IGNORE INTO carrier_replan_due (account_id, day, since) VALUES ' . implode(', ', array_fill(0, count($mine), '(?, ?, ?)')),
                 array_merge(...array_map(static fn (string $d): array => [$account['id'], $d, $at], $mine)));
             $ctx = self::ctx($this->db, $account);
@@ -1052,7 +1132,8 @@ final class RoyalMailBills
                     }
                     self::apply($db, $s, $now);
                     // its labels' pins are due from what this write makes live: done right after it, or by the next write or the nightly (DL80)
-                    $db->exec('INSERT INTO carrier_pin_due (invoice_id, live_at) VALUES (?, ?)', [$id, $now]);
+                    $db->exec('INSERT INTO carrier_pin_due (invoice_id, live_at) VALUES (?, ?) AS n ON DUPLICATE KEY UPDATE live_at = GREATEST(carrier_pin_due.live_at, '
+                        . 'n.live_at)', [$id, $now]);
                     Audit::write($db, $caller, $old === null ? 'delivery_bill.upload' : 'delivery_bill.replace', 'carrier_invoice', (string) $id, null, [
                         'carrier' => $account['carrier'], 'account' => $bill['account'], 'invoice' => $bill['invoice_no'], 'rows' => count($bill['rows']),
                         'net_pence' => $bill['net'], 'sha256' => $bill['sha256'], 'allocations' => count(array_filter($s['desired'],
@@ -1065,43 +1146,153 @@ final class RoyalMailBills
             $this->abandon($id);
             throw $e;
         }
-        try {
-            self::pinDue($this->db, $id);
-        } catch (\Throwable) {
-            // left due: the next write or the nightly pins it (sweep())
-        }
+        $this->pinAfter($caller, $account);
         $this->sweepLater();
         return [$id, $at]; // read before (the connection may be gone after the write: the Codex check r2, r1 MEDIUM 8)
     }
 
     /**
      * The labels whose live allocation is on an order pinned to that CW parcel (carrier_label.cw_*), from what was COMMITTED (never from a
-     * plan not yet checked: the Codex check r3, new HIGH 1; DL75): right after a bill's write, and by every sweep (a missed pin is caught up).
-     * No money moves here (the allocation is on that order already), so no order guard: one statement.
+     * plan not yet checked: the Codex check r3, new HIGH 1; DL75): by every nightly (a missed pin is caught up). No money moves here (the
+     * allocation is on that order already), so no order guard. Each pin only after its count is taken again (pinChecked: DL91).
      */
-    private static function pinCommitted(Db $db, ?int $invoiceId = null): void
+    private function pinCommitted(): void
     {
-        $db->exec('UPDATE carrier_label l JOIN (SELECT a.label_id, MIN(a.channel_id) AS ch, MIN(a.order_ref) AS oref, MIN(a.parcel_ref) AS pref FROM carrier_allocation a '
-            . "JOIN carrier_invoice i ON i.id = a.invoice_id AND i.status = 'live' WHERE a.ended_at IS NULL AND a.dest = 'order' AND a.label_id IS NOT NULL"
-            . ($invoiceId === null ? '' : ' AND a.invoice_id = ' . $invoiceId) . ' GROUP BY a.label_id) v ON v.label_id = l.id '
-            . 'SET l.cw_channel_id = v.ch, l.cw_order_ref = v.oref, l.cw_parcel_ref = v.pref WHERE l.cw_parcel_ref IS NULL');
+        $this->drainPins();
+        $cands = $this->db->all('SELECT a.label_id, MIN(a.channel_id) AS ch, MIN(a.order_ref) AS oref, MIN(a.parcel_ref) AS pref FROM carrier_allocation a '
+            . "JOIN carrier_invoice i ON i.id = a.invoice_id AND i.status = 'live' JOIN carrier_label l ON l.id = a.label_id AND l.cw_parcel_ref IS NULL "
+            . "WHERE a.ended_at IS NULL AND a.dest = 'order' AND a.label_id IS NOT NULL GROUP BY a.label_id");
+        $this->refusedDue($this->pinChecked($cands));
     }
 
     /**
-     * The pins a bill's write left due (carrier_pin_due, written IN that write): every label whose allocation on an order was live when the write
+     * The pins a write left due (carrier_pin_due, written IN that write): every label whose allocation on an order was live when the write
      * committed is pinned to that CW parcel (unless pinned already), then the row goes. Done right after the write; a crash in between leaves
-     * it for the next write or the nightly (sweep()), even when the bill was undone meanwhile (the Codex check r4, MEDIUM; DL80). No money moves.
+     * it for the next write or the nightly (drainPins()), even when the bill was undone meanwhile (the Codex check r4, MEDIUM; DL80). No money
+     * moves. A label whose tracking number has not exactly that ONE CW parcel in its window NOW (a second one stored on another order since its
+     * plan's last check, even in the instant of the commit) is not pinned: its keys are made due and, its pin gone, it is no longer held to that
+     * order (scope()): planned again it is held (two parcels) (the astra re-check of b581e70, F7; the Fable re-check, L3; DL91).
+     *
+     * @return list<int> the labels refused a pin
      */
-    private static function pinDue(Db $db, int $invoiceId): void
+    private function pinDue(int $invoiceId): array
     {
-        $at = $db->value('SELECT live_at FROM carrier_pin_due WHERE invoice_id = ?', [$invoiceId]);
+        $at = $this->db->value('SELECT live_at FROM carrier_pin_due WHERE invoice_id = ?', [$invoiceId]);
         if ($at === null) {
+            return [];
+        }
+        $cands = $this->db->all('SELECT a.label_id, MIN(a.channel_id) AS ch, MIN(a.order_ref) AS oref, MIN(a.parcel_ref) AS pref FROM carrier_allocation a '
+            . "JOIN carrier_label l ON l.id = a.label_id AND l.cw_parcel_ref IS NULL WHERE a.invoice_id = ? AND a.dest = 'order' AND a.label_id IS NOT NULL "
+            . 'AND a.made_at <= ? AND (a.ended_at IS NULL OR a.ended_at > ?) GROUP BY a.label_id', [$invoiceId, $at, $at]);
+        $refused = $this->pinChecked($cands);
+        // the refused labels' keys made due BEFORE the row goes: a crash after it never leaves one on its order unplanned
+        $this->refusedDue($refused);
+        $this->db->exec('DELETE FROM carrier_pin_due WHERE invoice_id = ?', [$invoiceId]);
+        return $refused;
+    }
+
+    /**
+     * Pins each candidate (label_id, ch, oref, pref: its live allocation's CW parcel) whose tracking number has EXACTLY that one CW parcel in
+     * the label's matching window now (not removed, with a label time: as LabelDestinations reads them); returns the others (DL91).
+     *
+     * @param list<array<string, mixed>> $cands
+     * @return list<int>
+     */
+    private function pinChecked(array $cands): array
+    {
+        if ($cands === []) {
+            return [];
+        }
+        $byId = [];
+        foreach ($cands as $c) {
+            $byId[(int) $c['label_id']] = strtolower($c['ch'] . '|' . $c['oref'] . '|' . $c['pref']);
+        }
+        $labels = [];
+        foreach (array_chunk(array_keys($byId), 500) as $chunk) {
+            foreach ($this->db->all('SELECT id, tracking_no, manifest_day FROM carrier_label WHERE id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')', $chunk) as $l) {
+                $labels[(int) $l['id']] = $l;
+            }
+        }
+        $byTracking = [];
+        foreach ($labels as $id => $l) {
+            $byTracking[strtoupper((string) $l['tracking_no'])][] = $id;
+        }
+        $fits = [];
+        foreach (array_chunk(array_map('strval', array_keys($byTracking)), 500) as $chunk) {
+            foreach ($this->db->all('SELECT channel_id, order_ref, parcel_ref, tracking_no, label_at FROM sale_parcel WHERE tracking_no IN ('
+                . implode(', ', array_fill(0, count($chunk), '?')) . ') AND removed_at IS NULL AND label_at IS NOT NULL', $chunk) as $p) {
+                foreach ($byTracking[strtoupper((string) $p['tracking_no'])] ?? [] as $id) {
+                    if (self::inWindow((string) $p['label_at'], $labels[$id]['manifest_day'] === null ? null : (string) $labels[$id]['manifest_day'])) {
+                        $fits[$id][] = strtolower($p['channel_id'] . '|' . $p['order_ref'] . '|' . $p['parcel_ref']);
+                    }
+                }
+            }
+        }
+        $ok = [];
+        $refused = [];
+        foreach ($byId as $id => $key) {
+            if (isset($labels[$id]) && ($fits[$id] ?? []) === [$key]) {
+                $ok[] = $id;
+            } else {
+                $refused[] = $id;
+            }
+        }
+        $rows = [];
+        $okSet = array_flip($ok);
+        foreach ($cands as $c) {
+            if (isset($okSet[(int) $c['label_id']])) {
+                $rows[] = [(int) $c['label_id'], (int) $c['ch'], (string) $c['oref'], (string) $c['pref']];
+            }
+        }
+        foreach (array_chunk($rows, 500) as $chunk) {
+            $this->db->exec('UPDATE carrier_label l JOIN (' . implode(' UNION ALL ', array_fill(0, count($chunk), 'SELECT ? AS id, ? AS ch, ? AS oref, ? AS pref'))
+                . ') v ON v.id = l.id SET l.cw_channel_id = v.ch, l.cw_order_ref = v.oref, l.cw_parcel_ref = v.pref WHERE l.cw_parcel_ref IS NULL', array_merge(...$chunk));
+        }
+        sort($refused);
+        return $refused;
+    }
+
+    /** The keys of labels refused a pin made due, per account (a plan of them holds them: two parcels). @param list<int> $ids */
+    private function refusedDue(array $ids): void
+    {
+        $by = [];
+        foreach (array_chunk($ids, 500) as $chunk) {
+            foreach ($this->db->all('SELECT id, account_id FROM carrier_label WHERE id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')', $chunk) as $l) {
+                $by[(int) $l['account_id']][] = (int) $l['id'];
+            }
+        }
+        foreach ($by as $accountId => $labelIds) {
+            $account = CarrierSettings::account($this->db, $accountId);
+            $this->keepDue($account, self::keysOfLabels($this->db, $account, $labelIds));
+        }
+    }
+
+    /**
+     * Right after a write (store, undo, a re-plan batch): the pins it left due made (drainPins); the labels refused one (F7) planned again at once
+     * for $account (an order busy: their keys stay due for the nightly).
+     *
+     * @param array<string, mixed>|null $account
+     */
+    private function pinAfter(Caller $caller, ?array $account): void
+    {
+        try {
+            $refused = $this->drainPins();
+        } catch (\Throwable) {
+            return; // left due: the next write or the nightly pins them
+        }
+        if ($account === null || $refused === []) {
             return;
         }
-        $db->exec('UPDATE carrier_label l JOIN (SELECT a.label_id, MIN(a.channel_id) AS ch, MIN(a.order_ref) AS oref, MIN(a.parcel_ref) AS pref FROM carrier_allocation a '
-            . "WHERE a.invoice_id = ? AND a.dest = 'order' AND a.label_id IS NOT NULL AND a.made_at <= ? AND (a.ended_at IS NULL OR a.ended_at > ?) GROUP BY a.label_id) v "
-            . 'ON v.label_id = l.id SET l.cw_channel_id = v.ch, l.cw_order_ref = v.oref, l.cw_parcel_ref = v.pref WHERE l.cw_parcel_ref IS NULL', [$invoiceId, $at, $at]);
-        $db->exec('DELETE FROM carrier_pin_due WHERE invoice_id = ?', [$invoiceId]);
+        try {
+            $mine = array_map('intval', $this->db->column('SELECT id FROM carrier_label WHERE account_id = ? AND id IN (' . implode(', ', array_fill(0, count($refused), '?'))
+                . ')', [$account['id'], ...$refused]));
+            if ($mine !== []) {
+                $this->replanKeys($caller, $account, self::keysOfLabels($this->db, $account, $mine));
+                $this->drainPins();
+            }
+        } catch (CwException | \PDOException) {
+            // their keys are due: the nightly plans them
+        }
     }
 
     /**
@@ -1278,7 +1469,8 @@ final class RoyalMailBills
     }
 
     /** The days still due of every active account planned (the nightly, DL83). */
-    private function drainReplans(Caller $caller): int
+    /** @param list<string> $edge this run's edge days (their rows of this run, `since` = $at, are replanAccount's) */
+    private function drainReplans(Caller $caller, ?string $at = null, array $edge = []): int
     {
         $n = 0;
         foreach (CarrierSettings::pooledAccountIds($this->db) as $id) {
@@ -1287,7 +1479,13 @@ final class RoyalMailBills
                 if ($account['state'] !== 'active') {
                     continue;
                 }
-                $days = array_map('strval', $this->db->column('SELECT day FROM carrier_replan_due WHERE account_id = ? ORDER BY day', [$account['id']]));
+                // not this run's own edge rows (replanAccount plans the whole window, them with it: F8)
+                $days = [];
+                foreach ($this->db->all('SELECT day, since FROM carrier_replan_due WHERE account_id = ? ORDER BY day', [$account['id']]) as $d) {
+                    if (!((string) $d['since'] === $at && in_array((string) $d['day'], $edge, true))) {
+                        $days[] = (string) $d['day'];
+                    }
+                }
                 foreach (array_chunk($days, 31) as $chunk) {
                     // read again once the lock is held: switched off meanwhile, its days stay due (DL84 7)
                     $n += $this->bills->inLock(function () use ($caller, $account, $chunk): int {
@@ -1304,12 +1502,18 @@ final class RoyalMailBills
         return $n;
     }
 
-    /** The pins every earlier write left due (a crash right after it), from what each made live, whatever happened to its bill since (DL80). */
-    private function drainPins(): void
+    /**
+     * The pins every earlier write left due (a crash right after it), from what each made live, whatever happened to its bill since (DL80).
+     *
+     * @return list<int> the labels refused a pin (DL91)
+     */
+    private function drainPins(): array
     {
+        $refused = [];
         foreach (array_map('intval', $this->db->column('SELECT invoice_id FROM carrier_pin_due ORDER BY invoice_id')) as $due) {
-            self::pinDue($this->db, $due);
+            array_push($refused, ...$this->pinDue($due));
         }
+        return $refused;
     }
 
     private function sweep(): void
@@ -1363,7 +1567,7 @@ final class RoyalMailBills
     /** @param list<string> $batch keys planned in one guarded write @return int the allocations ended or added */
     private function replanBatch(Caller $caller, array $account, array $batch): int
     {
-        return $this->bills->guardedWrite(self::drafted(function (Db $db) use ($caller, $account, $batch): array {
+        $n = $this->bills->guardedWrite(self::drafted(function (Db $db) use ($caller, $account, $batch): array {
             $ctx = self::ctx($db, $account);
             $s = self::scope($db, $account, $ctx, $batch, [], [], null);
             return self::guardedPlan($s, function (Db $db) use ($caller, $account, $s): int {
@@ -1377,6 +1581,12 @@ final class RoyalMailBills
                 return count($s['end']) + count($s['add']);
             });
         }));
+        try {
+            $this->drainPins(); // its first pins, each counted again (DL91); a label refused one: its keys due
+        } catch (\Throwable) {
+            // left due: the next write or the nightly pins them
+        }
+        return $n;
     }
 
     /**
@@ -1479,27 +1689,17 @@ final class RoyalMailBills
             }
         }
         self::insert($db, $s['add'], $now);
-        self::pin($db, $s['add']);
-    }
-
-    /**
-     * Each label a plan put on an order (not yet pinned) keeps that CW parcel (carrier_label.cw_*): it stays on it whatever comes later, its
-     * price counting or not at a moment (a day waiting again for a late label, its bill undone; the Codex check r2, new HIGH 1; DL74). Written
-     * only by a guarded write, after its snapshot check (the Codex check r3, new HIGH 1; DL75).
-     *
-     * @param list<array<string, mixed>> $allocations
-     */
-    private static function pin(Db $db, array $allocations): void
-    {
-        $rows = [];
-        foreach ($allocations as $a) {
+        // the labels it puts on an order are pinned right after its commit from what it committed, each counted again (pinDue: F7, DL91), never
+        // inside it
+        $due = [];
+        foreach ($s['add'] as $a) {
             if ($a['dest'] === 'order' && $a['label_id'] !== null) {
-                $rows[(int) $a['label_id']] = [(int) $a['label_id'], (int) $a['channel_id'], (string) $a['order_ref'], (string) $a['parcel_ref']];
+                $due[(int) $a['invoice_id']] = true;
             }
         }
-        foreach (array_chunk(array_values($rows), 500) as $chunk) {
-            $db->exec('UPDATE carrier_label l JOIN (' . implode(' UNION ALL ', array_fill(0, count($chunk), 'SELECT ? AS id, ? AS ch, ? AS oref, ? AS pref')) . ') v ON v.id = l.id '
-                . 'SET l.cw_channel_id = v.ch, l.cw_order_ref = v.oref, l.cw_parcel_ref = v.pref WHERE l.cw_parcel_ref IS NULL', array_merge(...$chunk));
+        foreach (array_chunk(array_keys($due), 200) as $chunk) {
+            $db->exec('INSERT INTO carrier_pin_due (invoice_id, live_at) VALUES ' . implode(', ', array_fill(0, count($chunk), '(?, ?)')) . ' AS n ON DUPLICATE KEY UPDATE '
+                . 'live_at = GREATEST(carrier_pin_due.live_at, n.live_at)', array_merge(...array_map(static fn (int $i): array => [$i, $now], $chunk)));
         }
     }
 
@@ -1743,14 +1943,20 @@ final class RoyalMailBills
                 $sticky[(int) $l['id']] = ['dest' => 'order', 'channel_id' => (int) $l['cw_channel_id'], 'order_ref' => (string) $l['cw_order_ref'],
                     'parcel_ref' => (string) $l['cw_parcel_ref'], 'party_id' => null, 'held_reason' => null];
             }
+            // ... while its pin is still due (its write committed, its pin not made yet: DL80); a label whose pin was refused (a second parcel of
+            // its number: F7) is held to no order (DL91)
             foreach ($db->all("SELECT a.label_id, a.channel_id, a.order_ref, a.parcel_ref FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id "
-                . "AND i.status = 'live' WHERE a.ended_at IS NULL AND a.dest = 'order' AND a.kind IN ('label', 'wrong_weight') AND a.label_id IN ("
-                . implode(', ', array_fill(0, count($chunk), '?')) . ') ORDER BY a.id', $chunk) as $a) {
+                . "AND i.status = 'live' JOIN carrier_pin_due d ON d.invoice_id = a.invoice_id WHERE a.ended_at IS NULL AND a.dest = 'order' "
+                . "AND a.kind IN ('label', 'wrong_weight') AND a.label_id IN (" . implode(', ', array_fill(0, count($chunk), '?')) . ') ORDER BY a.id', $chunk) as $a) {
                 $sticky[(int) $a['label_id']] ??= ['dest' => 'order', 'channel_id' => (int) $a['channel_id'], 'order_ref' => (string) $a['order_ref'],
                     'parcel_ref' => (string) $a['parcel_ref'], 'party_id' => null, 'held_reason' => null];
             }
         }
         ksort($sticky);
+        // the CW parcels every label could go to (its tracking number's parcels in its window), read BEFORE its destination is worked out: the
+        // write's guarded check reads them again and a change for ANY label (a parcel come for a label planned to a shop, a party or held) means
+        // the plan is old, made again (the astra re-check of b581e70, H1; DL91)
+        $seen = self::evidence($db, $ctx, $labels, [])['seen'];
         $versions = [];
         $dests = LabelDestinations::resolve($db, $account, $labels, $sticky, $versions);
         foreach ($watch as $k => $w) {
@@ -1807,12 +2013,12 @@ final class RoyalMailBills
                 $pins[(int) $id] = strtolower($d['channel_id'] . '|' . $d['order_ref'] . '|' . $d['parcel_ref']);
             }
         }
-        $verify = static function (Db $db) use ($account, $ctx, $days, $waiting, $labels, $odd, $pins): bool {
+        $verify = static function (Db $db) use ($account, $ctx, $days, $waiting, $labels, $odd, $pins, $seen): bool {
             if (self::waits($db, $account, $ctx, $days) !== $waiting) {
                 return false;
             }
             $e = self::evidence($db, $ctx, $labels, $pins);
-            return $e['odd'] === $odd && $e['pins'];
+            return $e['odd'] === $odd && $e['pins'] && $e['seen'] === $seen;
         };
         return ['keys' => $keys, 'rows' => $rows, 'labels' => $labels, 'sticky' => $sticky, 'dests' => $dests, 'versions' => $versions, 'desired' => $desired,
             'existing' => $existing, 'end' => $end, 'add' => $add, 'gone' => array_map('intval', $gone), 'loading' => $loading, 'verify' => $verify,
@@ -1874,7 +2080,9 @@ final class RoyalMailBills
      *
      * @param array<int, array<string, mixed>> $labels by id
      * @param array<int, string> $pins label id => the parcel's key (lower case)
-     * @return array{odd: array<int, string>, pins: bool}
+     * seen: every checked label's CW parcels in its window ("channel|order|parcel|carrier|manual", sorted), whatever its destination (H1, DL91).
+     *
+     * @return array{odd: array<int, string>, pins: bool, seen: array<int, list<string>>}
      */
     private static function evidence(Db $db, array $ctx, array $labels, array $pins): array
     {
@@ -1901,6 +2109,7 @@ final class RoyalMailBills
             }
         }
         $fits = [];
+        $seen = [];
         foreach (array_chunk(array_map('strval', array_keys($check)), 500) as $chunk) {
             foreach ($db->all('SELECT p.channel_id, p.order_ref, p.parcel_ref, p.tracking_no, p.carrier, p.is_manual, p.service_code, p.label_at FROM sale_parcel p '
                 . 'WHERE p.tracking_no IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') AND p.removed_at IS NULL AND p.label_at IS NOT NULL', $chunk) as $p) {
@@ -1915,6 +2124,7 @@ final class RoyalMailBills
                     if (isset($pins[$id])) {
                         $fits[$id][] = strtolower($p['channel_id'] . '|' . $p['order_ref'] . '|' . $p['parcel_ref']);
                     }
+                    $seen[$id][] = strtolower($p['channel_id'] . '|' . $p['order_ref'] . '|' . $p['parcel_ref'] . '|' . $p['carrier'] . '|' . (int) $p['is_manual']);
                     if ($rm && !isset($out[$id]) && strcasecmp((string) $p['service_code'], (string) $labels[$id]['service_code']) !== 0) {
                         $out[$id] = 'service_differs';
                     }
@@ -1929,7 +2139,11 @@ final class RoyalMailBills
             }
         }
         ksort($out);
-        return ['odd' => $out, 'pins' => $ok];
+        foreach ($seen as $id => $keys) {
+            sort($seen[$id], SORT_STRING);
+        }
+        ksort($seen);
+        return ['odd' => $out, 'pins' => $ok, 'seen' => $seen];
     }
 
     /**

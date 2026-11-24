@@ -248,7 +248,7 @@ final class PooledPlanner
         $qty = array_sum(array_map(static fn (array $r): int => (int) $r['qty'], $cap));
         $net = array_sum(array_map(static fn (array $r): int => (int) $r['net'], $cap));
         $price = $qty > 0 ? self::roundDiv($net, $qty) : 0;
-        // the labels on the first bill's charges: each as many as its quantity, the rest on its last charge (no charge: on its last row at 0)
+        // the labels on the first bill's charges: each as many as its quantity, the rest on its last charge (no charge: on none)
         $on = [];
         $i = 0;
         $n = count($labels);
@@ -258,7 +258,9 @@ final class PooledPlanner
             $on[$k] = array_slice($labels, $i, max(0, $take));
             $i += max(0, $take);
         }
-        if ($i < $n) {
+        // ... but a group with no charge prices no label at all: no 0p allocation on an order, so no first pin from a credit; its credit is the
+        // day's line split by the holders (the astra re-check of b581e70, F1)
+        if ($i < $n && $cap !== []) {
             $on[$last] = [...$on[$last], ...array_slice($labels, $i)];
         }
         $shares = self::holders($labels);

@@ -42,6 +42,8 @@ final class RoyalMailBillPage
     /** The line table's 8 headings, in order. */
     public const LINE_HEADINGS = ['Service Rendered Date', 'Product Number', 'Quantity', 'Product Description', 'Sales Order/Your Reference', 'Net Price',
         'Gross Price', 'VAT Code'];
+    /** A bill line's first line as a page reader gives it: a service date (any separator), a product code, a quantity. */
+    private const SPACED_LINE = '/^\d{2}[:.\/-]\d{2}[:.\/-]\d{4}\s+\S+\s+-?[0-9][0-9,]*(\.[0-9]+)?(\s|$)/D';
     /** A note the bill prints under its lines with an amount (not a line, not money of its own). */
     public const SURCHARGE_NOTE = 'Surcharge included on Invoice';
     /** A VAT code with no summary row on the bill: CW's rate for it, in percent. */
@@ -120,11 +122,20 @@ final class RoyalMailBillPage
             $n->parentNode?->removeChild($n);
         }
         $table = null;
+        $early = null;
         foreach ($x->query('//tr') ?: [] as $tr) {
             if (!$tr instanceof \DOMElement) {
                 continue;
             }
+            // one table of lines only: a second heading, or a row shaped as a bill line outside the heading's table (before it or in another
+            // table), refuses the whole page: never read as the first table's lines alone (the astra re-check of b581e70, F2)
+            if ($table !== null && self::isHeading(self::cells($tr))) {
+                throw self::refuse('it has more than one table of lines: save the bill\'s own page again (Ctrl+S, "Webpage, complete")');
+            }
             if ($table === null) {
+                if (self::isLineStart(self::cells($tr))) {
+                    $early ??= count($x->query('preceding::tr', $tr) ?: []) + 1; // refused once a heading follows (else: no table)
+                }
                 if (self::isHeading(self::cells($tr))) {
                     $table = [];
                     $owner = $tr->parentNode;
@@ -141,9 +152,15 @@ final class RoyalMailBillPage
                 $t = $t->parentNode;
             }
             if ($t !== ($within ?? null)) {
+                if (self::isLineStart(self::cells($tr))) {
+                    throw self::refuse('it has lines of the bill outside its table of lines: save the bill\'s own page again (Ctrl+S, "Webpage, complete")');
+                }
                 continue;
             }
             $table[] = self::cells($tr);
+        }
+        if ($table !== null && $early !== null) {
+            throw self::refuse('it has a line of the bill before the table of lines (row ' . $early . ')');
         }
         $body = $doc->getElementsByTagName('body')->item(0) ?? $doc->documentElement;
         // the top block from the page's text only: a button's label is read only in a row of the lines (the Codex check r1, MEDIUM 13)
@@ -159,13 +176,28 @@ final class RoyalMailBillPage
     {
         $lines = preg_split('/\r\n|\n|\r/', $bytes) ?: [];
         $table = null;
-        foreach ($lines as $line) {
+        $spacedHeading = strtolower(implode(' ', self::LINE_HEADINGS));
+        $tabbed = array_filter($lines, static fn (string $l): bool => str_contains($l, "\t")
+            && self::isHeading(array_map(static fn (string $c): string => self::squash($c), explode("\t", $l)))) !== [];
+        foreach ($lines as $n => $line) {
+            if (!$tabbed) {
+                break; // no tabbed heading: the page reader's text (fromSpaced, its own checks)
+            }
             $cells = array_map(static fn (string $c): string => self::squash($c), explode("\t", $line));
+            if (!str_contains($line, "\t") && strtolower(self::squash($line)) === $spacedHeading) {
+                // a section of lines as a page reader gives them beside a tabbed one: one section of lines only (the astra re-check of b581e70, F2)
+                throw self::refuse('it has more than one section of lines (line ' . ($n + 1) . '): copy the bill\'s page once, whole');
+            }
             if ($table === null) {
                 if (self::isHeading($cells)) {
                     $table = [];
+                } elseif (self::isLineStart($cells) || preg_match(self::SPACED_LINE, self::squash($line)) === 1) {
+                    throw self::refuse('it has a line of the bill before its heading of lines (line ' . ($n + 1) . ')');
                 }
                 continue;
+            }
+            if (self::isHeading($cells)) {
+                throw self::refuse('it has more than one heading of lines (line ' . ($n + 1) . '): copy the bill\'s page once, whole');
             }
             $table[] = $cells;
         }
@@ -189,13 +221,23 @@ final class RoyalMailBillPage
         $row = null;
         $amount = '-?\s*GBP\s*-?\s*[0-9][0-9,]*\.[0-9]{2}'; // the same signed grammar as amount() ("-GBP 2.54", "GBP -2.54": the Codex check r2, LOW 7)
         $tail = '/^(.*?)\s*(' . $amount . ')\s+(' . $amount . ')\s+([A-Z])$/D';
-        foreach ($lines as $line) {
+        $early = null;
+        foreach ($lines as $n => $line) {
             $line = self::squash($line);
             if ($table === null) {
                 if (strtolower($line) === $heading) {
+                    if ($early !== null) {
+                        // a line of the bill before the heading: refused, never left out (the astra re-check of b581e70, F2)
+                        throw self::refuse('it has a line of the bill before its heading of lines (line ' . $early . ')');
+                    }
                     $table = [];
+                } elseif (preg_match(self::SPACED_LINE, $line) === 1) {
+                    $early ??= $n + 1;
                 }
                 continue;
+            }
+            if (strtolower($line) === $heading) {
+                throw self::refuse('it has more than one heading of lines (line ' . ($n + 1) . '): copy the bill\'s page once, whole');
             }
             if (preg_match('/^(\d{2}[:.\/]\d{2}[:.\/]\d{4})\s+(\S+)\s+(\S+)\s*(.*)$/D', $line, $m) === 1) {
                 if ($row !== null) {
@@ -234,6 +276,18 @@ final class RoyalMailBillPage
             $table[] = [$row[0], $row[1], $row[2], $row[3], ''];
         }
         return $table;
+    }
+
+    /**
+     * Whether a row of cells starts as a bill line does: its first cell a service date (dd:mm:yyyy, or with . / - between). A row outside the
+     * table of lines that starts so is refused, never left out (the astra re-check of b581e70, F2).
+     *
+     * @param list<string> $cells
+     */
+    private static function isLineStart(array $cells): bool
+    {
+        $cells = array_values(array_filter($cells, static fn (string $c): bool => $c !== ''));
+        return $cells !== [] && preg_match('/^\d{2}[:.\/-]\d{2}[:.\/-]\d{4}(\s|$)/D', $cells[0]) === 1;
     }
 
     /** @param list<string> $cells */

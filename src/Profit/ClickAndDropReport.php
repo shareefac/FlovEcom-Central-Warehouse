@@ -153,7 +153,8 @@ final class ClickAndDropReport
         if (preg_match('/^[A-Z]{2}[0-9]{9}GB$/D', $tracking) !== 1) { // Royal Mail's shape only (a phone number is never kept: DL72)
             return null;
         }
-        $ref = trim(self::text($r['reference'] ?? null));
+        $refCell = $r['reference'] ?? null;
+        $ref = trim(self::text($refCell));
         $channel = trim(self::text($r['channel'] ?? null));
         $service = strtoupper(trim(self::text($r['service_code'] ?? null)));
         $package = strtolower(trim(self::text($r['package'] ?? null)));
@@ -173,7 +174,8 @@ final class ClickAndDropReport
             'reference' => preg_match('/^#?[0-9]{1,9}$/D', $ref) === 1 ? $ref : null,
             // a reference given but in no known shape: only this flag is kept, never the text (the final review, F6): such a label is never put on
             // an order by its tracking number alone (LabelDestinations: held, ref_unusable)
-            'ref_unusable' => $ref !== '' && preg_match('/^#?[0-9]{1,9}$/D', $ref) !== 1,
+            // ... and a Boolean or an error in the cell is a value given too, never "no reference" (the astra re-check of b581e70, F6)
+            'ref_unusable' => is_bool($refCell) || $refCell === XlsFile::ERROR_CELL || ($ref !== '' && preg_match('/^#?[0-9]{1,9}$/D', $ref) !== 1),
             'channel_code' => $channel === '' ? null : ($channels[$channel] ?? 'other'),
             // letters then a digit (TPL48HV, SD1): a word there is never a service (the Codex check r2, new MEDIUM 4)
             'service_code' => preg_match('/^[A-Z]{1,6}[0-9][A-Z0-9]{0,9}$/D', $service) === 1 ? $service : null,

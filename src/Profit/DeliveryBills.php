@@ -810,7 +810,6 @@ final class DeliveryBills
             try {
                 return $this->db->transaction(static function (Db $db) use ($plan, &$held, $fresh, &$guardsFrom): mixed {
                     $p = $plan($db, $fresh);
-                    $guardsFrom ??= microtime(true);
                     $facts = [...$p['before'], ...$p['after']];
                     $owners = [];
                     foreach ($facts as $f) {
@@ -834,7 +833,10 @@ final class DeliveryBills
                     // Every statement while the guards are held waits for a row only within what is left of HOLD_SEC from the moment they are taken
                     // (Db::waitsUntil: a statement with less than 1 s left is not started): any wait for another session, all of them together, stays
                     // within the 3 s a snapshot waits for its guard (the astra re-check of ccd149d, item 8; DL41).
-                    return $db->waitsUntil(microtime(true) + self::HOLD_SEC, static function () use ($db, $p, $days, $owners, $names, &$held): mixed {
+                    return $db->waitsUntil(microtime(true) + self::HOLD_SEC, static function () use ($db, $p, $days, $owners, $names, &$held, &$guardsFrom): mixed {
+                        // the retry budget counts from the FIRST guard tried (an order's, or a day row's when no order is named): the plan, the
+                        // owners and their days read before it never leave a busy first guard no second try (the astra re-check of b581e70, H1)
+                        $guardsFrom ??= microtime(true);
                         // GUARD_CHUNK guards a statement, in name order (MySQL works a select list out left to right), none waited for: one held
                         // elsewhere (a snapshot working it out: milliseconds) means every guard is let go at once and the write tried again a moment
                         // later, so this write never waits while it holds any, and its whole wait is GUARD_BUDGET_SEC at most (the Codex check r3;
@@ -885,8 +887,7 @@ final class DeliveryBills
                         // snapshot of one stored since (its parcels may have changed) means the plan is old, read in the same pass as the days.
                         $versions = isset($p['versions']) ? [] : null;
                         $daysNow = self::orderDays($db, $owners, $versions);
-                        if ($daysNow !== $days || ($versions !== null && array_intersect_key($versions, $p['versions']) != $p['versions'])
-                            || (isset($p['verify']) && !($p['verify'])($db))) {
+                        if ($daysNow !== $days || ($versions !== null && array_intersect_key($versions, $p['versions']) != $p['versions'])) {
                             throw new CwException(self::RETRY, 'an order of these lines changed while they were saved: tried again', 409);
                         }
                         $result = ($p['write'])($db);
@@ -907,6 +908,12 @@ final class DeliveryBills
                         foreach ($pairs as $pair) {
                             [$day, $ch] = explode('|', $pair);
                             self::tidy($db, (int) $ch, $day);
+                        }
+                        // the plan's evidence read again LAST, right before the commit (a pooled bill's verify: the cover, every label's CW parcels,
+                        // the first pins' counts): anything changed since the plan read it, the write is undone and made again (the astra re-check
+                        // of b581e70, F7 and H1: the window to the commit is the commit itself; DL91)
+                        if (isset($p['verify']) && !($p['verify'])($db)) {
+                            throw new CwException(self::RETRY, 'what these lines were planned on changed while they were saved: tried again', 409);
                         }
                         return $result;
                     });
@@ -934,6 +941,7 @@ final class DeliveryBills
                     throw $e;
                 }
                 $fresh = true;
+                $guardsFrom = null; // a plan made again: its guards' budget counts from its own first guard (the Fable re-check of b581e70, L1)
                 if ($try >= self::TRIES) {
                     throw new CwException('busy', 'the orders of these lines kept changing, or were busy, while they were saved: nothing was saved; try again in a minute',
                         503);

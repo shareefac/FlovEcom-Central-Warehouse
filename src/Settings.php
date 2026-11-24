@@ -587,6 +587,11 @@ final class Settings
             throw new CwException('company_details', 'the company details are no longer settings: a reviewer adds, changes and confirms them on the '
                 . 'Company details screen (Reference > Company details, ' . self::COMPANY_SCREEN . '), which keeps every version', 400);
         }
+        if ($key === 'delivery.rm_writes_held') {
+            // the go-live kit's hold: set and cleared only by the kit under the bills' lock from the run it names (RoyalMailBills::setHold; the
+            // astra re-check of b581e70, K2; DL91), never by the settings screen or bin/settings.php
+            throw new CwException('reserved_setting', 'delivery.rm_writes_held is set and cleared by the Royal Mail go-live kit only (under the bills\' lock)', 400);
+        }
         $reason = \CW\Admin\ConfigHistory::reason($reason);
         return $this->db->transaction(function (Db $db) use ($caller, $key, $raw, $reason, $agreed, $seen): array {
             \CW\Admin\ConfigHistory::authorise($db, $caller);

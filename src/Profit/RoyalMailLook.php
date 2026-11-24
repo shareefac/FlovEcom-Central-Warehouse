@@ -164,18 +164,22 @@ final class RoyalMailLook
         }
         // a day x Tracked product billed more than its priced labels by more than the setting: red (DL86 7)
         $billed = [];
+        $credited = [];
         foreach ($rows as $r) {
             if (($kind[(string) $r['product_code']] ?? null) === 'flat' && isset($covered[(string) $r['service_date']])) {
                 $k = $r['service_date'] . '|' . $r['product_code'];
-                // a charge's units only: a credit is no billed unit (the final review, F1)
+                // a charge's units only: a credit is no billed unit (the final review, F1) ...
                 $billed[$k] = ($billed[$k] ?? 0) + ((int) $r['qty'] > 0 && (int) $r['net'] > 0 ? (int) $r['qty'] : 0);
+                // ... but the units a credit gives back are taken off for red: a day billed one unit too many and credited it is not red (the Fable
+                // re-check of b581e70, L4; DL91)
+                $credited[$k] = ($credited[$k] ?? 0) + ((int) $r['net'] < 0 ? abs((int) $r['qty']) : 0);
             }
         }
         ksort($billed);
         $redDays = [];
         foreach ($billed as $k => $q) {
             [$d, $product] = explode('|', $k);
-            if (self::red($q, $count[$k] ?? 0, $bp)) {
+            if (self::red(max(0, $q - ($credited[$k] ?? 0)), $count[$k] ?? 0, $bp)) {
                 $redDays[$k] = true;
                 $out[] = ['kind' => 'billed_more', 'day' => $d, 'red' => true, 'product' => $product, 'labels' => $count[$k] ?? 0, 'billed' => $q];
             }
@@ -206,6 +210,7 @@ final class RoyalMailLook
             return $out;
         };
         $manifests = [];
+        $redM = [];
         $soRows = [];
         $ww = [];
         foreach ($rows as $r) {
@@ -245,7 +250,9 @@ final class RoyalMailLook
             if ($m !== null) {
                 $manifests[$m] ??= (string) $r['service_date'];
             } else {
-                $out[] = ['kind' => 'no_labels', 'day' => (string) $r['service_date'], 'red' => self::red((int) $r['qty'], 0, $bp), 'product' => (string) $r['product_code'],
+                // red by its charge's units only: a credit is no billed unit (the astra re-check of b581e70, F1/F11 MEDIUM)
+                $out[] = ['kind' => 'no_labels', 'day' => (string) $r['service_date'], 'red' => self::red((int) $r['qty'] > 0 && (int) $r['net'] > 0 ? (int) $r['qty'] : 0, 0, $bp),
+                    'product' => (string) $r['product_code'],
                     'manifest' => null, 'sales_order' => $r['sales_order'], 'pence' => (int) $r['net']];
             }
         }
@@ -260,6 +267,7 @@ final class RoyalMailLook
             ksort($manifests);
             $ids = array_keys($manifests);
             $units = array_fill_keys($ids, 0);
+            $cred = array_fill_keys($ids, 0); // the units credits give back (red only: L4)
             $labels = array_fill_keys($ids, 0);
             $mineSo = [];
             foreach ($usable($labelRows('manifest_no', $ids)) as $l) {
@@ -271,20 +279,22 @@ final class RoyalMailLook
             $soManifests($mineSo);
             foreach (array_chunk($ids, 300) as $chunk) {
                 // every live bill's rows naming the manifest, whatever their day (DL86 5)
-                foreach ($db->all("SELECT r.ref_no, SUM(CASE WHEN r.qty > 0 AND r.net_pence > 0 THEN r.qty ELSE 0 END) AS q FROM carrier_bill_row r JOIN carrier_invoice i ON i.id = r.invoice_id AND i.status = 'live' AND i.carrier = ? "
+                foreach ($db->all("SELECT r.ref_no, SUM(CASE WHEN r.qty > 0 AND r.net_pence > 0 THEN r.qty ELSE 0 END) AS q, SUM(CASE WHEN r.net_pence < 0 THEN ABS(r.qty) ELSE 0 END) AS c FROM carrier_bill_row r JOIN carrier_invoice i ON i.id = r.invoice_id AND i.status = 'live' AND i.carrier = ? "
                     . "AND i.account = ? JOIN carrier_product p ON p.carrier = i.carrier AND p.product_code = r.product_code AND p.kind = 'band' WHERE r.ref_kind = 'manifest' "
                     . 'AND r.ref_no IN (' . $marks(count($chunk)) . "){$not} GROUP BY r.ref_no", [$account['carrier'], $account['account_no'], ...array_map('strval', $chunk), ...$gone]) as $r) {
                     $units[(int) $r['ref_no']] += (int) $r['q'];
+                    $cred[(int) $r['ref_no']] += (int) $r['c'];
                 }
             }
             // ... and every live row naming only a sales order of its labels, on that manifest alone
             foreach (array_chunk(array_values(array_unique($mineSo)), 300) as $chunk) {
-                foreach ($db->all("SELECT r.sales_order, SUM(CASE WHEN r.qty > 0 AND r.net_pence > 0 THEN r.qty ELSE 0 END) AS q FROM carrier_bill_row r JOIN carrier_invoice i ON i.id = r.invoice_id AND i.status = 'live' AND i.carrier = ? "
+                foreach ($db->all("SELECT r.sales_order, SUM(CASE WHEN r.qty > 0 AND r.net_pence > 0 THEN r.qty ELSE 0 END) AS q, SUM(CASE WHEN r.net_pence < 0 THEN ABS(r.qty) ELSE 0 END) AS c FROM carrier_bill_row r JOIN carrier_invoice i ON i.id = r.invoice_id AND i.status = 'live' AND i.carrier = ? "
                     . "AND i.account = ? JOIN carrier_product p ON p.carrier = i.carrier AND p.product_code = r.product_code AND p.kind = 'band' WHERE r.ref_kind <> 'manifest' "
                     . 'AND r.sales_order IN (' . $marks(count($chunk)) . "){$not} GROUP BY r.sales_order", [$account['carrier'], $account['account_no'], ...$chunk, ...$gone]) as $r) {
                     $m = $one((string) $r['sales_order']);
                     if ($m !== null && isset($units[$m])) {
                         $units[$m] += (int) $r['q'];
+                        $cred[$m] += (int) $r['c'];
                     }
                 }
             }
@@ -295,12 +305,16 @@ final class RoyalMailLook
                 $m = $r['ref_kind'] === 'manifest' ? (int) $r['ref_no'] : $one($r['sales_order']);
                 if ($m !== null && isset($units[$m])) {
                     $units[$m] += (int) $r['qty'] > 0 && (int) $r['net'] > 0 ? (int) $r['qty'] : 0;
+                    $cred[$m] += (int) $r['net'] < 0 ? abs((int) $r['qty']) : 0;
                 }
             }
             foreach ($manifests as $m => $day) {
-                if ($labels[$m] === 0 || self::red($units[$m], $labels[$m], $bp)) {
-                    $out[] = ['kind' => 'manifest', 'day' => $day, 'red' => self::red($units[$m], $labels[$m], $bp), 'manifest' => $m, 'labels' => $labels[$m],
-                        'billed' => $units[$m]];
+                $isRed = self::red(max(0, $units[$m] - $cred[$m]), $labels[$m], $bp);
+                if ($isRed) {
+                    $redM[$m] = true; // its odd labels are red with it (the astra re-check of b581e70, F11 MEDIUM)
+                }
+                if ($labels[$m] === 0 || $isRed) {
+                    $out[] = ['kind' => 'manifest', 'day' => $day, 'red' => $isRed, 'manifest' => $m, 'labels' => $labels[$m], 'billed' => $units[$m]];
                 }
             }
             // the odd labels of these manifests, whatever their day (F6): a label of no service or one CW does not map on the manifest too (the
@@ -324,7 +338,8 @@ final class RoyalMailLook
                     if (!isset($seen[$t])) {
                         $seen[$t] = true;
                         $odd[] = ['kind' => 'odd_service', 'day' => (string) $r['manifest_day'], 'red' => false, 'tracking_no' => $t, 'why' => 'service_differs',
-                            'service' => (string) $r['service_code'], 'cw_service' => (string) $r['cw'], 'product' => null];
+                            'service' => (string) $r['service_code'], 'cw_service' => (string) $r['cw'], 'product' => null,
+                            'manifest' => $r['manifest_no'] === null ? null : (int) $r['manifest_no']];
                     }
                 }
             }
@@ -363,6 +378,8 @@ final class RoyalMailLook
         foreach ($out as $n => $i) {
             if (in_array($i['kind'], ['parcel_missing', 'odd_service'], true) && ($i['product'] ?? null) !== null) {
                 $out[$n]['red'] = isset($redDays[$i['day'] . '|' . $i['product']]);
+            } elseif ($i['kind'] === 'odd_service' && ($i['manifest'] ?? null) !== null) {
+                $out[$n]['red'] = isset($redM[(int) $i['manifest']]); // an odd label of a Special Delivery manifest: red with its manifest (F11)
             }
         }
         $order = ['billed_more' => 1, 'manifest' => 2, 'no_labels' => 3, 'parcel_missing' => 4, 'odd_service' => 5];

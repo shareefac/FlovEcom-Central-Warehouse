@@ -20854,6 +20854,36 @@ the allocations of bills no longer live ended, then loading / live / unended cou
 plan), and the budget counts from the first guard taken. DPD's plans (one argument) are made every try as before. The owner's fallback of
 24 Nov ~17:30 (a queue "to be applied tonight") was NOT needed: the write fits (measured in the STATE file and `runs/rmbills_r12_week*`).
 
+**DL91. Round 13, the last fix round: the Codex astra re-check of b581e70 (NO GO, 8 HIGH, 13 MEDIUM: `cw_work/runs/rmbills_recheck_astra_report.txt`)
+and the Fable re-check (GO, 9 LOW; the lead's log 24 Nov 19:10). Brief `runs/rmbills_r13_brief.txt`; no review round after this one (owner).**
+Red first (`runs/rmbills_r13_red.log`: `RoyalMailRound13Test`, 14 of 14 failing at b581e70); green `runs/rmbills_r13_green*.log`.
+(F2) One section of lines only: a saved page with a second heading of lines (another table), or a row shaped as a bill line (its first cell
+a service date) outside the heading's table, is refused whole; pasted text with a section as a page reader gives it beside a tabbed one, a
+second heading, or a bill line before the heading, is refused whole (never read as the first section's lines alone). (F7, Fable L3) A first
+pin is made only AFTER the write's commit, from what it committed (`carrier_pin_due`, now for re-plans and undo too, not only the store), and
+only when the label's tracking number has EXACTLY that one CW parcel in its window at that moment (`pinChecked`); a label refused a pin (a
+second parcel stored on another order before or in the instant of the commit) is not held to that order (a live order allocation is sticky
+only while its pin is due), its keys are made due and, for a store, planned again at once (held `two_parcels`). The plan's evidence is read
+again as the LAST statement before the commit (`DeliveryBills::attempts`: verify after the write), so the window left is the commit itself
+and the re-count after it closes that. (H1) The guarded check compares EVERY label's CW parcels in its window (`evidence()['seen']`, read at
+plan time before the destinations are worked out), not only the first pins: a parcel come for a label planned to a shop, a party or held
+makes the plan old (made again), on a first try and on a try with the plan kept. (F1) A Tracked group with no charge prices no label: no 0p
+allocation on an order, no pin; its credit is the day's line split by the holders. (F6) A Boolean or an Excel error in the reference cell is
+a reference given but unusable (`XlsFile::ERROR_CELL` for an error cell; `ref_unusable` = 1), never "no reference". (K2) `notHeld($run)`
+passes only when the hold names EXACTLY that run (a run the lead gave up, its hold cleared, undoes nothing more: `not_held`);
+`RoyalMailBills::setHold` sets or clears the hold under the bills' lock from the state expected only (from none to a run; cleared by that run
+only), audited with the setting's versions; `Settings::change` refuses `delivery.rm_writes_held` (`reserved_setting`): the kit uses
+`rm_hold.php hold|release`. The check's own write (the check and its audit) is under the bills' lock with the hold read again; a Store refused
+by the hold leaves its check open (as busy); `bin/carrier_account.php` changes nothing while held. (MEDIUM) The retry budget counts from the
+first guard TRIED (an order's, or a day row's when none is named), and a plan made again gets its own budget (Fable L1). The nightly makes its
+edge days due as its FIRST write, for every active account, before the sweep or any read (F8); its own edge rows are left to replanAccount.
+The mini FAT is bound before it is expanded (its chain = the header's count, enough for the mini stream, only the entries needed read: F9).
+Billed units are the charges' (quantity > 0, net > 0) on the check, the bill's page, the list and the alert; for RED the units a credit gives
+back are taken off (a day billed 3, credited 1, with 2 labels: not red; Fable L4); an odd label of a red Special Delivery manifest is red with
+it; a row naming only its sales order is shown under the one manifest of that sales order's labels whatever its money's destination (a
+credit to the main shop too: the table says 2 units, GBP 9.30 for "2 x 9.30, then -9.30"). The same report again says what it planned now and
+what is still due (the screen too). The same-report branch drains due pins before it plans (Fable L2).
+
 ## A count sheet's product box: find an item by its name, as on the adjustment screen (branch `count-picker`, 23 Nov 2026; CP1-CP8; no migration)
 
 The owner, 23 Nov 2026, on Stock › Counts: adding an item to a sheet only by a scanned barcode, an exact CW number with its letters or the

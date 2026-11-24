@@ -333,6 +333,7 @@ final class RoyalMailRound13Test extends StockTestCase
         $view = (new RoyalMailViews(self::$db))->bill($id);
         self::assertSame([2], array_column($view['days'], 'billed'), 'the bill\'s page: 2 charges');
         // a Special Delivery credit naming only a sales order no manifest has: on the list, never red (no billed unit)
+        $this->report([], '2026-11-13', '2026-11-13');
         $sd = $this->bill([RmBill::line('2026-11-13', 'SD1', 1, -930, '', '5155509999')], '9070000002', 'Nov 17, 2026');
         $look = array_values(array_filter(RoyalMailLook::forBill(self::$db, $sd), static fn (array $i): bool => $i['kind'] === 'no_labels'));
         self::assertSame([false], array_column($look, 'red'));
