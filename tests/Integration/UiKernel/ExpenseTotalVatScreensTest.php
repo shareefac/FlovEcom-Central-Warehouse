@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CW\Tests\Integration\UiKernel;
 
 use CW\Expenses\ExpenseMoney;
+use CW\Idempotency;
 use CW\Tests\Support\KernelBrowser;
 use CW\Tests\Support\KernelUiTestCase;
 use CW\Tests\Support\UiResponse;
@@ -205,11 +206,140 @@ final class ExpenseTotalVatScreensTest extends KernelUiTestCase
         $part = substr($js, $start);
         self::assertStringContainsString('Math.floor((2 * t * 10000 + (10000 + bp)) / (2 * (10000 + bp)))', $part, 'the same sum, in whole pence');
         foreach (["querySelector('input[data-expense-gross]')", "querySelectorAll('input[name=\"vat_way\"]')", "getAttribute('data-vat-bp')",
-            'hand.net', 'hand.vat', "setWay('other')", '[data-expense-adds-up]', "hasAttribute('data-expense-anchor')", 'if (anchored) {',
-            'gross.value = plain(a + b);', 'gross.value = plain(a0 + b0);'] as $piece) {
+            'hand.net', 'hand.vat', "setWay('other')", '[data-expense-adds-up]', "hasAttribute('data-expense-anchor')",
+            // The total leads once the person typed it, whether it parses or not (Codex final H2: "8,47" was overwritten by the sum).
+            'var led = false;', 'led = blank(gross.value) === false;', 'if (led) {',
+            // The old way writes the sum only into an empty or untouched total box.
+            'gross.value = plain(a + b);', 'gross.value = plain(a0 + b0);',
+            // A box typed by hand wins over the choice, whenever it was typed (Codex final M1): the choice shows Different VAT.
+            "if (hand.net || hand.vat) {\n        setWay('other');",
+            // Which boxes were typed by hand goes with the form and comes back with a refusal (Codex final H1).
+            "querySelector('input[name=\"hand\"]')", 'handBox.value = (hand.net ? \'net \' : \'\') + (hand.vat ? \'vat\' : \'\');',
+            "hand.net = /\\bnet\\b/.test(handBox.value);",
+            // One money rule (Codex final L1): the same spaces as the server, the same caps (a total up to two boxes' worth).
+            "/^[ \\t\\u00A0\\u202F\\u2007]*£?[ \\t\\u00A0\\u202F\\u2007]*(\\d{1,3}(?:,\\d{3}){1,2}|\\d{1,8})(?:\\.(\\d{1,2}))?[ \\t\\u00A0\\u202F\\u2007]*$/",
+            'var MAX = 999999999;', 'var MAX_TOTAL = 1999999998;'] as $piece) {
             self::assertStringContainsString($piece, $part, $piece);
         }
         // Programmatic values raise no input event: only the person's own typing marks a box as typed by hand.
         self::assertStringNotContainsString("dispatchEvent(new Event('input'", $part);
+    }
+
+    /** A refused form gives back which boxes were typed by hand, so the script keeps them (Codex final H1: £120, £90 typed, then £121 kept £90). */
+    public function testHandTypedBoxesComeBackWithARefusal(): void
+    {
+        $job = $this->signIn($this->uiUser('expenses'));
+        $page = $job->get('/ui/profit/expenses/new');
+        $hand = (new \DOMXPath($page->dom()))->query('//form[@action="/ui/profit/expenses/new"]//input[@type="hidden"][@name="hand"]');
+        self::assertSame(1, $hand?->length, 'the form carries which boxes were typed by hand');
+        self::assertSame('', $page->form('/ui/profit/expenses/new')['hand'] ?? null);
+        $r = $this->add($job, ['shop' => '', 'total' => '120.00', 'net' => '90.00', 'vat' => '30.00', 'vat_way' => 'other', 'hand' => 'net']);
+        self::assertSame('choose_shop', $r->errorCode(), $r->describe());
+        $back = $r->form('/ui/profit/expenses/new');
+        self::assertSame(['120.00', '90.00', '30.00', 'other', 'net'], [$back['total'] ?? null, $back['net'] ?? null, $back['vat'] ?? null, $back['vat_way'] ?? null, $back['hand'] ?? null]);
+        self::assertSame(1, (new \DOMXPath($r->dom()))->query('//input[@name="total"][@data-expense-anchor]')?->length);
+        // Only the two words it knows, once each, in one order.
+        $r = $this->add($job, ['shop' => '', 'hand' => 'vat x net vat <b>']);
+        self::assertSame('net vat', $r->form('/ui/profit/expenses/new')['hand'] ?? null);
+        // An expense's Change starts with nothing typed by hand.
+        self::assertSame(303, $this->add($job)->status);
+        $id = (int) self::$db->value('SELECT id FROM expense');
+        self::assertSame('', $job->get("/ui/profit/expenses/{$id}")->form("/ui/profit/expenses/{$id}/change")['hand'] ?? null);
+    }
+
+    /** Big amounts (Codex final M2): a total may be the sum of two boxes at their largest, in the script and on the server. */
+    public function testATotalUpToTwoBoxesWorth(): void
+    {
+        self::assertNull(ExpenseMoney::pence('10800000.00'), 'a box stays at most £9,999,999.99');
+        self::assertSame(1_080_000_000, ExpenseMoney::pence('10800000.00', ExpenseMoney::MAX_TOTAL_PENCE));
+        self::assertSame(1_080_000_000, ExpenseMoney::pence('£10,800,000.00', ExpenseMoney::MAX_TOTAL_PENCE));
+        self::assertSame(2 * ExpenseMoney::MAX_PENCE, ExpenseMoney::MAX_TOTAL_PENCE);
+        self::assertNull(ExpenseMoney::pence('20000000.00', ExpenseMoney::MAX_TOTAL_PENCE));
+        $job = $this->signIn($this->uiUser('expenses'));
+        $r = $this->add($job, ['total' => '10800000.00', 'net' => '9000000.00', 'vat' => '1800000.00']);
+        self::assertSame(303, $r->status, $r->describe());
+        $id = (int) self::$db->value('SELECT id FROM expense');
+        // A note-only change, the total as the script shows it (net + VAT): saved.
+        $f = $job->get("/ui/profit/expenses/{$id}")->form("/ui/profit/expenses/{$id}/change");
+        $r = $job->postMultipart("/ui/profit/expenses/{$id}/change", ['note' => 'big', 'total' => '10,800,000.00'] + $f, []);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame('big', (string) self::$db->value('SELECT note FROM expense WHERE id = ?', [$id]));
+        $r = $job->postMultipart("/ui/profit/expenses/{$id}/change", ['note' => 'bigger', 'total' => '20000000.00'] + $job->get("/ui/profit/expenses/{$id}")->form("/ui/profit/expenses/{$id}/change"), []);
+        self::assertSame('bad_total', $r->errorCode());
+    }
+
+    /**
+     * An Add sent from the page as it was live before (f044e2f: no total, no VAT choice, no record of hand typing) whose answer was lost is
+     * replayed after this goes live, never refused as "sent with other values" (Codex final M3): such a form's fingerprint is the old one.
+     */
+    public function testAnAddSentFromTheOldPageIsReplayed(): void
+    {
+        $job = $this->signIn($this->uiUser('expenses'));
+        $page = $job->get('/ui/profit/expenses/new')->form('/ui/profit/expenses/new');
+        unset($page['total'], $page['vat_way'], $page['hand']);
+        $body = ['shop' => (string) $this->vpg, 'supplier' => 'Amazon', 'new_supplier' => '1', 'type' => self::type('Stationery and packaging'),
+            'invoice_date' => '2026-11-20', 'invoice_no' => '204-1', 'net' => '100.00', 'vat' => '20.00', 'note' => '', 'then' => 'done'] + $page;
+        $r = $job->postMultipart('/ui/profit/expenses/new', $body, []);
+        self::assertSame(303, $r->status, $r->describe());
+        // The fingerprint f044e2f stored for this form (its fields as it read them, then same_ok, then and the file's).
+        $old = ['shop' => (string) $this->vpg, 'supplier' => 'Amazon', 'supplier_id' => '', 'supplier_was' => '', 'new_supplier' => true,
+            'type' => self::type('Stationery and packaging'), 'invoice_date' => '2026-11-20', 'invoice_no' => '204-1', 'credit' => false, 'net' => '100.00',
+            'vat' => '20.00', 'note' => '', 'same_ok' => '', 'then' => 'done', 'file' => ''];
+        $want = hash('sha256', "ui.expense.add\n/ui/profit/expenses/new\n" . Idempotency::json(Idempotency::canonical($old)));
+        self::assertSame($want, (string) self::$db->value("SELECT request_hash FROM idempotency WHERE idem_key LIKE ?", ['ui:%:' . $page['form_key']]));
+        $again = $job->postMultipart('/ui/profit/expenses/new', $body, []);
+        self::assertSame([303, $r->location()], [$again->status, $again->location()], 'the lost answer, replayed');
+        self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM expense'));
+        // A new page's form: the total typed is part of what it sent (another total is another form); the choice and the hand typing are not.
+        $page = $job->get('/ui/profit/expenses/new')->form('/ui/profit/expenses/new');
+        $body = $this->fields(['invoice_no' => '204-2']) + $page;
+        self::assertSame(303, $job->postMultipart('/ui/profit/expenses/new', $body, [])->status);
+        self::assertSame(303, $job->postMultipart('/ui/profit/expenses/new', ['vat_way' => 'other', 'hand' => 'vat'] + $body, [])->status, 'the same form, replayed');
+        self::assertSame('idempotency_key_reused', $job->postMultipart('/ui/profit/expenses/new', ['total' => '8.46', 'net' => '7.05'] + $body, [])->errorCode());
+        self::assertSame(2, (int) self::$db->value('SELECT COUNT(*) FROM expense'));
+    }
+
+    /** One money rule for the three boxes, the script's and the server's (Codex final L1): the same spaces, no control characters. */
+    public function testOneMoneyRuleForTheThreeBoxes(): void
+    {
+        foreach (["£\u{202F}120", "120\u{00A0}", "\u{2007}120.00", " \t£ 120 ", "£\u{00A0}120"] as $ok) {
+            self::assertSame(12000, ExpenseMoney::pence($ok), json_encode($ok));
+        }
+        foreach (["120\n", "\x0B120", "12\x000", "\r120", "120 \u{200B}"] as $bad) {
+            self::assertNull(ExpenseMoney::pence($bad), json_encode($bad));
+        }
+        self::assertTrue(ExpenseMoney::blank(" \t\u{00A0}\u{202F}"));
+        self::assertFalse(ExpenseMoney::blank("\n"), 'a control character is not nothing: it is refused');
+        $job = $this->signIn($this->uiUser('expenses'));
+        $r = $this->add($job, ['total' => "8.47\n"]);
+        self::assertSame('bad_total', $r->errorCode(), 'the total is not trimmed of what the amounts are refused for');
+        $r = $this->add($job, ['total' => "\u{202F}£\u{202F}8.47", 'invoice_no' => '204-3']);
+        self::assertSame(303, $r->status, $r->describe());
+    }
+
+    /** One rate per page (Codex final L2): the label and the script's rate come from one reading of the setting. */
+    public function testTheLabelAndTheScriptShareOneRate(): void
+    {
+        self::$db->exec("UPDATE app_setting SET value_json = CAST('\"17.5\"' AS JSON) WHERE setting_key = 'profit.vat_rate_pct'");
+        try {
+            $job = $this->signIn($this->uiUser('expenses'));
+            $page = $job->get('/ui/profit/expenses/new');
+            $xp = new \DOMXPath($page->dom());
+            self::assertSame('1750', (string) $xp->evaluate('string(//form[@action="/ui/profit/expenses/new"]/@data-vat-bp)'));
+            self::assertSame(Words::say('EXPENSES', 'way_inc', '17.5%'), trim((string) $xp->evaluate('string(//fieldset[contains(@class, "ex-vat-way")]/label[1])')));
+            $src = (string) file_get_contents(dirname(__DIR__, 3) . '/src/Ui/Controller/ExpensesController.php');
+            self::assertSame(2, substr_count($src, "'vatBp' => \$bp,"), 'the add form and an expense\'s page: the rate read once');
+            self::assertSame(2, substr_count($src, "'vatPct' => RegularCostMath::percent(\$bp),"), 'and the label from that same reading');
+        } finally {
+            self::$db->exec("UPDATE app_setting SET value_json = CAST('\"20\"' AS JSON) WHERE setting_key = 'profit.vat_rate_pct'");
+        }
+    }
+
+    /** The help no longer says CW never works VAT out (Codex final L3): the form suggests the split and saves the amounts shown. */
+    public function testTheHelpSaysWhatTheFormDoes(): void
+    {
+        self::assertStringNotContainsString('never works VAT out', Words::HELP['expenses']);
+        self::assertStringContainsString('the form suggests the split', Words::HELP['expenses']);
+        self::assertStringContainsString('saves the amounts the boxes show', Words::HELP['expenses']);
     }
 }
