@@ -22093,6 +22093,33 @@ part-applied 0080's indexes are compared with their uniqueness, and each of its 
 and grouping never hidden by a normalisation). Back from the rollback release: `box.sh return-decide` records the earliest affected day
 before `--decide`, runs it on the restored release, then the rebuild from the earliest day and the reconcile (RUNBOOK).
 
+### Round 6b: the Codex astra review of 5784c00 (`runs/codex_25nov/paypal_r6_astra_final.md`), with the lead's decisions (25 Nov 2026 ~22:55), each shown failing first on 5784c00 (`runs/paypal_r6b_red.log`) and then green (PPF79-PPF80)
+
+**PPF79. A fraction of a second between two windows: a known limit (the lead; Codex H7 of 5784c00).** Each window asks PayPal for whole
+seconds, from 00:00:00 of its first UK day to 23:59:59 of its last, and the next window starts at 00:00:00: a row at 23:59:59.750 would fall
+in neither. PayPal's times are whole seconds: none of the 14,302 real rows of the lead's read (24 Nov) carries a fraction, so no row falls
+there. Not changed now (the lead, 25 Nov ~22:55): on the tracker. An answer that ENDS short of its asked end is still never taken for the
+whole day (PPF70).
+
+**PPF80. Round 6b (the lead's decisions; Codex High x2, Medium x5, Low).**
+- A reference's rows of one rank are compared by their KNOWN shops and KNOWN order numbers apart: one with no number agrees with one that
+  has it, one that names no shop with one that names it; only two known shops, or two known numbers, that differ hold the row (ref_conflict,
+  PPF75); otherwise the one shop with the one known number (or none) is the reference's, and the row's own invoice number is taken when every
+  known value agrees (PPF62). A row of them that names two shops' forms, or lost its shop, is held as before (ref_unresolved). Codex's case
+  (Vape and Go's 1312001 and Vape and Go with no number; the fee's own invoice 1312001) counts on 1312001, read in either order.
+- A NEW row of a PayPal id other rows refer to marks those rows due in the same store (markFollowers): they are decided again with it,
+  whatever its own first decision moves (a denied row of no clear shop moves none of its own fields, so its decision alone never would).
+- A row one answer gave two contents of is settled only when its day is within the answer's proven days at BOTH ends: from the window's
+  first day (an answer starting earlier than asked proves nothing of the day before) to its last day proven (PPF73).
+- rematch()'s marks wait for a row no longer than the run's time, as the queue's batches (PPF71): the same bounded wait (Db::waitsUntil;
+  paypal_deadline, busy), never a full session lock wait with a second left.
+- The kit: `box.sh reconcile-days` requires no order queued and no row due in the SAME consistent read as its day-by-day comparison (a refund
+  recorded during the rebuild while its chargeback's row was held leaves the order queued: `box.sh decide` first); the gate refuses EVERY
+  older_run mark of the certified account at or after the certified run, whatever the row's stored day; a resumed part of 0080 must be
+  InnoDB (an otherwise identical MyISAM queue would keep its deletion when a transaction rolls back); `box.sh hold-nightly` and `box.sh
+  decide` take `--release=<commit>` as return-decide does (a return from the rollback release to a later fixed release); golive.sh takes
+  the hold away BEFORE it writes the success markers (the EXIT trap stays for a failure).
+
 ## CW-1180 "don't restock" = written off at once (branch `no-restock`, 25 Nov 2026; NR1-NR8; migration 0081)
 
 The owner (CW chat, 25 Nov 2026 ~15:15-16:45 UK): "if the staff said dont restock then dont reestock", then "Yes, build it" (a test copy;

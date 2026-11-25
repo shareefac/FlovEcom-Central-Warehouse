@@ -443,7 +443,9 @@ final class PaypalFees
         $first = ReportRefresh::ukDay(Clock::db($a));
         $last = ReportRefresh::ukDay(Clock::db($b));
         $p = self::proven($last, $w);
-        $s = $this->store($runId, $account, $channelId, $rows, $caller, $shops, $p['to'] !== null && $p['to'] >= $first ? $p['to'] : null);
+        // the days this answer proves: from the window's first day (an answer starting earlier than asked proves nothing of the day before)
+        // to its last day proven (round 6b, PPF80: a row is settled only within both)
+        $s = $this->store($runId, $account, $channelId, $rows, $caller, $shops, $p['to'] !== null && $p['to'] >= $first ? [$first, $p['to']] : null);
         $sum['seconds']['store'] += microtime(true) - $t;
         $sum['windows']++;
         $sum['pages'] += $w['pages'];
@@ -492,7 +494,7 @@ final class PaypalFees
         $seen = [];
         for ($round = 1; $round <= 4; $round++) {
             $t = microtime(true);
-            $marked = $this->rematch($account);
+            $marked = $this->rematch($account, $deadline);
             $this->lastRematchSec += microtime(true) - $t;
             if ($round > 1 && $marked === 0) {
                 break;
@@ -542,20 +544,8 @@ final class PaypalFees
                 return;
             }
             $take = fn (): array => self::takeQueued($this->db, $batch, Clock::db(($this->clock)()), false);
-            try {
-                $deadline === null ? $take() : $this->db->waitsUntil($deadline, $take);
-            } catch (CwException $e) {
-                if ($e->errorCode !== 'out_of_time') {
-                    throw $e;
-                }
-                throw new CwException('paypal_deadline', "the run's time ran out while taking the orders queued for their chargebacks: they stay queued; the next run takes "
-                    . 'them first', 504);
-            } catch (\PDOException $e) {
-                if (Db::driverCode($e) !== 1205) {
-                    throw $e;
-                }
-                throw new CwException('busy', 'a PayPal row of an order queued for its chargebacks is held elsewhere: the orders stay queued; the next run takes them first', 503);
-            }
+            $deadline === null ? $take() : self::bounded($this->db, $deadline, $take,
+                'taking the orders queued for their chargebacks: they stay queued; the next run takes them first');
             $after = (int) $batch[count($batch) - 1]['id'];
         }
     }
@@ -735,7 +725,7 @@ final class PaypalFees
      *  - rows a shop's first fee day now puts on the other side (the setting changed), a held chargeback whose fee counts too (PPF66).
      * Plain indexed reads, then marks by id (MySQL planned an UPDATE with a correlated EXISTS row by row: 12 s at the real size; PPF15).
      */
-    public function rematch(string $account): int
+    public function rematch(string $account, ?float $deadline = null): int
     {
         $t0 = microtime(true);
         $shops = self::accountShops($this->db, $account);
@@ -816,7 +806,7 @@ final class PaypalFees
                     . "OR ({$counting} AND day < ?))", [$account, (int) $r['shop_channel'], $from, $from])));
         }
         $this->rematchParts['switch'] = round(microtime(true) - $t0, 3);
-        return $this->markDue(array_values(array_unique($ids)));
+        return $this->markDue(array_values(array_unique($ids)), $deadline);
     }
 
     /**
@@ -846,16 +836,48 @@ final class PaypalFees
         }
     }
 
-    /** Marks these rows due now (due_since: now; the ones due already keep theirs). @param list<int> $ids */
-    private function markDue(array $ids): int
+    /**
+     * Marks these rows due now (due_since: now; the ones due already keep theirs). With the run's deadline (decideAll: round 6b, PPF80, as the
+     * queue's batches, PPF71) every row wait is bounded by the time left (Db::waitsUntil): a mark that would wait for a row held elsewhere past
+     * it is refused (paypal_deadline, busy); the marks made before it stay (each statement its own commit: a mark is never money).
+     *
+     * @param list<int> $ids
+     */
+    private function markDue(array $ids, ?float $deadline = null): int
     {
         $n = 0;
         $now = Clock::db(($this->clock)());
         foreach (array_chunk($ids, 1000) as $chunk) {
-            $n += $this->db->exec('UPDATE paypal_txn SET due = 1, due_since = ? WHERE due = 0 AND id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')',
-                [$now, ...$chunk]);
+            $mark = fn (): int => $this->db->exec('UPDATE paypal_txn SET due = 1, due_since = ? WHERE due = 0 AND id IN ('
+                . implode(', ', array_fill(0, count($chunk), '?')) . ')', [$now, ...$chunk]);
+            $n += $deadline === null ? $mark() : self::bounded($this->db, $deadline, $mark, 'marking the rows whose decision may have changed: the next run marks them');
         }
         return $n;
+    }
+
+    /**
+     * $fn with every row wait bounded by the time left until $deadline (Db::waitsUntil; round 6b): no time left, or a row held elsewhere past it,
+     * is the run's refusal (paypal_deadline 504, busy 503), what it did not do left for the next run.
+     *
+     * @template T
+     * @param \Closure(): T $fn
+     * @return T
+     */
+    private static function bounded(Db $db, float $deadline, \Closure $fn, string $what): mixed
+    {
+        try {
+            return $db->waitsUntil($deadline, $fn);
+        } catch (CwException $e) {
+            if ($e->errorCode !== 'out_of_time') {
+                throw $e;
+            }
+            throw new CwException('paypal_deadline', "the run's time ran out while {$what}", 504);
+        } catch (\PDOException $e) {
+            if (Db::driverCode($e) !== 1205) {
+                throw $e;
+            }
+            throw new CwException('busy', "a PayPal row was held elsewhere while {$what}", 503);
+        }
     }
 
     /** Refused when the run's deadline passed (the job's overall deadline, below the installer's drain: fix round 1). */
@@ -1199,10 +1221,11 @@ final class PaypalFees
      *    from an older version: a7, round 3); a row of other forms is read again by the nightly (nightlyExtra()).
      *
      * @param list<array<string, mixed>> $rows PaypalRow::parse()d
-     * @param string|null $provenTo the last UK day this window's answer proves read (proven(); null: none of its days)
+     * @param array{0: string, 1: string}|null $proven the first and last UK day this window's answer proves read (its first day asked, and
+     *   proven()'s last; null: none of its days)
      * @return array{new: int, changed: int}
      */
-    private function store(int $runId, string $account, int $channelId, array $rows, Caller $caller, array $shops, ?string $provenTo = null): array
+    private function store(int $runId, string $account, int $channelId, array $rows, Caller $caller, array $shops, ?array $proven = null): array
     {
         $sig = self::formsSig($shops);
         $byKey = [];
@@ -1233,7 +1256,7 @@ final class PaypalFees
             $byKey[$k] = $r;
         }
         unset($seenRaw);
-        return $this->db->transaction(function (Db $db) use ($runId, $account, $channelId, $byKey, $caller, $sig, $twice, $copies, $provenTo): array {
+        return $this->db->transaction(function (Db $db) use ($runId, $account, $channelId, $byKey, $caller, $sig, $twice, $copies, $proven): array {
             $now = Clock::db(($this->clock)());
             $have = [];
             // by the unique key's first two columns (account, txn_id: an index range per id), the event code compared here
@@ -1261,6 +1284,9 @@ final class PaypalFees
                     $kind = PaypalCodes::kind((string) $r['event_code'], (int) $r['amount_pence']);
                     $new[] = $r + ['kind' => $kind, 'cost_pence' => PaypalCodes::cost($kind, (int) $r['amount_pence'], (int) $r['fee_pence']),
                         'pp_conflict' => isset($twice[$k]) ? 2 : 0];
+                    // a new row of a PayPal id other rows refer to (another event code of it): those rows are decided again with it, whatever its
+                    // own first decision moves (round 6b, PPF80: a denied row of no clear shop moves none of its own fields)
+                    $followed[] = (string) $r['txn_id'];
                     continue;
                 }
                 $age = self::age($r['pp_updated_at'], $old['pp_updated_at']);
@@ -1281,7 +1307,8 @@ final class PaypalFees
                 // decision 6, PPF73: the same content twice, or a window that proves nothing, settles nothing); two reads disagreeing on one
                 // version (1) stay a look until a newer version
                 $clean = !isset($twice[$k]);
-                $settles = ($copies[$k] ?? 0) === 1 && $provenTo !== null && (string) $r['day'] <= $provenTo && (int) $old['pp_conflict'] === 2;
+                $settles = ($copies[$k] ?? 0) === 1 && $proven !== null && (string) $r['day'] >= $proven[0] && (string) $r['day'] <= $proven[1]
+                    && (int) $old['pp_conflict'] === 2;
                 // the forms the row's captures are of after this read: these forms, unless the captures of the forms it was read by are kept
                 $rowSig = $sig;
                 if ($age === 0 && !$sameForms) {
@@ -1705,30 +1732,31 @@ final class PaypalFees
                 }
             }
             $refs = array_map(static fn (array $p): array => $resolve($p, $depth + 1), $top);
-            $states = array_values(array_unique(array_map(static fn (array $x): string => (string) $x['state'], $refs)));
-            if ($states === ['none']) {
-                // the rows it refers to name no shop either: as those rows (the main shop's line), unless one had a shop and lost it
-                foreach ($top as $p) {
-                    if ($p['form_shop'] !== null) {
-                        return ['state' => 'unresolved'] + $own;
-                    }
+            // each of them a shop (ok) or none known (none); anything else (two shops' forms, a conflict of its own, its reference unresolved or
+            // missing) gives no shop: held with it (as one row always was)
+            foreach ($refs as $i => $x) {
+                if (!in_array($x['state'], ['ok', 'none'], true)) {
+                    return ['state' => 'unresolved'] + $own;
                 }
-                return $own;
+                if ($x['state'] === 'none' && $top[$i]['form_shop'] !== null) {
+                    return ['state' => 'unresolved'] + $own; // it had a shop and lost it (form_lost): never another shop's line
+                }
             }
-            if ($states === ['ok']) {
-                // rows of one rank that name two shops or two orders: which one it belongs to is not known: held (ref_conflict), whichever was
-                // read first (round 6, PPF75)
-                $names = array_values(array_unique(array_map(static fn (array $x): string => $x['code'] . '|' . ($x['no'] ?? ''), $refs)));
-                if (count($names) > 1) {
-                    return ['state' => 'conflict'] + $own;
-                }
-                $ref = $refs[0];
-            } elseif (in_array('ok', $states, true) && in_array('none', $states, true) && array_diff($states, ['ok', 'none']) === []) {
-                // one of them names a shop and another none: they disagree (round 6, PPF75)
+            // their KNOWN shops and their KNOWN order numbers compared apart (round 6b, the lead's decision of 25 Nov ~22:55, PPF80): one with
+            // no number agrees with one that has it, one with no shop with one that has it; two known shops, or two known numbers, that differ:
+            // which order it belongs to is not known: held (ref_conflict), whichever was read first (round 6, PPF75)
+            $known = array_values(array_filter($refs, static fn (array $x): bool => $x['state'] === 'ok'));
+            if ($known === []) {
+                return $own; // none of them names a shop: as those rows (the main shop's line)
+            }
+            $codes = array_values(array_unique(array_map(static fn (array $x): string => (string) $x['code'], $known)));
+            $nos = array_values(array_unique(array_filter(array_map(static fn (array $x): ?string => $x['no'] === null ? null : (string) $x['no'], $known),
+                static fn (?string $n): bool => $n !== null)));
+            if (count($codes) > 1 || count($nos) > 1) {
                 return ['state' => 'conflict'] + $own;
-            } else {
-                return ['state' => 'unresolved'] + $own;
             }
+            // the one shop, with the one known number (or none known)
+            $ref = ['no' => $nos[0] ?? null] + $known[0];
             // its own shop not its reference's, or its invoice's number not its reference's (compared only when BOTH have one: round 5, H2,
             // PPF62): a conflict (a custom field's number is no order number: H2, round 4)
             if ($own['state'] === 'ok' && ($own['code'] !== $ref['code'] || ($own['no'] !== null && $ref['no'] !== null && $own['no'] !== $ref['no']))) {
