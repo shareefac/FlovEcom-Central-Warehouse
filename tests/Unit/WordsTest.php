@@ -125,6 +125,8 @@ final class WordsTest extends TestCase
             // 0066 (docs/decisions.md DS1): why an item is doubtful, where it stands
             'DOUBT_WHY' => \CW\Counts\StockDoubt::REASONS,
             'DOUBT_STATE' => \CW\Counts\StockDoubt::STATUSES,
+            // 0080 (docs/decisions.md PPF58): why a PayPal row needs a look, in staff words (the health alert never says a code)
+            'PAYPAL_LOOK' => \CW\Profit\PaypalFees::LOOK_REASONS,
         ];
     }
 
