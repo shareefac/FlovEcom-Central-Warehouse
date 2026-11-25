@@ -131,6 +131,20 @@ final class PaypalFeesR6Test extends StockTestCase
         return PaypalTx::row($id, 'T1201', $at, $amount, null, $no, $status, $over);
     }
 
+    /** $fn inside a transaction begun outside Db::transaction() (PDO's own): nothing runs after its commit; rolled back when $fn fails. */
+    private static function outsideTransaction(\Closure $fn): void
+    {
+        self::$db->pdo()->beginTransaction();
+        try {
+            $fn();
+            self::$db->pdo()->commit();
+        } finally {
+            if (self::$db->pdo()->inTransaction()) {
+                self::$db->pdo()->rollBack();
+            }
+        }
+    }
+
     private static function lastRun(): int
     {
         return (int) self::$db->value('SELECT MAX(id) FROM paypal_run');
@@ -228,11 +242,11 @@ final class PaypalFeesR6Test extends StockTestCase
             self::cb('6C00000000000C02', '2026-11-07T12:10:00Z', '-30.00', '1312002'), self::cb('6C00000000000C03', '2026-11-07T12:20:00Z', '-30.00', '1312003')]));
         // three orders' refunds recorded inside a transaction begun outside Db::transaction(): their snapshots queue them (durable) and no work
         // after the commit runs (the next PayPal run takes the queue)
-        self::$db->pdo()->beginTransaction();
-        foreach (['1001' => '1312001', '1002' => '1312002', '1003' => '1312003'] as $ref => $no) {
-            self::order($this->vpg, $ref, $no, '2026-11-0' . ((int) $ref - 998) . 'T10:00:00Z', 2, 3000);
-        }
-        self::$db->pdo()->commit();
+        self::outsideTransaction(function (): void {
+            foreach ([['1001', '1312001', '2026-11-03T10:00:00Z'], ['1002', '1312002', '2026-11-04T09:00:00Z'], ['1003', '1312003', '2026-11-05T09:00:00Z']] as [$ref, $no, $paid]) {
+                self::order($this->vpg, $ref, $no, $paid, 2, 3000);
+            }
+        });
         self::assertSame(3, (int) self::$db->value('SELECT COUNT(*) FROM paypal_order_due'));
         // one queued order a batch, each its own commit; the first batch slowed past the deadline: the next is never started
         $conn = TestDb::connect();
@@ -261,9 +275,9 @@ final class PaypalFeesR6Test extends StockTestCase
     {
         $this->shops();
         self::readPp(new FakePaypalHttp([self::cb('6C00000000000C04', '2026-11-07T12:00:00Z', '-30.00', '1312001')]));
-        self::$db->pdo()->beginTransaction();
-        self::order($this->vpg, '1001', '1312001', '2026-11-03T10:00:00Z', 2, 3000);
-        self::$db->pdo()->commit();
+        self::outsideTransaction(function (): void {
+            self::order($this->vpg, '1001', '1312001', '2026-11-03T10:00:00Z', 2, 3000);
+        });
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM paypal_order_due'));
         // another session holds the chargeback's row (a PayPal store, a guarded write): the take waits for it no longer than the time left
         $other = TestDb::connect();
