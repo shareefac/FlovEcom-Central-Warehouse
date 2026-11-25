@@ -281,8 +281,9 @@ final class Settings
         'ai.model' => ['pattern' => '/^claude-[a-z0-9-]{3,60}$/D', 'pattern_says' => 'a Claude model id, like claude-opus-5-5'],
         'ai.effort' => ['in' => ['low', 'medium', 'high', 'xhigh', 'max']],
         'ai.monthly_limit_gbp' => ['min' => '0', 'max' => '10000'],
-        'ai.price_input_gbp_per_mtok' => ['min' => '0', 'max' => '1000'],
-        'ai.price_output_gbp_per_mtok' => ['min' => '0', 'max' => '1000'],
+        // M3 (Codex final of 86aebbd): a price is never 0 or empty (paid readings would count as nothing against the limit)
+        'ai.price_input_gbp_per_mtok' => ['min' => '0.01', 'max' => '1000', 'required' => true],
+        'ai.price_output_gbp_per_mtok' => ['min' => '0.01', 'max' => '1000', 'required' => true],
     ];
 
     /**

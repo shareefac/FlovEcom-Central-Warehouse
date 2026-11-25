@@ -21749,11 +21749,16 @@ leaves the half row as it was: refused whole, as before. The same bill as the on
 **AI14. The go-live kit (`/root/cw_work/kits/aireader_cw1182/`).** 0082 only (three tables, seven settings OFF); before anything switches, the
 kit proves on the box that composer --no-dev installs anthropic-ai/sdk (the pinned version) and that the box reaches api.anthropic.com over
 HTTPS through the SDK itself (a request with NO key must answer 401: no token spent); the spool folder made (0700 www-data); the cron line
-installed by install_cron.sh; the feature lands OFF: the owner pastes the key on the Settings screen later and switches it on. The undo
-(the owner's word only): the quick stop first (reading off AND the key emptied: the release before would list the key as a plain setting),
-then the switch only with no reading open and an empty spool, under the install lock, to the plain rollback (04dbab6 + 0082 byte for byte);
-the app login's grants on 0082's tables taken back after it; 0082's tables and rows stay. tests/Integration/Profit/RollbackReleaseTest pins
-the recipe: the release before's last migration 0079, the rollback's one file 0082.
+installed by install_cron.sh --migrate --expect-revision=<tip> --expect-active=<base> (the installer checks, under its own lock, that the
+copy it installs is the one the kit probed: AI18 H9); the feature lands OFF: the owner pastes the key on the Settings screen later and
+switches it on. The release is built ON the live commit: 86c21af (CW-1180, live 25 Nov 20:34), whose last migration is 0081; the plain
+rollback is 20c620a (86c21af + 0082 byte for byte). The undo (the owner's word only): the quick stop first (reading off AND the key emptied;
+it needs only the box, the schema and the live release: never the rollback folder, AI18 M8); then, with the writers PAUSED as the installer
+pauses them (AI18 H6, H8): the key emptied and reading off again, the seven ai.* setting rows deleted (the history keeps fingerprints only),
+every job row and every spool file purged and checked gone, the switch to the plain rollback, its cron, the writers back; the app login's
+grants on 0082's tables taken back after it; the call log (ai_call) and 0082's tables stay. A run stopped after the switch resumes from its
+marker (AI18 M9). tests/Integration/Profit/RollbackReleaseTest pins the recipe: the release before's last migration 0081, the rollback's one
+file 0082.
 
 **AI15. The invoice Claude read is the expense's file: kept for its Save, never asked for again (the lead's pick, 25 Nov 2026 ~20:00 UK;
 supersedes AI11 for the Expenses places).** Before, the copy Claude read was deleted once read and the filled form asked for the file again
@@ -21786,13 +21791,13 @@ limit) counts it while it goes. After the call the row is finished once (`WHERE 
 came back and Claude may have worked (`timeout`, `connection`, an answer CW could not read, `other`): its most; refused before Claude worked
 (the key, the account, its limits, busy, the request): nothing (`AiUsage::charged`). A row left `started` is closed as `crashed` (reason
 `stopped`) at its most: by the next run (the runner's lock held: its job was `reading`, so its reader stopped) or, whatever the lock, an hour
-after it was written (no call lasts that long: 10 minutes with at most two retries). The app login may write only the call's outcome
+after it was written (no call lasts that long: 300 seconds, no retry: AI18 M4). The app login may write only the call's outcome
 (model that answered, tokens, cost, result, reason, refusal's category, request id, fallback, seconds) and the check's three columns; who,
 where, when, the model asked, the file and its most are frozen; a row is never removed. £ example: a 5-page Royal Mail bill's most is about
-£1.20 (54,000 tokens in at £3.20 a million = 17p, 64,000 out at £16.00 = £1.02); while it is read the month counts £1.20; read, it is
-counted at what it used (about 25.6p); its reader killed mid-call, £1.20 stays (crashed). With £29.50 used of £30 the bill starts (the limit
-is reached at or above it); while it is read the month counts £30.70 and a new reading is refused; read, the month is £29.76 and readings
-start again; crashed, it stays £30.70 (no reading until the next month or a higher limit).
+£1.20 an attempt (54,000 tokens in at £3.20 a million = 17p, 64,000 out at £16.00 = £1.02), reserved twice (the request and the server-side
+fallback's: AI18 M2), about £2.39; while it is read the month counts that; read, it is counted at what it used (about 25.6p); its reader
+killed mid-call, £2.39 stays (crashed). The limit is a hard cap (AI18 M3): a call starts only when the month's spend plus its most stays
+within it.
 
 **AI17. bin/health_alert.php says when the reading is stuck (the lead, 25 Nov 2026 ~20:00 UK).** Two alerts of CW's own, in the same style
 as the others (a line in the log, the words sent once per window, "back to normal" when they clear), only while reading is switched on
@@ -21803,3 +21808,35 @@ run ends well: tell the CW team." Each run records itself on `ai_reader`'s one r
 its message); a run that began and never ended (its process killed) is found by the next run (it holds the lock, so the last one is not
 running) and recorded as failed ("did not end"). The alert holds from the failure until a run ends well, so a run starting meanwhile never
 makes it flap.
+
+**AI18. The final review's findings fixed (the Codex final review of 86aebbd: NO GO, 9 High, 10 Medium, 1 Low; the lead's decisions, 25 Nov
+2026 ~21:10 UK).** H1: the reader runs as www-data (the spool's owner; the app login, as the web: a job that may not read db.env gets the app
+login only), never root, and sends or deletes only its OWN spool file: a name of 32 hex inside the spool's real folder, a regular file and no
+link (lstat, and the opened file is the one lstat saw), at most 10 MB, of the size and sha256 its job recorded; anything else ends the job
+(`file_gone`) with nothing sent and nothing outside the spool read or deleted. H2: every request goes through `AnthropicOnly`: only
+https://api.anthropic.com:443, and a 3xx is a failure (`redirect`, "the Anthropic API sent CW elsewhere"): the SDK's own redirect loop never
+sees it, so a document is never replayed to another host. H3: an invoice's reading is checked against its whole schema first (every field,
+no other, each of its type, an amount "1234.50", a date a day, the currency three letters; else the whole reading is refused, naming the
+field); the amounts are filled only in GBP, all three read (none worked out), adding up to the penny, none below 0, and not for a credit
+note; else none, and why is said. £ example: a total read as "84.7x" with £70.60 + £14.12 refuses the reading (before, the total was worked
+out as £84.72 and filled); a credit note of £84.72 fills its supplier, number, date and the Credit note tick, and the person types £70.60
+and £14.12. H4: a stream that ends before message_stop is a broken stream (`connection`, counted at its most), never an answer. H5: Save is
+the forms' first submit button (Enter saves); "Fill from the file with Claude" sits after it. H6, H8: the undo's code switch runs with the
+writers paused, the ai.* setting rows deleted (the release before never shows a key setting, and no one can set one there), every job row
+(its context, an answer not taken) and spool file purged and checked gone; the call log kept. A later go-live of this release after such an
+undo puts the seven rows back (0082's INSERT, run again: it adds only what is missing). H7: a form carrying a kept invoice also carries the
+release before's "choose the file again" marker, so after an undo its Save asks for the file instead of saving without it; a refused Save
+keeps both. H9: the installer's --expect-revision / --expect-active (as PayPal's kit), so the copy installed is the one probed.
+M1: a bill line's reference is written verbatim (a bare sales order "7181703660" keeps its order); a Mac copy that breaks after the reference
+keeps every part of it, and words between such a half and its amounts are refused, never guessed. M2: a PDF's pages are the larger of its
+page objects and its page tree's count; every attempt that may be billed is reserved (the request and the server-side fallback's: x2), and
+the SDK retries nothing (a busy API is said; the person sends again). M3: the month's limit is a HARD cap: a call starts only when the month's
+spend plus its most stays within it (checked by the runner under its lock); the prices are required and above 0 (else reading is off: "a
+model price is not set above 0"). £ example: with £29.00 used of £30, a 5-page bill (most about £2.39) is not sent: "this month's limit was
+reached meanwhile"; an invoice photo (most about 34p) is. M4: a call's whole HTTP transfer is cut at 300 seconds (the client's own timeout,
+no retry), inside the installer's 6-minute drain; the reader starts no reading while the installer's pause markers exist. M5: a reading is
+seen and taken only at its own place's page (a bill's at Delivery bills, an invoice's at Expenses). M6: an answer past its hour is expired
+when it is asked for, never taken. M7: the kit's smoke run of the reader waits out a cron run holding the lock (bounded). M8: the quick stop
+needs only the box, the schema and the live release. M9: an undo stopped after its switch resumes from its marker. M10: the app login writes
+only a job's lifecycle columns (and removes a finished job after a day) and only the reader row's run columns; a job's owner, place, file
+and context are frozen once made. Low: AI14 names the live base 86c21af, its last migration 0081 and the rollback 20c620a.

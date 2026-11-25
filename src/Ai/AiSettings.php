@@ -61,16 +61,23 @@ final class AiSettings
         );
     }
 
-    /** Reading is on: the switch on and a key set. */
+    /** Reading is on: the switch on, a key set, and both prices above 0 (M3). */
     public function on(): bool
     {
-        return $this->switch && $this->key !== '';
+        return $this->off() === null;
     }
 
-    /** Why reading is off, as a code (AI words: off_switch, off_key), or null when it is on. */
+    /** M3 (Codex final of 86aebbd): a price of 0 (or none) would count paid readings as nothing: reading is off until both are above 0. */
+    public function priced(): bool
+    {
+        $positive = static fn (string $p): bool => preg_match('/^\d{1,8}(\.\d{1,6})?$/D', $p) === 1 && bccomp($p, '0', 6) > 0;
+        return $positive($this->priceIn) && $positive($this->priceOut);
+    }
+
+    /** Why reading is off, as a code (AI words: off_switch, off_key, off_price), or null when it is on. */
     public function off(): ?string
     {
-        return !$this->switch ? 'off_switch' : ($this->key === '' ? 'off_key' : null);
+        return !$this->switch ? 'off_switch' : ($this->key === '' ? 'off_key' : (!$this->priced() ? 'off_price' : null));
     }
 
     /** "30" / "30.5" / "30.00" (pounds) as pence; 0 for anything that is not an amount. */

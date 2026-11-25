@@ -243,7 +243,7 @@ final class ExpensesController
         $reader = new DocumentReader($ctx->db);
         $id = $ctx->id();
         try {
-            $job = $reader->view($ctx->caller(), $id);
+            $job = $reader->view($ctx->caller(), $id, DocumentReader::EXPENSE_PLACES);
         } catch (CwException) {
             return $ctx->error(404, 'not_found', 'there is no such reading', [self::PATH, Words::MENU['profit_expenses']]);
         }
@@ -269,7 +269,7 @@ final class ExpensesController
                 $file());
         }
         try {
-            $answer = $reader->take($ctx->caller(), $id);
+            $answer = $reader->take($ctx->caller(), $id, DocumentReader::EXPENSE_PLACES);
         } catch (CwException $e) {
             return $back($e->httpStatus, new CwException('ai_read', $e->errorCode === 'ai_taken' ? Words::AIREAD['taken'] : $e->getMessage(), $e->httpStatus), $typed,
                 $file());
@@ -640,7 +640,10 @@ final class ExpensesController
             'sameIds' => is_string($error?->detail['confirm'] ?? null) ? $error->detail['confirm'] : '',
             'sameList' => self::sameList($error),
             'maxMb' => intdiv(ExpenseFiles::MAX_BYTES, 1_048_576),
-            'fileAgain' => ($error !== null && self::fileChosen($ctx)) || $error?->errorCode === 'ai_file_gone' || ($ai['fileAgain'] ?? false) === true,
+            // the invoice Claude read kept for this Save (AI15), or the file to choose again; never both (H7: the kept one's form carries the
+            // release before's marker too, so that release asks for the file rather than saving without it)
+            'fileAgain' => self::aiFileOf($ctx, $error, $ai) === null && (($error !== null && self::fileChosen($ctx)) || $error?->errorCode === 'ai_file_gone'
+                || ($ai['fileAgain'] ?? false) === true),
             'aiFile' => self::aiFileOf($ctx, $error, $ai),
             'formKey' => self::formKey($ctx, $error),
             // Claude reads the invoice (CW-1182, AI5): the button while reading is on, and what a reading filled
@@ -720,7 +723,10 @@ final class ExpensesController
             'vatBp' => $bp,
             'listHref' => Html::url(self::PATH, ['month' => substr((string) $x['invoice_date'], 0, 7)]),
             // A change refused because someone else changed it shows their figures and still asks for the file chosen (the Codex check r3, M8).
-            'fileAgain' => ($error !== null && self::fileChosen($ctx)) || $error?->errorCode === 'ai_file_gone' || ($ai['fileAgain'] ?? false) === true,
+            // the invoice Claude read kept for this Save (AI15), or the file to choose again; never both (H7: the kept one's form carries the
+            // release before's marker too, so that release asks for the file rather than saving without it)
+            'fileAgain' => self::aiFileOf($ctx, $error, $ai) === null && (($error !== null && self::fileChosen($ctx)) || $error?->errorCode === 'ai_file_gone'
+                || ($ai['fileAgain'] ?? false) === true),
             'aiFile' => self::aiFileOf($ctx, $error, $ai),
             'seen' => $seen ?? (int) $x['version'],
             'aiOn' => AiSettings::read($ctx->db)->on(),

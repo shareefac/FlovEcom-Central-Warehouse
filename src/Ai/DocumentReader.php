@@ -45,8 +45,10 @@ final class DocumentReader
     public const DEFAULT_SPOOL = '/var/lib/cw/ai-read';
     /** A file, or an answer not shown, is never kept longer than this (minutes): an invoice kept for its Save, from when its page took it. */
     public const KEEP_MINUTES = 60;
-    /** The places whose file is kept for the person's Save (AI15: it becomes the expense's own file), and what such a file may be. */
-    public const KEEPS_FILE = ['expense_new', 'expense_change'];
+    /** The places of a kind (M5: a reading is seen and taken only where it was made). */
+    public const BILL_PLACES = ['delivery_upload', 'delivery_replace'];
+    /** The Expenses places: their file is kept for the person's Save (AI15: it becomes the expense's own file), and what such a file may be. */
+    public const EXPENSE_PLACES = ['expense_new', 'expense_change'];
     public const EXPENSE_MEDIA = ['application/pdf', 'image/jpeg', 'image/png'];
     /** Why a job ends whose kept file goes even so: its person may no longer use it, it waited too long, it was gone. */
     private const DROPS_FILE = ['not_allowed', 'too_old', 'file_gone'];
@@ -89,6 +91,26 @@ final class DocumentReader
             }
         }
         return is_string($dir) && $dir !== '' ? $dir : self::DEFAULT_SPOOL;
+    }
+
+    /**
+     * The most a call may cost (AI16, M2), in thousandths of a penny: every attempt that may be billed (Claude::ATTEMPTS: the request and the
+     * server-side fallback's; no SDK retry), each at its most input (Claude::maxInputTokens) and the kind's max_tokens of output.
+     */
+    public static function most(Kind $kind, string $bytes, string $mediaType, string $priceIn, string $priceOut): int
+    {
+        return AiUsage::millipence(Claude::ATTEMPTS * Claude::maxInputTokens($kind, $bytes, $mediaType), Claude::ATTEMPTS * $kind->maxTokens(), $priceIn, $priceOut);
+    }
+
+    /**
+     * Whether the installer has paused the writers (M4: its markers, /etc/cw or CW_PAUSE_DIR): the reader then starts no reading, so the
+     * installer's drain never waits on one (a reading already going ends by Claude::DEADLINE_SEC, inside the drain's 6 minutes).
+     */
+    public static function paused(): bool
+    {
+        $dir = getenv('CW_PAUSE_DIR');
+        $dir = is_string($dir) && $dir !== '' ? rtrim($dir, '/') : '/etc/cw';
+        return (glob($dir . '/*.cron.paused') ?: []) !== [] || file_exists($dir . '/cw-https.paused') || file_exists($dir . '/cw-fpm.stopped');
     }
 
     public static function kind(string $name): Kind
@@ -153,7 +175,7 @@ final class DocumentReader
         if (!in_array($media, self::MEDIA, true)) {
             throw new CwException('ai_type', 'not a PDF or a photo', 415, ['field' => 'file']);
         }
-        if (in_array($place, self::KEEPS_FILE, true) && !in_array($media, self::EXPENSE_MEDIA, true)) {
+        if (in_array($place, self::EXPENSE_PLACES, true) && !in_array($media, self::EXPENSE_MEDIA, true)) {
             // AI15: the file read becomes the expense's own, and an expense keeps a PDF, a JPEG or a PNG (ExpenseFiles)
             throw new CwException('ai_type_expense', 'an expense keeps a PDF, a JPEG or a PNG', 415, ['field' => 'file']);
         }
@@ -241,7 +263,6 @@ final class DocumentReader
             return null;
         }
         $id = (int) $job['id'];
-        $path = $job['spool_name'] === null ? null : $this->spool . '/' . (string) $job['spool_name'];
         try {
             $s = AiSettings::read($this->db);
             try {
@@ -252,17 +273,23 @@ final class DocumentReader
             if (!$s->on()) {
                 return $this->finish($id, 'failed', 'off', null, null);
             }
-            if (AiUsage::month($this->db, ($this->clock)())['pence'] >= $s->limitPence) {
+            $used = AiUsage::month($this->db, ($this->clock)())['pence'];
+            if ($used >= $s->limitPence) {
                 return $this->finish($id, 'failed', 'limit', null, null);
             }
-            $bytes = $path !== null && is_file($path) ? file_get_contents($path) : false;
-            if ($bytes === false || strlen($bytes) !== (int) $job['file_bytes']) {
+            // H1: only the job's OWN spool file (its 32-hex name inside the spool, a regular file and no link, of the size and sha256 recorded)
+            $bytes = $this->readOwn($job);
+            if ($bytes === null) {
                 return $this->finish($id, 'failed', 'file_gone', null, null);
             }
             $kind = self::kind((string) $job['kind']);
+            $most = self::most($kind, $bytes, (string) $job['media_type'], $s->priceIn, $s->priceOut);
+            if ($used + AiUsage::pence($most) > $s->limitPence) {
+                // M3: a hard cap: a call starts only when the month's spend plus its most stays within the limit (the runner holds its lock)
+                return $this->finish($id, 'failed', 'limit', null, null);
+            }
             // AI16: the call's row BEFORE the request, counted at the most it may cost: a reader that dies mid-call still counts (the next run
             // closes it as crashed at that most)
-            $most = AiUsage::millipence(Claude::maxInputTokens($kind, $bytes, (string) $job['media_type']), $kind->maxTokens(), $s->priceIn, $s->priceOut);
             $callId = $this->db->insert('INSERT INTO ai_call (read_id, created_at, staff_user_id, place, kind, model, media_type, file_bytes, cost_millipence, max_millipence, '
                 . "result, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'started', 'started')", [$id, Clock::db(($this->clock)()), (int) $job['staff_user_id'],
                     (string) $job['place'], (string) $job['kind'], mb_substr($s->model, 0, 64), (string) $job['media_type'], (int) $job['file_bytes'], $most, $most]);
@@ -274,8 +301,8 @@ final class DocumentReader
                 return $this->finish($id, 'failed', 'error', null, mb_substr(get_class($e), 0, 200), ['id' => $callId, 'r' => null, 'cost' => $most]);
             }
             unset($bytes);
-            if (!in_array((string) $job['place'], self::KEEPS_FILE, true)) {
-                $this->drop($path);
+            if (!in_array((string) $job['place'], self::EXPENSE_PLACES, true)) {
+                $this->dropName($job['spool_name']);
             }
             $call = ['id' => $callId, 'r' => $r, 'cost' => AiUsage::charged($r['reason'], $r['input_tokens'], $r['output_tokens'], $s->priceIn, $s->priceOut, $most)];
             if ($r['reason'] !== 'ok' || !is_array($r['json'])) {
@@ -295,23 +322,26 @@ final class DocumentReader
             return $this->finish($id, 'done', 'ok', $shaped, null, $call, 'ok');
         } finally {
             // a Royal Mail bill's file never outlives its reading (AI11); an invoice's is kept for its Save while its job names it (finish())
-            if (!in_array((string) $job['place'], self::KEEPS_FILE, true)) {
-                $this->drop($path);
+            if (!in_array((string) $job['place'], self::EXPENSE_PLACES, true)) {
+                $this->dropName($job['spool_name']);
             }
         }
     }
 
     /**
-     * A job as its person's page sees it (another person's, or none: 404): its state, place, what the page needs back, why it failed.
+     * A job as its person's page sees it (another person's, one of another place than the page's (M5), or none: 404): its state, place, what
+     * the page needs back, why it failed.
      *
+     * @param list<string> $places the page's own places (BILL_PLACES, EXPENSE_PLACES)
      * @return array{id: int, place: string, kind: string, state: string, reason: ?string, detail: ?string, context: array<string, mixed>, created_at: string,
      *   started_at: ?string, file_bytes: int, media_type: string}
      */
-    public function view(Caller $caller, int $id): array
+    public function view(Caller $caller, int $id, array $places): array
     {
         $r = $this->db->one('SELECT id, place, kind, state, reason, detail, context, created_at, started_at, file_bytes, media_type FROM ai_read WHERE id = ? AND staff_user_id = ?',
             [$id, (int) $caller->staffUserId]);
-        if ($r === null || $caller->staffUserId === null) {
+        if ($r === null || $caller->staffUserId === null || !in_array((string) $r['place'], $places, true)) {
+            // M5: a reading is seen only where it was made (a bill's never at the Expenses page, nor an invoice's at Delivery bills)
             throw new CwException('not_found', 'there is no such reading', 404);
         }
         return ['id' => (int) $r['id'], 'place' => (string) $r['place'], 'kind' => (string) $r['kind'], 'state' => (string) $r['state'],
@@ -321,23 +351,37 @@ final class DocumentReader
     }
 
     /**
-     * The answer of a finished job, taken ONCE by its person (the job becomes `taken`, its answer gone): a second look, or another person, gets
-     * nothing (409 ai_taken / 404).
+     * The answer of a finished job, taken ONCE by its person at the page of its place (the job becomes `taken`, its answer gone): a second look,
+     * an answer past its hour (M6: expired then), another person or another place gets nothing (409 ai_taken / 404).
      *
+     * @param list<string> $places the page's own places
      * @return array<string, mixed> the kind's shape()
      */
-    public function take(Caller $caller, int $id): array
+    public function take(Caller $caller, int $id, array $places): array
     {
-        $this->authorise($caller, $this->view($caller, $id)['place']);
-        return $this->db->transaction(function (Db $db) use ($caller, $id): array {
-            $r = $db->one('SELECT state, answer FROM ai_read WHERE id = ? AND staff_user_id = ? FOR UPDATE', [$id, (int) $caller->staffUserId])
-                ?? throw new CwException('not_found', 'there is no such reading', 404);
+        $this->authorise($caller, $this->view($caller, $id, $places)['place']);
+        $expired = false;
+        $answer = $this->db->transaction(function (Db $db) use ($caller, $id, $places, &$expired): ?array {
+            $r = $db->one('SELECT place, state, answer, finished_at FROM ai_read WHERE id = ? AND staff_user_id = ? FOR UPDATE', [$id, (int) $caller->staffUserId]);
+            if ($r === null || !in_array((string) $r['place'], $places, true)) {
+                throw new CwException('not_found', 'there is no such reading', 404);
+            }
             if ($r['state'] !== 'done' || $r['answer'] === null) {
                 throw new CwException('ai_taken', (string) $r['state'], 409);
+            }
+            if ((string) $r['finished_at'] < Clock::db(($this->clock)()->modify('-' . self::KEEP_MINUTES . ' minutes'))) {
+                // M6: past its hour (the clean-up not run yet): expired now, under the row lock, never taken
+                $db->exec("UPDATE ai_read SET state = 'expired', reason = 'expired', answer = NULL WHERE id = ?", [$id]);
+                $expired = true;
+                return null;
             }
             $db->exec("UPDATE ai_read SET state = 'taken', answer = NULL, taken_at = ? WHERE id = ?", [Clock::db(($this->clock)()), $id]);
             return (array) json_decode((string) $r['answer'], true, 16, JSON_THROW_ON_ERROR);
         });
+        if ($expired || $answer === null) {
+            throw new CwException('ai_taken', 'expired', 409);
+        }
+        return $answer;
     }
 
     /**
@@ -363,7 +407,7 @@ final class DocumentReader
         }
         $r = $this->db->one('SELECT place, state, spool_name, file_used_at, finished_at, taken_at FROM ai_read WHERE id = ? AND staff_user_id = ?',
             [$id, $caller->staffUserId]);
-        return $r !== null && $this->keptRow($r) && is_file($this->spool . '/' . (string) $r['spool_name']);
+        return $r !== null && $this->keptRow($r) && $this->ownFile($r['spool_name']) !== null;
     }
 
     /**
@@ -380,7 +424,7 @@ final class DocumentReader
             throw new \LogicException('the invoice Claude read is attached inside the expense\'s transaction');
         }
         $gone = static fn (): CwException => new CwException('ai_file_gone', 'the invoice Claude read is no longer kept for this form', 422, ['field' => 'file']);
-        if ($caller->staffUserId === null || !in_array($place, self::KEEPS_FILE, true)) {
+        if ($caller->staffUserId === null || !in_array($place, self::EXPENSE_PLACES, true)) {
             throw $gone();
         }
         $r = $this->db->one('SELECT * FROM ai_read WHERE id = ? AND staff_user_id = ? FOR UPDATE', [$id, $caller->staffUserId]);
@@ -393,10 +437,9 @@ final class DocumentReader
                 throw $gone();
             }
         }
-        $path = $this->spool . '/' . (string) $r['spool_name'];
-        clearstatcache(true, $path);
-        if (preg_match('/^[0-9a-f]{32}$/D', (string) $r['spool_name']) !== 1 || !is_file($path) || filesize($path) !== (int) $r['file_bytes']
-            || !hash_equals((string) $r['file_sha256'], (string) hash_file('sha256', $path))) {
+        // H1: its own spool file only, as it was sent (the same check as the reader's before it sends one)
+        $path = $this->ownFile($r['spool_name']);
+        if ($path === null || $this->readOwn($r) === null) {
             throw $gone();
         }
         $this->db->exec('UPDATE ai_read SET file_used_at = ? WHERE id = ? AND file_used_at IS NULL', [Clock::db(($this->clock)()), $id]);
@@ -414,9 +457,7 @@ final class DocumentReader
             $db->exec('UPDATE ai_read SET spool_name = NULL WHERE id = ?', [$id]);
             return (string) $r['spool_name'];
         });
-        if (is_string($name) && preg_match('/^[0-9a-f]{32}$/D', $name) === 1) {
-            $this->drop($this->spool . '/' . $name);
-        }
+        $this->dropName($name);
     }
 
     /**
@@ -534,8 +575,7 @@ final class DocumentReader
                 $db->exec('UPDATE ai_read SET spool_name = NULL WHERE id = ?', [(int) $id]);
                 return (string) $r['spool_name'];
             });
-            if (is_string($name) && preg_match('/^[0-9a-f]{32}$/D', $name) === 1) {
-                $this->drop($this->spool . '/' . $name);
+            if ($this->dropName($name)) {
                 $out['files']++;
             }
         }
@@ -543,10 +583,9 @@ final class DocumentReader
             $cut = $now->getTimestamp() - self::KEEP_MINUTES * 60;
             $named = array_flip(array_map('strval', $this->db->column('SELECT spool_name FROM ai_read WHERE spool_name IS NOT NULL')));
             foreach (scandir($this->spool) ?: [] as $f) {
-                // only CW's own spool names (32 hex) that no job names: nothing else in the folder is ever touched
-                $p = $this->spool . '/' . $f;
-                if (preg_match('/^[0-9a-f]{32}$/D', $f) === 1 && !isset($named[$f]) && is_file($p) && (int) filemtime($p) < $cut) {
-                    $this->drop($p);
+                // only CW's own spool names (32 hex) that no job names: nothing else in the folder is ever touched (a link: the link itself)
+                $st = preg_match('/^[0-9a-f]{32}$/D', $f) === 1 && !isset($named[$f]) ? @lstat($this->spool . '/' . $f) : false;
+                if (is_array($st) && (int) $st['mtime'] < $cut && $this->dropName($f)) {
                     $out['files']++;
                 }
             }
@@ -584,7 +623,7 @@ final class DocumentReader
             if ($job === null || $job['state'] !== 'reading') {
                 return null;
             }
-            $keep = in_array((string) $job['place'], self::KEEPS_FILE, true) && !in_array($reason, self::DROPS_FILE, true) && $job['spool_name'] !== null;
+            $keep = in_array((string) $job['place'], self::EXPENSE_PLACES, true) && !in_array($reason, self::DROPS_FILE, true) && $job['spool_name'] !== null;
             $db->exec('UPDATE ai_read SET state = ?, reason = ?, detail = ?, answer = ?, finished_at = ?, spool_name = ? WHERE id = ?', [$state, $reason, $detail,
                 $answer === null ? null : json_encode($answer, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE), $now, $keep ? (string) $job['spool_name'] : null, $id]);
             if ($call !== null) {
@@ -598,9 +637,7 @@ final class DocumentReader
             $db->exec("UPDATE ai_call SET result = 'crashed', reason = ? WHERE read_id = ? AND result = 'started'", [mb_substr($reason, 0, 32), $id]);
             return $keep || $job['spool_name'] === null ? null : (string) $job['spool_name'];
         });
-        if (is_string($file) && preg_match('/^[0-9a-f]{32}$/D', $file) === 1) {
-            $this->drop($this->spool . '/' . $file);
-        }
+        $this->dropName($file);
         return ['id' => $id, 'state' => $state, 'reason' => $reason];
     }
 
@@ -612,7 +649,7 @@ final class DocumentReader
      */
     private function keptRow(array $r): bool
     {
-        if (!in_array((string) $r['place'], self::KEEPS_FILE, true) || $r['spool_name'] === null || $r['file_used_at'] !== null
+        if (!in_array((string) $r['place'], self::EXPENSE_PLACES, true) || $r['spool_name'] === null || $r['file_used_at'] !== null
             || in_array((string) $r['state'], ['waiting', 'reading'], true)) {
             return false;
         }
@@ -620,11 +657,72 @@ final class DocumentReader
         return $from !== null && (string) $from >= Clock::db(($this->clock)()->modify('-' . self::KEEP_MINUTES . ' minutes'));
     }
 
-    private function drop(?string $path): void
+    /**
+     * The path of one of the spool's OWN files (H1, the Codex final review of 86aebbd): a name of 32 hex (a job row can never name a path),
+     * directly inside the spool folder (its real path), the entry itself a regular file and not a link (lstat). Null otherwise.
+     */
+    private function ownFile(mixed $name): ?string
     {
-        if ($path !== null && is_file($path)) {
-            @unlink($path);
+        if (!is_string($name) || preg_match('/^[0-9a-f]{32}$/D', $name) !== 1) {
+            return null;
         }
+        $dir = realpath($this->spool);
+        if ($dir === false || !is_dir($dir)) {
+            return null;
+        }
+        $path = $dir . '/' . $name;
+        clearstatcache(true, $path);
+        $st = @lstat($path);
+        return is_array($st) && ($st['mode'] & 0170000) === 0100000 ? $path : null;
+    }
+
+    /**
+     * The bytes of a job's own spool file as it was sent (H1): ownFile(), opened without following a link (the opened file is the one lstat
+     * saw: the same device and inode), at most MAX_BYTES, of the size and sha256 its job recorded. Null otherwise: nothing is sent.
+     *
+     * @param array<string, mixed> $job
+     */
+    private function readOwn(array $job): ?string
+    {
+        $path = $this->ownFile($job['spool_name'] ?? null);
+        $size = (int) ($job['file_bytes'] ?? 0);
+        if ($path === null || $size <= 0 || $size > self::MAX_BYTES) {
+            return null;
+        }
+        $before = @lstat($path);
+        $h = @fopen($path, 'rb');
+        if ($h === false || !is_array($before)) {
+            return null;
+        }
+        try {
+            $st = fstat($h);
+            if (!is_array($st) || $st['ino'] !== $before['ino'] || $st['dev'] !== $before['dev'] || ($st['mode'] & 0170000) !== 0100000 || $st['size'] !== $size) {
+                return null;
+            }
+            $bytes = (string) stream_get_contents($h, self::MAX_BYTES + 1);
+        } finally {
+            fclose($h);
+        }
+        return strlen($bytes) === $size && hash_equals((string) ($job['file_sha256'] ?? ''), hash('sha256', $bytes)) ? $bytes : null;
+    }
+
+    /** One of the spool's own entries deleted (H1: the same rule as ownFile(); a link inside the spool: the link itself, never its target). */
+    private function dropName(mixed $name): bool
+    {
+        if (!is_string($name) || preg_match('/^[0-9a-f]{32}$/D', $name) !== 1) {
+            return false;
+        }
+        $dir = realpath($this->spool);
+        if ($dir === false) {
+            return false;
+        }
+        $path = $dir . '/' . $name;
+        clearstatcache(true, $path);
+        $st = @lstat($path);
+        if (!is_array($st) || !in_array($st['mode'] & 0170000, [0100000, 0120000], true)) {
+            return false;
+        }
+        return @unlink($path);
     }
 
     /**

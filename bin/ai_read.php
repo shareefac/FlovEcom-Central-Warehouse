@@ -11,8 +11,12 @@ declare(strict_types=1);
  *
  *   php bin/ai_read.php [--db=cw_prod] [--seconds=55] [--once]
  *
+ * Cron runs it as www-data (H1, the Codex final review of 86aebbd: the spool's owner, never root; the app login, as the web). It starts no
+ * reading while the installer has the writers paused (M4: its markers), and a reading ends within Claude::DEADLINE_SEC (300 s), inside the
+ * installer's 6-minute drain.
+ *
  * --once: clean up, read at most one document, stop (the tests, a person). A line only when something was read or cleaned up, or the last
- * run did not end. Never a document, a field of it or the key in the log. Each run is recorded on the reader's one row (AI17: began, ended
+ * run did not end, or the writers are paused. Never a document, a field of it or the key in the log. Each run is recorded on the reader's one row (AI17: began, ended
  * well, or failed with the error's class; a run that never ended is recorded as failed by the next): bin/health_alert.php reads it. Exit
  * codes: 0 ok (failed readings are said on their pages), 2 usage, 3 cannot run.
  */
@@ -41,6 +45,11 @@ exit(Cli::main(
             }
             $until = hrtime(true) / 1e9 + $seconds;
             do {
+                if (DocumentReader::paused()) {
+                    // M4: the installer has paused the writers: no reading starts (its drain never waits on one); the jobs wait for after
+                    $cli->log('the writers are paused (an install): no reading starts');
+                    break;
+                }
                 $r = $reader->runNext();
                 if ($r !== null) {
                     $cli->log(sprintf('read %d: %s (%s)', $r['id'], $r['state'], $r['reason']));

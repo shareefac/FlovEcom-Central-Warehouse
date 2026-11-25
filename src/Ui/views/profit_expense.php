@@ -86,6 +86,7 @@ $errorIn = $error === null || !$canEdit || $errorCode === 'changed_meanwhile' ||
 <?php elseif (($aiFile ?? null) !== null): ?>
         <p class="note" role="status"><?= $word('AIREAD', 'file_kept') ?></p>
         <input type="hidden" name="ai_file" value="<?= $e((string) $aiFile) ?>">
+        <input type="hidden" name="file_again" value="1">
 <?php endif; ?>
         <div class="field">
           <label for="ex-file"><?= $word('EXPENSES', 'change_file') ?></label>
@@ -99,7 +100,6 @@ $errorIn = $error === null || !$canEdit || $errorCode === 'changed_meanwhile' ||
         <label class="choice"><input type="checkbox" name="no_file_ok" value="1"> <?= $word('EXPENSES', 'no_file_ok') ?></label>
 <?php endif; ?>
 <?php if ($aiOn ?? false): ?>
-        <p class="actions ai-read"><button type="submit" class="btn" formaction="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/read') ?>" formnovalidate><?= $word('AIREAD', 'read_button') ?></button></p>
         <p class="hint"><?= $word('AIREAD', 'read_hint') ?></p>
 <?php endif; ?>
       </fieldset>
@@ -108,7 +108,11 @@ $errorIn = $error === null || !$canEdit || $errorCode === 'changed_meanwhile' ||
     <label class="choice same-ok"><input type="checkbox" name="same_ok" value="1"> <?= $word('EXPENSES', 'same_ok') ?></label>
     <input type="hidden" name="same_ids" value="<?= $e($sameIds) ?>">
 <?php endif; ?>
-    <p class="actions"><button type="submit" class="btn primary lg"><?= $word('EXPENSES', 'change_save') ?></button></p>
+    <p class="actions"><button type="submit" class="btn primary lg"><?= $word('EXPENSES', 'change_save') ?></button>
+<?php if ($aiOn ?? false): ?>
+      <button type="submit" class="btn ai-read" formaction="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/read') ?>" formnovalidate><?= $word('AIREAD', 'read_button') ?></button>
+<?php endif; ?>
+    </p>
   </form>
 </details>
 <details class="fold expense-delete" id="delete"<?php if ($form === 'delete'): ?> open<?php endif; ?>>

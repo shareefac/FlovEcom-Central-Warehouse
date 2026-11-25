@@ -47,6 +47,7 @@ $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
 <?php elseif (($aiFile ?? null) !== null): ?>
       <p class="note" role="status"><?= $word('AIREAD', 'file_kept') ?></p>
       <input type="hidden" name="ai_file" value="<?= $e((string) $aiFile) ?>">
+      <input type="hidden" name="file_again" value="1">
 <?php endif; ?>
       <div class="field">
         <label for="ex-file"><?= $word('EXPENSES', 'file_label') ?></label>
@@ -60,7 +61,6 @@ $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
       <label class="choice"><input type="checkbox" name="no_file_ok" value="1"> <?= $word('EXPENSES', 'no_file_ok') ?></label>
 <?php endif; ?>
 <?php if ($aiOn ?? false): ?>
-      <p class="actions ai-read"><button type="submit" class="btn" formaction="/ui/profit/expenses/read" formnovalidate><?= $word('AIREAD', 'read_button') ?></button></p>
       <p class="hint"><?= $word('AIREAD', 'read_hint') ?></p>
 <?php endif; ?>
       <p class="muted"><?= $word('EXPENSES', 'file_kept') ?></p>
@@ -73,5 +73,8 @@ $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
   <p class="actions">
     <button type="submit" class="btn primary lg" name="then" value="done"><?= $word('EXPENSES', 'save') ?></button>
     <button type="submit" class="btn lg" name="then" value="another"><?= $word('EXPENSES', 'save_another') ?></button>
+<?php if ($aiOn ?? false): ?>
+    <button type="submit" class="btn ai-read" formaction="/ui/profit/expenses/read" formnovalidate><?= $word('AIREAD', 'read_button') ?></button>
+<?php endif; ?>
   </p>
 </form>

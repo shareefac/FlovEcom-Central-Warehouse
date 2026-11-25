@@ -29,6 +29,7 @@ final class AiReadWords
             'billing' => Words::AIREAD['why_billing'],
             'spend_limit' => Words::AIREAD['why_spend_limit'],
             'rate_limited', 'overloaded', 'server', 'timeout', 'connection' => Words::AIREAD['why_busy'],
+            'redirect' => Words::AIREAD['why_redirect'],
             'off' => Words::AIREAD['why_off'],
             'limit' => Words::AIREAD['why_limit'],
             'not_allowed' => Words::AIREAD['why_not_allowed'],
@@ -44,7 +45,7 @@ final class AiReadWords
     public static function refusal(CwException $e): ?string
     {
         return match ($e->errorCode) {
-            'ai_off' => Words::AIREAD[$e->getMessage() === 'off_key' ? 'off_key' : 'off_switch'],
+            'ai_off' => Words::AIREAD[in_array($e->getMessage(), ['off_key', 'off_price'], true) ? $e->getMessage() : 'off_switch'],
             'ai_limit' => Words::say('AIREAD', 'limit', '£' . number_format(((int) ($e->detail['used'] ?? 0)) / 100, 2),
                 '£' . number_format(((int) ($e->detail['limit'] ?? 0)) / 100, 2)),
             'ai_heic' => Words::AIREAD['heic'],

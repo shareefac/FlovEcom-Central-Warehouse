@@ -9,7 +9,13 @@
 # Then runs every job once, as cron will (app login), and prints what they said.
 # Run as root ON the production box, after push_code.sh and the database setup (bin/setup_staging.php --db=cw_prod):
 #
-#   bash /opt/cw-prod-release/deploy/production/install_cron.sh [--migrate]
+#   bash /opt/cw-prod-release/deploy/production/install_cron.sh [--migrate] [--expect-revision=<commit>] [--expect-active=<commit>]
+#
+# --expect-revision  the release copy must be this commit (40 hex), checked under the install lock before anything is built,
+#                    paused or migrated: a push that replaced the copy after a go-live kit checked it is refused here (CW-1172
+#                    final review d2: the kit's pinned check and the install under ONE lock acquisition).
+# --expect-active    the release running now must be this commit, or already the expected one (a re-run after a stop): the
+#                    starting state the kit checked, again under the lock.
 #
 # --migrate  run the new release's migrations (bin/migrate.php, which also converges cw_app's grants, every time). When a
 #            migration is pending the writers are paused first: the cron file moved aside and the running jobs waited for,
@@ -49,11 +55,18 @@ paused_cron=$R/etc/cw/cw-prod.cron.paused
 paused_web=$R/etc/cw/cw-https.paused
 paused_fpm=$R/etc/cw/cw-fpm.stopped
 migrate=0
+expect_rev=
+expect_active=
 for a in "$@"; do
     case $a in
         --migrate) migrate=1 ;;
-        *) echo "usage: install_cron.sh [--migrate]" >&2; exit 2 ;;
+        --expect-revision=*) expect_rev=${a#*=} ;;
+        --expect-active=*) expect_active=${a#*=} ;;
+        *) echo "usage: install_cron.sh [--migrate] [--expect-revision=<commit>] [--expect-active=<commit>]" >&2; exit 2 ;;
     esac
+done
+for v in "$expect_rev" "$expect_active"; do
+    [[ -z $v || $v =~ ^[0-9a-f]{40}$ ]] || { echo "usage: --expect-revision / --expect-active take a whole commit id (40 hex)" >&2; exit 2; }
 done
 say() { echo "[install_cron] $*"; }
 refuse() { echo "install_cron: REFUSING: $*" >&2; exit 1; }
@@ -69,6 +82,12 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
     || refuse "$src is not a whole release (push_code.sh writes REVISION last, after composer): run push_code.sh"
 rev=$(tr -cd '0-9a-f' < "$src/REVISION")
 [[ ${#rev} -eq 40 ]] || refuse "$src/REVISION is not a commit id"
+[[ -z $expect_rev || $rev == "$expect_rev" ]] || refuse "$src is release $rev, not the expected $expect_rev (a push replaced it): nothing was built or paused"
+if [[ -n $expect_active ]]; then
+    running_rev=$(head -n 1 "$live/REVISION" 2>/dev/null | tr -cd '0-9a-f' || true)
+    [[ $running_rev == "$expect_active" || $running_rev == "$rev" ]] \
+        || refuse "the running release is ${running_rev:-none}, not the expected $expect_active (nor $rev): nothing was built or paused"
+fi
 [[ -f $app_env ]] || refuse "$app_env is missing: run 'php bin/setup_staging.php --db=$schema' in $src first"
 if [[ -e $live && ! -L $live ]]; then
     refuse "$live is a directory, not the symlink this installer keeps: move it aside by hand first"

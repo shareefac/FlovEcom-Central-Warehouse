@@ -171,6 +171,10 @@ TXT;
                 if (mb_strlen($v) > self::TEXT_MAX || preg_match('/[\x00-\x1F\x7F]/', $v) === 1 || preg_match('/GBP\s*-?\s*[0-9]/i', $v) === 1) {
                     throw $bad("line {$n}: {$what}");
                 }
+                if ($k === 'reference' && preg_match('/^\d{2}[:.\/-]\d{2}[:.\/-]\d{4}(\s|$)/D', $v) === 1) {
+                    // written verbatim on its own line (M1), a reference that starts as a bill line would be read as one: refused
+                    throw $bad("line {$n}: {$what}");
+                }
                 $text[$k] = $v;
             }
             $net = self::amount($str($l, 'net', "line {$n}: its net")) ?? throw $bad("line {$n}: its net");
@@ -221,8 +225,9 @@ TXT;
             . "\nTotal Gross Price: " . $gbp((string) $b['gross']) . "\nInvoice: {$b['invoice_number']}\n" . implode(' ', RoyalMailBillPage::LINE_HEADINGS) . "\n";
         foreach ($b['lines'] as $l) {
             $ref = (string) $l['reference'];
-            // the reference cell as printed: "/ CLICK AND DROP M2281"; one that prints its sales order ("7181703660/", "5155465848/ ADJ...") as it is
-            $cell = $ref === '' ? '/' : (str_contains($ref, '/') ? $ref : '/ ' . $ref);
+            // the reference cell VERBATIM as Claude read it (M1, Codex final of 86aebbd: a "/ " written before a bare sales order "7181703660"
+            // lost the order in the page reader); an empty one as the page prints it, "/"
+            $cell = $ref === '' ? '/' : $ref;
             $out .= trim("{$l['date']} {$l['product']} {$l['qty']} {$l['description']}") . "\n{$cell} " . $gbp((string) $l['net']) . ' ' . $gbp((string) $l['gross'])
                 . " {$l['vat_code']}\n";
         }

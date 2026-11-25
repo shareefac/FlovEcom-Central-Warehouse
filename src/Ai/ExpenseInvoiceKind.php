@@ -68,53 +68,91 @@ TXT;
             ]];
     }
 
+    /** The answer's fields in the schema's order, with the words a refusal names each by (never what it holds). */
+    private const FIELDS = ['readable' => 'readable', 'not_readable_reason' => 'the reason not readable', 'document_kind' => 'the kind of document',
+        'supplier_name' => 'the supplier', 'invoice_number' => 'the invoice number', 'invoice_date' => 'the invoice date', 'currency' => 'the currency',
+        'net' => 'the net', 'vat' => 'the VAT', 'total' => 'the total', 'billed_to' => 'the name billed'];
+
     /**
-     * The answer in CW's forms: text squashed to one line and cut to its box, a date only when it is a day, amounts in pence only when they are
-     * amounts (else null), the currency in capitals.
+     * The answer read against its WHOLE schema (H3, the Codex final review of 86aebbd), before anything is filled: exactly the schema's fields
+     * (one missing or one more: refused), each of its type: readable a boolean; when readable, not_readable_reason null and document_kind one
+     * of DOCUMENTS; every other field a string or an explicit null; a text one line of at most its box, a date a day (YYYY-MM-DD), the currency
+     * three letters, an amount "1234.50" (a minus only as a sign). Anything else refuses the WHOLE reading (ai_bad_answer, naming the field),
+     * never a part filled from it. Shaped: text squashed to one line, amounts in pence (signed), the currency in capitals.
      *
      * @return array{credit: bool, supplier: ?string, invoice_no: ?string, invoice_date: ?string, currency: ?string, net: ?int, vat: ?int, total: ?int,
      *   billed_to: ?string}
      */
     public function shape(array $answer): array
     {
-        if (($answer['readable'] ?? null) !== true) {
-            $why = $answer['not_readable_reason'] ?? null;
+        $bad = static fn (string $field): CwException => new CwException('ai_bad_answer', $field, 422);
+        foreach (self::FIELDS as $k => $words) {
+            if (!array_key_exists($k, $answer)) {
+                throw $bad($words . ' (missing)');
+            }
+        }
+        if (array_diff_key($answer, self::FIELDS) !== []) {
+            throw $bad('a field CW did not ask for');
+        }
+        if (!is_bool($answer['readable'])) {
+            throw $bad(self::FIELDS['readable']);
+        }
+        if ($answer['readable'] === false) {
+            $why = $answer['not_readable_reason'];
             throw new CwException('ai_not_readable', is_string($why) && in_array($why, self::NOT_READABLE, true) ? $why : 'other', 422);
         }
-        $kind = $answer['document_kind'] ?? null;
-        if (!is_string($kind) || !in_array($kind, self::DOCUMENTS, true)) {
-            throw new CwException('ai_bad_answer', 'the kind of document', 422);
+        if ($answer['not_readable_reason'] !== null) {
+            throw $bad(self::FIELDS['not_readable_reason']);
         }
-        $text = static function (mixed $v, int $max = self::TEXT_MAX): ?string {
-            if (!is_string($v) || !mb_check_encoding($v, 'UTF-8')) {
+        $kind = $answer['document_kind'];
+        if (!is_string($kind) || !in_array($kind, self::DOCUMENTS, true)) {
+            throw $bad(self::FIELDS['document_kind']);
+        }
+        $text = static function (string $k, int $max = self::TEXT_MAX) use ($answer, $bad): ?string {
+            $v = $answer[$k];
+            if ($v === null) {
                 return null;
+            }
+            if (!is_string($v) || !mb_check_encoding($v, 'UTF-8')) {
+                throw $bad(self::FIELDS[$k]);
             }
             $v = Expenses::plain((string) preg_replace('/[\x00-\x1F\x7F]+/', ' ', $v));
-            return $v === '' || mb_strlen($v) > $max ? null : $v;
+            if (mb_strlen($v) > $max) {
+                throw $bad(self::FIELDS[$k]);
+            }
+            return $v === '' ? null : $v;
         };
-        $date = $text($answer['invoice_date'] ?? null, 10);
+        $date = $text('invoice_date', 10);
         if ($date !== null) {
             $d = \DateTimeImmutable::createFromFormat('!Y-m-d', $date, new \DateTimeZone('UTC'));
-            $date = $d !== false && $d->format('Y-m-d') === $date && $date >= '2000-01-01' && $date <= '2099-12-31' ? $date : null;
+            if ($d === false || $d->format('Y-m-d') !== $date || $date < '2000-01-01' || $date > '2099-12-31') {
+                throw $bad(self::FIELDS['invoice_date']);
+            }
         }
-        $money = static function (mixed $v): ?int {
-            if (!is_string($v) || preg_match('/^-?(\d{1,3}(?:,\d{3}){1,2}|\d{1,8})\.(\d{2})$/D', trim($v), $m) !== 1) {
+        $cur = $text('currency', 3);
+        if ($cur !== null && preg_match('/^[A-Za-z]{3}$/D', $cur) !== 1) {
+            throw $bad(self::FIELDS['currency']);
+        }
+        $money = static function (string $k) use ($answer, $bad): ?int {
+            $v = $answer[$k];
+            if ($v === null) {
                 return null;
             }
-            return (int) str_replace(',', '', $m[1]) * 100 + (int) $m[2];
+            if (!is_string($v) || preg_match('/^(-?)(\d{1,8})\.(\d{2})$/D', $v, $m) !== 1) {
+                throw $bad(self::FIELDS[$k]);
+            }
+            return ((int) $m[2] * 100 + (int) $m[3]) * ($m[1] === '-' ? -1 : 1);
         };
-        $cur = $text($answer['currency'] ?? null, 3);
-        return ['credit' => $kind === 'credit_note', 'supplier' => $text($answer['supplier_name'] ?? null), 'invoice_no' => $text($answer['invoice_number'] ?? null, 64),
-            'invoice_date' => $date, 'currency' => $cur !== null && preg_match('/^[A-Za-z]{3}$/D', $cur) === 1 ? strtoupper($cur) : null,
-            'net' => $money($answer['net'] ?? null), 'vat' => $money($answer['vat'] ?? null), 'total' => $money($answer['total'] ?? null),
-            'billed_to' => $text($answer['billed_to'] ?? null)];
+        return ['credit' => $kind === 'credit_note', 'supplier' => $text('supplier_name'), 'invoice_no' => $text('invoice_number', 64), 'invoice_date' => $date,
+            'currency' => $cur === null ? null : strtoupper($cur), 'net' => $money('net'), 'vat' => $money('vat'), 'total' => $money('total'),
+            'billed_to' => $text('billed_to')];
     }
 
     /**
      * The expense form's boxes from a shaped answer, over what the person typed before (a box Claude read wins; one it did not read keeps what
-     * was typed). The amounts only when they hold together: net + VAT = total (any one missing worked out from the other two only when the
-     * VAT is printed as 0 or the total and VAT are both printed: never a VAT CW works out), in pounds, each within a box; the VAT choice the
-     * figures match (ExpensesController's rule: VAT 0 = No VAT, the shops' rate's split of the total = Includes, else Different VAT).
+     * was typed). The amounts only when they hold together (H3): in pounds (GBP read, never assumed), all three read (none worked out from
+     * the others), net + VAT = total to the penny, none below 0, not a credit note, each within a box; else none filled and why said; the VAT
+     * choice the figures match (ExpensesController's rule: VAT 0 = No VAT, the shops' rate's split of the total = Includes, else Different VAT).
      *
      * @param array<string, mixed> $a shape()
      * @param list<array{id: int, name: string}> $suppliers the active expense suppliers
@@ -157,30 +195,29 @@ TXT;
             $filled[] = 'credit';
         }
         [$net, $vat, $total] = [$a['net'], $a['vat'], $a['total']];
-        if ($a['currency'] !== null && $a['currency'] !== 'GBP') {
-            $notes[] = ['fill_not_gbp', [(string) $a['currency']]];
+        // H3: the amounts only when they are certainly the expense's: in pounds (said so), all three read (none worked out), added up to the
+        // penny, none below 0, and not a credit note (its minus is the person's to set: they type them and tick Credit note); else none
+        $why = match (true) {
+            $a['credit'] => ['fill_credit_note', []],
+            $a['currency'] === null => ['fill_currency_unknown', []],
+            $a['currency'] !== 'GBP' => ['fill_not_gbp', [(string) $a['currency']]],
+            $net === null || $vat === null || $total === null => ['fill_amounts_missing', []],
+            $net < 0 || $vat < 0 || $total < 0 => ['fill_negative', []],
+            $net + $vat !== $total => ['fill_amounts_disagree', [ExpenseMoney::gbp($net + $vat), ExpenseMoney::gbp($total)]],
+            $net > ExpenseMoney::MAX_PENCE || $vat > ExpenseMoney::MAX_PENCE => ['fill_amounts_disagree', [ExpenseMoney::gbp($net + $vat), ExpenseMoney::gbp($total)]],
+            default => null,
+        };
+        if ($why !== null) {
+            $notes[] = $why;
         } else {
-            if ($total !== null && $vat !== null && $net === null) {
-                $net = $total - $vat;
-            } elseif ($total !== null && $vat === 0 && $net === null) {
-                $net = $total;
-            } elseif ($net !== null && $vat !== null && $total === null) {
-                $total = $net + $vat;
-            }
-            if ($net === null || $vat === null || $total === null) {
-                $notes[] = ['fill_amounts_missing', []];
-            } elseif ($net + $vat !== $total || $net < 0 || $vat < 0 || $net > ExpenseMoney::MAX_PENCE || $vat > ExpenseMoney::MAX_PENCE) {
-                $notes[] = ['fill_amounts_disagree', [ExpenseMoney::gbp($net + $vat), ExpenseMoney::gbp($total)]];
-            } else {
-                $typed['net'] = ExpenseMoney::plain($net);
-                $typed['vat'] = ExpenseMoney::plain($vat);
-                $typed['total'] = ExpenseMoney::plain($total);
-                $typed['vat_way'] = $vat === 0 ? 'none' : ($net === ExpenseMoney::netOfTotal($total, $vatBp) ? 'inc' : 'other');
-                // the total leads the page's script from here (data-expense-anchor), the two boxes as Claude read them
-                $typed['hand'] = '';
-                $typed['anchor'] = true;
-                array_push($filled, 'total', 'net', 'vat');
-            }
+            $typed['net'] = ExpenseMoney::plain($net);
+            $typed['vat'] = ExpenseMoney::plain($vat);
+            $typed['total'] = ExpenseMoney::plain($total);
+            $typed['vat_way'] = $vat === 0 ? 'none' : ($net === ExpenseMoney::netOfTotal($total, $vatBp) ? 'inc' : 'other');
+            // the total leads the page's script from here (data-expense-anchor), the two boxes as Claude read them
+            $typed['hand'] = '';
+            $typed['anchor'] = true;
+            array_push($filled, 'total', 'net', 'vat');
         }
         return ['typed' => $typed, 'filled' => $filled, 'notes' => $notes];
     }

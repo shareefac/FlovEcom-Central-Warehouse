@@ -211,6 +211,8 @@ final class RoyalMailBillPage
      * description may run on over lines of its own), joined into the one row of cells the page gives, as fromSpaced() joins the page
      * reader's two lines. Only a row that starts as a bill line, holds fewer than 7 cells and no amount waits for the rest: the next row that
      * ends with the amounts and a VAT code (and is no bill line itself) completes it; a row of words between them is its description's.
+     * A copy that breaks AFTER the reference (the first half holds it) keeps every part of it (M1, the Codex final review of 86aebbd: a £12
+     * line's manifest M42 was lost); words between such a half and its amounts could be either's, so that is refused, never guessed.
      * Anything else (a bill line next, money in the row between, the end of the copy) leaves the half row as it was: refused whole (a line
      * has at least 7 cells), never read as something else.
      *
@@ -221,21 +223,25 @@ final class RoyalMailBillPage
     {
         $out = [];
         $half = null;
+        $withRef = false;
         $money = static fn (array $cells): bool => preg_grep('/GBP\s*-?\s*[0-9][0-9,]*\.[0-9]{2}/i', $cells) !== [];
+        $nonEmpty = static fn (array $cells): array => array_values(array_filter($cells, static fn (string $c): bool => $c !== ''));
         foreach ($rows as $cells) {
-            $filled = array_values(array_filter($cells, static fn (string $c): bool => $c !== ''));
+            $filled = $nonEmpty($cells);
             if ($half !== null) {
                 $c = count($filled);
                 if ($c >= 3 && !self::isLineStart($filled) && preg_match('/^[A-Z]$/D', $filled[$c - 1]) === 1 && self::amount($filled[$c - 2]) !== null
                     && self::amount($filled[$c - 3]) !== null) {
-                    $out[] = [...$half, ...$filled]; // the reference (if any), net, gross, VAT code
+                    $out[] = [...$half, ...$filled]; // every reference part the halves hold (M1), net, gross, VAT code
                     $half = null;
                     continue;
                 }
-                if ($filled !== [] && !self::isLineStart($filled) && !$money($filled)) {
+                if (!$withRef && $filled !== [] && !self::isLineStart($filled) && !$money($filled)) {
                     $half[3] = trim($half[3] . ' ' . implode(' ', $filled)); // the description over more lines
                     continue;
                 }
+                // a bill line next, money between, or (the first half already held its reference: M1, Codex final of 86aebbd) words before the
+                // amounts that could be the description's or the reference's: never guessed, the half line left as it was (refused whole)
                 $out[] = $half;
                 $half = null;
             }
@@ -244,7 +250,10 @@ final class RoyalMailBillPage
                 while ($lead !== [] && $lead[0] === '') {
                     array_shift($lead);
                 }
-                $half = array_pad(array_slice($lead, 0, 4), 4, ''); // date, product, quantity, description: in their places
+                // date, product, quantity, description in their places, and every reference part after them kept (a break after the reference)
+                $rest = $nonEmpty(array_slice($lead, 4));
+                $half = [...array_pad(array_slice($lead, 0, 4), 4, ''), ...$rest];
+                $withRef = $rest !== [];
                 continue;
             }
             $out[] = $cells;

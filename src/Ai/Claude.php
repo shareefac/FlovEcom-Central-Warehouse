@@ -56,8 +56,15 @@ final class Claude
     public const BASE_URL = 'https://api.anthropic.com';
     /** The server-side refusal fallback (claude-api skill: new claude-opus-5-5 code opts in by default). */
     public const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
-    /** What one call may take in all (seconds): the stream is abandoned after it (reason `timeout`). */
-    public const DEADLINE_SEC = 600;
+    /**
+     * What one call may take in all (seconds; M4, Codex final of 86aebbd): the HTTP client's whole transfer (connect, the stream, every byte)
+     * is cut at it, so a reading never outlives the installer's 6-minute drain; the stream is abandoned after it too (reason `timeout`).
+     */
+    public const DEADLINE_SEC = 300;
+    /** No SDK retry (M2): a retry would be a second billable attempt under one reservation; a busy API is said and the person sends again. */
+    public const MAX_RETRIES = 0;
+    /** The attempts a call may be billed for (M2): the request and the server-side fallback's (a declined request read by another model). */
+    public const ATTEMPTS = 2;
     /** Guzzle's limits: to connect, and with no byte read (a stream sends a ping at least every few seconds). */
     public const CONNECT_SEC = 15;
     public const READ_IDLE_SEC = 120;
@@ -74,7 +81,7 @@ final class Claude
     public const PAGES_UNKNOWN = 100;
     /** The reason codes of a result (ai_call.reason): ok, then every way a call fails. */
     public const REASONS = ['ok', 'refusal', 'max_tokens', 'bad_answer', 'auth', 'forbidden', 'billing', 'spend_limit', 'rate_limited', 'overloaded', 'server',
-        'timeout', 'connection', 'bad_request', 'too_large', 'other'];
+        'timeout', 'connection', 'redirect', 'bad_request', 'too_large', 'other'];
 
     /** @var \Closure(): float seconds, monotonic */
     private readonly \Closure $now;
@@ -88,7 +95,7 @@ final class Claude
         private readonly string $model,
         private readonly string $effort,
         private readonly ?ClientInterface $transport = null,
-        private readonly int $maxRetries = 2,
+        private readonly int $maxRetries = self::MAX_RETRIES,
         private readonly int $deadlineSec = self::DEADLINE_SEC,
         ?\Closure $now = null,
     ) {
@@ -96,22 +103,16 @@ final class Claude
     }
 
     /**
-     * A PDF's pages: its page objects (/Type /Page, never the page tree's /Pages), else the largest /Count of its page tree, else PAGES_UNKNOWN
-     * (packed in compressed streams: nothing to count). Never fewer than one.
+     * A PDF's pages: the LARGER of its page objects (/Type /Page, never the page tree's /Pages) and the largest /Count of its page tree (M2: a
+     * PDF with one page object in sight and the rest packed in compressed streams counts its tree's count), else PAGES_UNKNOWN (nothing to
+     * count). Never fewer than one.
      */
     public static function pages(string $pdf): int
     {
-        $n = preg_match_all('#/Type\s*/Page(?![A-Za-z])#', $pdf);
-        if (is_int($n) && $n > 0) {
-            return $n;
-        }
-        if (preg_match_all('#/Count\s+(\d{1,6})#', $pdf, $m) > 0) {
-            $count = max(array_map('intval', $m[1]));
-            if ($count > 0) {
-                return $count;
-            }
-        }
-        return self::PAGES_UNKNOWN;
+        $objects = (int) preg_match_all('#/Type\s*/Page(?![A-Za-z])#', $pdf);
+        $count = preg_match_all('#/Count\s+(\d{1,6})#', $pdf, $m) > 0 ? max(array_map('intval', $m[1])) : 0;
+        $n = max($objects, $count);
+        return $n > 0 ? $n : self::PAGES_UNKNOWN;
     }
 
     /**
@@ -143,8 +144,9 @@ final class Claude
             : BetaImageBlockParam::with(source: BetaBase64ImageSource::with(data: $data, mediaType: $mediaType));
         unset($data);
         try {
+            // H2: every request through AnthropicOnly (https://api.anthropic.com:443 only, a redirect never followed)
             $client = new Client(apiKey: $this->apiKey, baseUrl: self::BASE_URL, requestOptions: RequestOptions::with(maxRetries: $this->maxRetries,
-                transporter: $this->transport ?? self::guzzle(), timeout: (float) $this->deadlineSec), openTelemetry: false);
+                transporter: new AnthropicOnly($this->transport ?? self::guzzle()), timeout: (float) $this->deadlineSec), openTelemetry: false);
             $stream = $client->beta->messages->createStream(
                 maxTokens: $kind->maxTokens(),
                 messages: [['role' => 'user', 'content' => [$doc, BetaTextBlockParam::with(text: $kind->instructions())]]],
@@ -165,6 +167,11 @@ final class Claude
             }
             if ($late) {
                 $out['reason'] = 'timeout';
+                return self::done($out, $started, $this->now);
+            }
+            if (!$acc->isComplete()) {
+                // H4: the stream ended before message_stop (a connection closed early): never half a message read as an answer
+                $out['reason'] = 'connection';
                 return self::done($out, $started, $this->now);
             }
             $message = $acc->message();
@@ -196,13 +203,14 @@ final class Claude
         } catch (APITimeoutException $e) {
             $out['reason'] = 'timeout';
         } catch (APIConnectionException $e) {
-            $out['reason'] = 'connection';
+            $out['reason'] = AnthropicOnly::isRefusal($e) ? 'redirect' : 'connection';
         } catch (AnthropicException $e) {
             $out['reason'] = 'other';
         } catch (\LogicException | \JsonException | \UnexpectedValueException $e) {
             $out['reason'] = 'bad_answer'; // a stream CW cannot fold, or an answer not of the SDK's shape
         } catch (\RuntimeException $e) {
-            $out['reason'] = 'connection'; // the stream broke while it was read (Guzzle's read timeout, a dropped connection)
+            // the stream broke while it was read (Guzzle's read timeout, a dropped connection); the guard's refusal said apart
+            $out['reason'] = AnthropicOnly::isRefusal($e) ? 'redirect' : 'connection';
         }
         if ($e instanceof APIException) {
             $out['status'] = $e->status ?? $e->response?->getStatusCode();
@@ -277,10 +285,21 @@ final class Claude
         return $out;
     }
 
-    /** Guzzle with the limits of a long streamed call: CONNECT_SEC to connect, READ_IDLE_SEC with nothing read. */
+    /**
+     * Guzzle's limits (M4): CONNECT_SEC to connect, READ_IDLE_SEC with nothing read, and the WHOLE transfer within DEADLINE_SEC (the response
+     * is taken whole by the client, so this is a wall clock over the stream); never a redirect, never an exception for a status (the SDK reads
+     * it).
+     *
+     * @return array<string, mixed>
+     */
+    public static function guzzleOptions(): array
+    {
+        return ['connect_timeout' => self::CONNECT_SEC, 'read_timeout' => self::READ_IDLE_SEC, 'timeout' => self::DEADLINE_SEC, 'http_errors' => false,
+            'allow_redirects' => false];
+    }
+
     private static function guzzle(): ClientInterface
     {
-        return new \GuzzleHttp\Client(['connect_timeout' => self::CONNECT_SEC, 'read_timeout' => self::READ_IDLE_SEC, 'timeout' => self::DEADLINE_SEC + 30,
-            'http_errors' => false, 'allow_redirects' => false]);
+        return new \GuzzleHttp\Client(self::guzzleOptions());
     }
 }

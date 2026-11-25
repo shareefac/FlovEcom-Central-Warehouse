@@ -11501,6 +11501,8 @@ final class Words
         'why_billing' => 'the Anthropic account has no credit left: the owner tops it up in the Anthropic console.',
         'why_spend_limit' => 'the Anthropic account reached its spending limit: the owner raises it in the Anthropic console.',
         'why_busy' => 'Claude is busy or could not be reached: try again in a minute.',
+        // H2 (Codex final of 86aebbd): the API answered with a redirect; CW never sends a document anywhere but Anthropic's API
+        'why_redirect' => 'the Anthropic API sent CW elsewhere, so the document was not sent there: tell the CW team.',
         'why_refused_request' => 'Anthropic refused the request: send the document to the CW team.',
         'why_error' => 'something went wrong in CW while it was being read: try again, or send the document to the CW team.',
         'why_off' => 'reading was switched off meanwhile.',
@@ -11516,6 +11518,8 @@ final class Words
             . 'the penny. Compare a few lines with the PDF before you press Store.',
         'off_switch' => 'Claude reads a PDF or a photo only when "Claude reads uploads" is switched on (Settings > Rules and numbers).',
         'off_key' => '"Claude reads uploads" is switched on, but the Anthropic API key is not set (Settings > Rules and numbers).',
+        'off_price' => '"Claude reads uploads" is switched on, but a model price is not set above 0 (Settings > Rules and numbers): CW counts each '
+            . 'reading against the month\'s limit at those prices.',
         'limit' => 'Claude\'s reading has reached this month\'s limit (%s of %s): upload as before, or a person who manages settings raises the limit.',
         'heic' => 'This photo is in HEIC, an iPhone\'s own format, which Claude cannot read: send it as JPEG (on the iPhone: Settings > Camera > Formats > Most Compatible).',
         'type' => 'Claude reads a PDF or a photo (JPEG, PNG, WebP or GIF) only.',
@@ -11527,7 +11531,9 @@ final class Words
         'dpd_pdf' => 'DPD: upload the CSV file DPD sends with each bill. CW does not read DPD\'s PDF: it is pages of parcels with delivery addresses, and the CSV is the exact list.',
         'hint_bill' => 'Or a PDF of the bill\'s page (printed from the browser) or a photo of it: Claude reads it, then CW checks it as it checks a pasted bill.',
         'read_button' => 'Fill from the file with Claude',
-        'read_hint' => 'Choose the invoice\'s PDF or photo first, then press this: Claude reads it and fills the boxes; you check them and press Save.',
+        // H5 (Codex final of 86aebbd): the button sits after Save, so Enter always presses Save
+        'read_hint' => 'Claude can fill the boxes from the invoice: choose its PDF or photo here, then press "Fill from the file with Claude" (after Save); '
+            . 'you check the boxes and press Save.',
         'read_no_file' => 'Choose the invoice\'s PDF or photo first, then press "Fill from the file with Claude".',
         'filled' => 'Claude filled: %s. Check each one against the invoice, then press Save.',
         'filled_none' => 'Claude read the invoice but filled nothing: type the expense from it.',
@@ -11541,6 +11547,10 @@ final class Words
         'field_vat' => 'the VAT',
         'fill_supplier_choose' => 'Claude read the supplier as "%s", which is not one of CW\'s: choose it from the list, or tick "Add it as a new supplier".',
         'fill_not_gbp' => 'The invoice is in %s: type the amounts in pounds yourself.',
+        // H3 (Codex final of 86aebbd): the amounts are filled only when they are certainly the expense's
+        'fill_currency_unknown' => 'Claude could not read the invoice\'s currency: type the amounts yourself (in pounds).',
+        'fill_negative' => 'The invoice prints an amount below 0: type the amounts yourself (a credit note: its amounts without a minus, and tick Credit note).',
+        'fill_credit_note' => 'This is a credit note: type its amounts yourself, without a minus (Credit note is ticked).',
         'fill_amounts_missing' => 'Claude could not read all of the amount without VAT, the VAT and the total: type them from the invoice.',
         'fill_amounts_disagree' => 'The invoice\'s amount without VAT and VAT add up to %s, not to its total %s: type the amounts from the invoice.',
         // AI15: the invoice Claude read is kept for this form's Save (an hour), attached as if it had been chosen

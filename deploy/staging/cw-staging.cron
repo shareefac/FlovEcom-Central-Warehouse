@@ -96,5 +96,6 @@ MAILTO=""
 # The PDFs and photos staff dropped on Profit > Delivery bills and Profit > Expenses read by Claude one at a time, here and never in the web
 # server's workers (a five-page bill takes minutes): each run stays about 55 seconds and looks every 2 seconds; one run at a time. It first
 # cleans up whatever the switch: a file or an answer older than an hour, a job left by a run that stopped, job rows older than a day. Nothing
-# is read while the setting ai.read_uploads is off or ai.anthropic_api_key is empty (as installed). 512M: a 10 MB PDF goes as base64.
-* * * * *  root  cd /opt/cw-staging && php -d memory_limit=512M bin/ai_read.php --db=cw_staging >> /var/log/cw/ai_read.log 2>&1
+# is read while the setting ai.read_uploads is off or ai.anthropic_api_key is empty (as installed). 512M: a 10 MB PDF goes as base64. As
+# www-data (the spool's owner; the app login, never root: CW-1182 H1), from the release's folder (www-data's cwd); the log written by cron's shell.
+* * * * *  root  cd /opt/cw-staging && runuser -u www-data -- php -d memory_limit=512M bin/ai_read.php --db=cw_staging >> /var/log/cw/ai_read.log 2>&1

@@ -152,7 +152,7 @@ final class DeliveryBillsController
         $reader = new DocumentReader($ctx->db);
         $id = $ctx->id();
         try {
-            $job = $reader->view($ctx->caller(), $id);
+            $job = $reader->view($ctx->caller(), $id, DocumentReader::BILL_PLACES);
         } catch (CwException) {
             return $ctx->error(404, 'not_found', 'there is no such reading', [self::PATH, Words::MENU['profit_delivery']]);
         }
@@ -171,7 +171,7 @@ final class DeliveryBillsController
             return $back(422, AiReadWords::failure($job['kind'], $job['reason'], $job['detail']));
         }
         try {
-            $bill = $reader->take($ctx->caller(), $id);
+            $bill = $reader->take($ctx->caller(), $id, DocumentReader::BILL_PLACES);
         } catch (CwException $e) {
             return $e->errorCode === 'ai_taken' ? $back(409, Words::AIREAD['taken']) : $back($e->httpStatus, Words::error($e->errorCode, $e->getMessage()));
         }
