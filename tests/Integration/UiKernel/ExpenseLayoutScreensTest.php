@@ -162,14 +162,18 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         }
     }
 
-    /** The expense form's card: the shop, then the fields in the drawing's order; the file panel; Save. Returns the main part's children. */
-    private static function expenseCard(\DOMElement $form, bool $new): array
+    /**
+     * The expense form's card: the shop, then the fields in the drawing's order; the file panel; the "same one" tick when asked (just above
+     * Save, at every width); Save.
+     */
+    private static function expenseCard(\DOMElement $form, bool $new, bool $ask = false): void
     {
         self::assertTrue(self::has($form, 'record') && self::has($form, 'expense-form'), self::sig($form));
-        self::assertSame(['div.ex-main', 'div.ex-side', 'p.actions'], array_map(self::sig(...), self::kids($form)), 'the card, the file panel, then Save');
+        self::assertSame(['div.ex-main', 'div.ex-side', ...($ask ? ['label.choice.same-ok'] : []), 'p.actions'], array_map(self::sig(...), self::kids($form)),
+            'the card, the file panel, (the question,) then Save');
         [$main, $side] = self::kids($form);
         $parts = self::kids($main);
-        self::assertSame(['fieldset.shop-pick', 'div.ex-fields'], array_map(self::sig(...), array_slice($parts, 0, 2)));
+        self::assertSame(['fieldset.shop-pick', 'div.ex-fields'], array_map(self::sig(...), $parts));
         self::assertSame('legend', self::kids($parts[0])[0]->nodeName);
         self::assertSame(['label.choice.shop-choice', 'label.choice.shop-choice', 'label.choice.shop-choice'], array_map(self::sig(...), array_slice(self::kids($parts[0]), 1)));
         $f = self::kids($parts[1]);
@@ -197,7 +201,6 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         if ($new) {
             self::assertSame('p.muted', self::sig(end($in)), 'kept with the expense');
         }
-        return $parts;
     }
 
     public function testTheAddExpenseFormIsOneCardInTheDrawingsOrder(): void
@@ -206,7 +209,7 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         $page = $job->get('/ui/profit/expenses/new');
         self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));
         $form = self::form($page, '/ui/profit/expenses/new');
-        self::assertCount(2, self::expenseCard($form, true), 'no "same one" question when none was asked');
+        self::expenseCard($form, true);
         self::assertSame(['shop', 'shop', 'shop', 'supplier', 'new_supplier', 'type', 'invoice_date', 'invoice_no', 'credit', 'net', 'vat', 'note', 'file', 'then', 'then'],
             self::order($form), 'the reading order is the keyboard\'s: the file before Save');
         self::assertSame(['done', 'another'], array_map(static fn (\DOMElement $b): string => $b->getAttribute('value'), iterator_to_array($form->getElementsByTagName('button'))),
@@ -249,12 +252,10 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         $same = $job->postMultipart('/ui/profit/expenses/new', $this->fields(['new_supplier' => '']) + $job->get('/ui/profit/expenses/new')->form('/ui/profit/expenses/new'), []);
         self::assertSame(409, $same->status, $same->describe());
         $f = self::form($same, '/ui/profit/expenses/new');
-        $parts = self::expenseCard($f, true);
-        self::assertSame('label.choice.same-ok', self::sig($parts[2]), 'the question\'s tick closes the card');
-        self::assertCount(3, $parts);
+        self::expenseCard($f, true, true);
         self::assertSame(1, (new \DOMXPath($same->dom()))->query('//div[contains(@class, "same-list")]/following-sibling::form[@action="/ui/profit/expenses/new"]')?->length);
-        self::assertSame(['shop', 'shop', 'shop', 'supplier', 'new_supplier', 'type', 'invoice_date', 'invoice_no', 'credit', 'net', 'vat', 'note', 'same_ok', 'file', 'then', 'then'],
-            self::order($f));
+        self::assertSame(['shop', 'shop', 'shop', 'supplier', 'new_supplier', 'type', 'invoice_date', 'invoice_no', 'credit', 'net', 'vat', 'note', 'file', 'same_ok', 'then', 'then'],
+            self::order($f), 'the question just above Save');
         self::idsHold($same);
     }
 
@@ -267,7 +268,7 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         $one = $job->get("/ui/profit/expenses/{$id}");
         self::assertSame(200, $one->status, $one->describe());
         $f = self::form($one, "/ui/profit/expenses/{$id}/change");
-        self::assertCount(2, self::expenseCard($f, false));
+        self::expenseCard($f, false);
         self::assertSame(['shop', 'shop', 'shop', 'supplier', 'new_supplier', 'type', 'invoice_date', 'invoice_no', 'credit', 'net', 'vat', 'note', 'file', ''], self::order($f));
         self::idsHold($one);
         // A refused change opens the form, the box marked in its row.
@@ -317,11 +318,13 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         self::assertSame(['until', 'note'], self::row($f[1], [true, false]));
         self::assertSame(['name', 'type', 'until', 'note', 'vat', 'vat', ''], self::order($c));
         self::idsHold($one);
-        // The same one again: the tick closes the card, above Save.
+        // The same one again: the tick just above Save.
         $same = $job->post('/ui/profit/regular/new', $rf + $job->get('/ui/profit/regular/new')->form('/ui/profit/regular/new'));
         self::assertSame(409, $same->status, $same->describe());
-        $parts = self::kids(self::kids(self::form($same, '/ui/profit/regular/new'))[0]);
-        self::assertSame(['fieldset.shop-pick', 'div.ex-fields', 'label.choice.same-ok'], array_map(self::sig(...), $parts));
+        $sf = self::form($same, '/ui/profit/regular/new');
+        self::assertSame(['div.ex-main', 'label.choice.same-ok', 'p.actions'], array_map(self::sig(...), self::kids($sf)));
+        self::assertSame(['shop', 'shop', 'shop', 'name', 'type', 'every', 'amount', 'vat', 'vat', 'from', 'until', 'note', 'same_ok', ''], self::order($sf));
+        self::idsHold($same);
     }
 
     /** Every rule of the expenses' block of app.css is scoped to these forms (or the Expenses list's figures): other forms keep their look. */
@@ -336,9 +339,23 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         preg_match_all('/([^{}]+)\{[^{}]*\}/', (string) preg_replace('/@(container|media|supports)[^{]*\{/', '', $block), $m);
         self::assertGreaterThan(20, count($m[1]));
         foreach ($m[1] as $selectors) {
-            foreach (explode(',', $selectors) as $s) {
+            // The list's selectors, split at the commas outside brackets (":is(.expense-form, .regular-form)" is one).
+            $list = [];
+            $depth = 0;
+            $cur = '';
+            foreach (str_split($selectors) as $ch) {
+                $depth += $ch === '(' ? 1 : ($ch === ')' ? -1 : 0);
+                if ($ch === ',' && $depth === 0) {
+                    $list[] = $cur;
+                    $cur = '';
+                    continue;
+                }
+                $cur .= $ch;
+            }
+            $list[] = $cur;
+            foreach ($list as $s) {
                 $s = trim($s);
-                if ($s === '' || $s === ')') {
+                if ($s === '') {
                     continue;
                 }
                 self::assertMatchesRegularExpression('/\.expense-form|\.regular-form|section\.expense-figs/', $s, "app.css: \"{$s}\" is not scoped to the expense or regular-cost forms");
@@ -346,7 +363,7 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         }
         // What lines the boxes up: a row of two cells (one below 400 px), each cell's label / box / hint on the row's three lines (subgrid).
         self::assertStringContainsString('grid-template-rows: subgrid;', $block);
-        self::assertStringContainsString('grid-template-areas: "main side" "acts side";', $block, 'the file panel beside the card on a wide screen');
+        self::assertStringContainsString('grid-template-areas: "main side" "ask side" "acts side";', $block, 'the file panel beside the card on a wide screen');
         self::assertStringContainsString('grid-column: auto;', $block, 'the shop buttons in a row, not one line each');
     }
 }

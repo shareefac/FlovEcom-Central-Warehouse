@@ -1,7 +1,8 @@
 <?php
 // Profit › Expenses › one expense (CW-1150; docs/decisions.md EX1-EX9, EX13): its facts (shop, supplier, type, invoice date and number, without
 // VAT, VAT, total, note, who added it), its PDF or photo (opened as a download), for the Expenses job "Change this expense" (the same fields as
-// the add form, a new file optional) and "Delete this expense" (a reason and a box: a mark, never a removal), and its history.
+// the add form, a new file optional) and "Delete this expense" (a reason and a box: a mark, never a removal), and its history. The Change
+// form is laid out as the add form's card (docs/decisions.md EX64): the fields, the file panel, then Save.
 $X = \CW\Ui\Words::EXPENSES;
 $gbp = static fn (int $p): string => \CW\Expenses\ExpenseMoney::gbp($p);
 $t = $typed;
@@ -48,7 +49,7 @@ $deleted = $x['deleted_at'] !== null;
     <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
     <input type="hidden" name="supplier_id" value="<?= $e((string) ($t['supplier_id'] ?? '')) ?>">
     <input type="hidden" name="supplier_was" value="<?= $e((string) ($t['supplier_was'] ?? '')) ?>">
-    <div class="expense-main">
+    <div class="ex-main">
       <fieldset class="shop-pick">
         <legend><?= $word('EXPENSES', 'which_shop') ?></legend>
 <?php foreach ($shops as $s): ?>
@@ -56,25 +57,29 @@ $deleted = $x['deleted_at'] !== null;
 <?php endforeach; ?>
       </fieldset>
 <?= $partial('expense_fields', ['t' => $t, 'types' => $types, 'suppliers' => $suppliers, 'errorField' => $errorField, 'net' => $net, 'vat' => $vat, 'newSupplier' => true]) ?>
-<?php if ($sameAsk): ?>
-      <label class="choice same-ok"><input type="checkbox" name="same_ok" value="1"> <?= $word('EXPENSES', 'same_ok') ?></label>
-      <input type="hidden" name="same_ids" value="<?= $e($sameIds) ?>">
-<?php endif; ?>
-      <p class="actions"><button type="submit" class="btn primary"><?= $word('EXPENSES', 'change_save') ?></button></p>
     </div>
-    <fieldset class="expense-file">
-      <legend><?= $word('EXPENSES', 'file_title') ?></legend>
+    <div class="ex-side">
+      <fieldset class="expense-file">
+        <legend><?= $word('EXPENSES', 'file_title') ?></legend>
 <?php if ($fileAgain): ?>
-      <p class="note" role="status"><?= $word('EXPENSES', 'file_again') ?></p>
-      <input type="hidden" name="file_again" value="1">
+        <p class="note" role="status"><?= $word('EXPENSES', 'file_again') ?></p>
+        <input type="hidden" name="file_again" value="1">
 <?php endif; ?>
-      <label><?= $word('EXPENSES', 'change_file') ?> <span class="hint"><?= $say('EXPENSES', 'file_hint', $maxMb) ?></span>
-        <input type="file" name="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"<?php if ($errorField === 'file'): ?> aria-invalid="true"<?php endif; ?>>
-      </label>
+        <div class="field">
+          <label for="ex-file"><?= $word('EXPENSES', 'change_file') ?></label>
+          <input id="ex-file" type="file" name="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" aria-describedby="ex-file-hint"<?php if ($errorField === 'file'): ?> aria-invalid="true"<?php endif; ?>>
+          <p class="hint" id="ex-file-hint"><?= $say('EXPENSES', 'file_hint', $maxMb) ?></p>
+        </div>
 <?php if ($fileAgain): ?>
-      <label class="choice"><input type="checkbox" name="no_file_ok" value="1"> <?= $word('EXPENSES', 'no_file_ok') ?></label>
+        <label class="choice"><input type="checkbox" name="no_file_ok" value="1"> <?= $word('EXPENSES', 'no_file_ok') ?></label>
 <?php endif; ?>
-    </fieldset>
+      </fieldset>
+    </div>
+<?php if ($sameAsk): ?>
+    <label class="choice same-ok"><input type="checkbox" name="same_ok" value="1"> <?= $word('EXPENSES', 'same_ok') ?></label>
+    <input type="hidden" name="same_ids" value="<?= $e($sameIds) ?>">
+<?php endif; ?>
+    <p class="actions"><button type="submit" class="btn primary lg"><?= $word('EXPENSES', 'change_save') ?></button></p>
   </form>
 </details>
 <details class="fold expense-delete" id="delete"<?php if (in_array($errorCode, ['not_sure', 'bad_reason'], true)): ?> open<?php endif; ?>>

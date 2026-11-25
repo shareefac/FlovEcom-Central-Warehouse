@@ -2,7 +2,7 @@
 // Profit › Regular costs › one line (CW-1150; docs/decisions.md EX5-EX7, EX14, EX38): its facts (shop, group, how often, amount with VAT, its
 // VAT, the cost without VAT, about a day and this month of that cost, from, until, the line it continues or that continues it, note); for the Expenses job: "The amount changes" (this line ends the day
 // before, a new one starts: the old days keep the old amount), its name, group, VAT, end and note changed, "Delete" for a line put in by mistake
-// (a reason and a box); its history.
+// (a reason and a box); its history. The change form is laid out as the add form's card (docs/decisions.md EX64).
 $R = \CW\Ui\Words::REGULAR;
 $X = \CW\Ui\Words::EXPENSES;
 $gbp = static fn (int $p): string => \CW\Expenses\ExpenseMoney::gbp($p);
@@ -75,37 +75,48 @@ $deleted = $r['deleted_at'] !== null;
 <?php endif; ?>
 <details class="fold regular-change" id="change"<?php if ($form === 'change'): ?> open<?php endif; ?>>
   <summary><?= $word('REGULAR', 'details_title') ?></summary>
-  <form class="record" method="post" action="<?= $u('/ui/profit/regular/' . (int) $r['id'] . '/change') ?>">
+  <form class="record regular-form" method="post" action="<?= $u('/ui/profit/regular/' . (int) $r['id'] . '/change') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
-    <fieldset>
-      <label><?= $word('REGULAR', 'name') ?>
-        <input type="text" name="name" value="<?= $e((string) $t['name']) ?>" maxlength="100" required<?php if ($errorField === 'name'): ?> aria-invalid="true"<?php endif; ?>>
-      </label>
-      <label><?= $word('REGULAR', 'group') ?>
-        <select name="type" required<?php if ($errorField === 'type'): ?> aria-invalid="true"<?php endif; ?>>
+    <div class="ex-main">
+      <div class="ex-fields">
+        <div class="ex-row">
+          <div class="field">
+            <label for="rc-name"><?= $word('REGULAR', 'name') ?></label>
+            <input id="rc-name" type="text" name="name" value="<?= $e((string) $t['name']) ?>" maxlength="100" required<?php if ($errorField === 'name'): ?> aria-invalid="true"<?php endif; ?>>
+          </div>
+          <div class="field">
+            <label for="rc-type"><?= $word('REGULAR', 'group') ?></label>
+            <select id="rc-type" name="type" required<?php if ($errorField === 'type'): ?> aria-invalid="true"<?php endif; ?>>
 <?php foreach ($types as $ty): ?>
-          <option value="<?= $e((string) $ty['id']) ?>"<?php if ((string) $t['type'] === (string) $ty['id']): ?> selected<?php endif; ?>><?= $e($ty['name']) ?></option>
+              <option value="<?= $e((string) $ty['id']) ?>"<?php if ((string) $t['type'] === (string) $ty['id']): ?> selected<?php endif; ?>><?= $e($ty['name']) ?></option>
 <?php endforeach; ?>
-        </select>
-      </label>
-      <label><?= $word('REGULAR', 'until') ?> <span class="hint"><?= $word('REGULAR', 'until_hint') ?></span>
-        <input type="date" name="until" value="<?= $e((string) $t['until']) ?>"<?php if ($errorField === 'until'): ?> aria-invalid="true"<?php endif; ?>>
-      </label>
-      <label><?= $word('EXPENSES', 'note') ?>
-        <input type="text" name="note" value="<?= $e((string) $t['note']) ?>" maxlength="500"<?php if ($errorField === 'note'): ?> aria-invalid="true"<?php endif; ?>>
-      </label>
-    </fieldset>
-    <fieldset class="vat-pick">
-      <legend><?= $word('REGULAR', 'vat_choice') ?> <span class="hint"><?= $word('REGULAR', 'vat_hint') ?> <?= $word('REGULAR', 'vat_change_hint') ?></span></legend>
-      <label class="choice"><input type="radio" name="vat" value="inc"<?php if ((string) $t['vat'] !== 'none'): ?> checked<?php endif; ?><?php if ($errorField === 'vat'): ?> aria-invalid="true"<?php endif; ?>> <?= $say('REGULAR', 'vat_inc', $vatRate) ?></label>
-      <label class="choice"><input type="radio" name="vat" value="none"<?php if ((string) $t['vat'] === 'none'): ?> checked<?php endif; ?>> <?= $word('REGULAR', 'vat_none') ?></label>
-    </fieldset>
+            </select>
+          </div>
+        </div>
+        <div class="ex-row">
+          <div class="field">
+            <label for="rc-until"><?= $word('REGULAR', 'until') ?></label>
+            <input id="rc-until" type="date" name="until" value="<?= $e((string) $t['until']) ?>" aria-describedby="rc-until-hint"<?php if ($errorField === 'until'): ?> aria-invalid="true"<?php endif; ?>>
+            <p class="hint" id="rc-until-hint"><?= $word('REGULAR', 'until_hint') ?></p>
+          </div>
+          <div class="field">
+            <label for="rc-note"><?= $word('EXPENSES', 'note') ?></label>
+            <input id="rc-note" type="text" name="note" value="<?= $e((string) $t['note']) ?>" maxlength="500"<?php if ($errorField === 'note'): ?> aria-invalid="true"<?php endif; ?>>
+          </div>
+        </div>
+        <fieldset class="vat-pick">
+          <legend><?= $word('REGULAR', 'vat_choice') ?> <span class="hint"><?= $word('REGULAR', 'vat_hint') ?> <?= $word('REGULAR', 'vat_change_hint') ?></span></legend>
+          <label class="choice"><input type="radio" name="vat" value="inc"<?php if ((string) $t['vat'] !== 'none'): ?> checked<?php endif; ?><?php if ($errorField === 'vat'): ?> aria-invalid="true"<?php endif; ?>> <?= $say('REGULAR', 'vat_inc', $vatRate) ?></label>
+          <label class="choice"><input type="radio" name="vat" value="none"<?php if ((string) $t['vat'] === 'none'): ?> checked<?php endif; ?>> <?= $word('REGULAR', 'vat_none') ?></label>
+        </fieldset>
+      </div>
+    </div>
 <?php if ($sameAsk): ?>
     <label class="choice same-ok"><input type="checkbox" name="same_ok" value="1"> <?= $word('REGULAR', 'same_ok') ?></label>
     <input type="hidden" name="same_ids" value="<?= $e($sameIds) ?>">
 <?php endif; ?>
-    <p class="actions"><button type="submit" class="btn primary"><?= $word('EXPENSES', 'change_save') ?></button></p>
+    <p class="actions"><button type="submit" class="btn primary lg"><?= $word('EXPENSES', 'change_save') ?></button></p>
   </form>
 </details>
 <details class="fold regular-delete" id="delete"<?php if ($form === 'delete'): ?> open<?php endif; ?>>
