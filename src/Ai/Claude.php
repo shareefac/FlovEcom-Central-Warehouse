@@ -77,21 +77,14 @@ final class Claude
     /** The few words the system prompt says (the kind's own instructions come after the document). */
     public const SYSTEM = 'You copy what a business document prints into a fixed JSON form for a warehouse\'s accounts. Copy exactly what is printed. '
         . 'Never work a figure out, never correct one, never guess: when something cannot be read with certainty, say the document is not readable.';
-    /**
-     * The most a call may cost, counted before it is sent (docs/decisions.md AI16): a page's tokens (its text and its picture: at most 4,784
-     * visual tokens on the high-resolution models, so 10,000 is above both), the request's own framing, and the pages counted for a PDF whose
-     * pages CW cannot count (its page objects packed in compressed streams).
-     */
-    public const PAGE_TOKENS = 10_000;
-    public const FRAME_TOKENS = 2_000;
-    /** A ceiling on what a file may hold (M2, the re-check of ca8987b): never fewer pages counted than one for each 2,000 bytes. */
-    public const BYTES_PER_PAGE = 2_000;
     /** The reason codes of a result (ai_call.reason): ok, then every way a call fails. */
     public const REASONS = ['ok', 'refusal', 'max_tokens', 'bad_answer', 'auth', 'forbidden', 'billing', 'spend_limit', 'rate_limited', 'overloaded', 'server',
         'timeout', 'connection', 'redirect', 'bad_request', 'too_large', 'other'];
 
     /** @var \Closure(): float seconds, monotonic */
     private readonly \Closure $now;
+    /** When this reading began (its count, then its call): ONE wall clock of DEADLINE_SEC over both (M4, AI20). */
+    private ?float $begun = null;
 
     /**
      * @param ClientInterface|null $transport the PSR-18 client (null: Guzzle with CONNECT_SEC / READ_IDLE_SEC)
@@ -110,27 +103,44 @@ final class Claude
     }
 
     /**
-     * A PDF's pages for the most a call may cost: the LARGEST of its page objects (/Type /Page, never the page tree's /Pages), the largest
-     * /Count of its page tree, and one page for each BYTES_PER_PAGE bytes of the file (M2, the re-check of ca8987b: pages packed in
-     * compressed streams are never counted short). Never fewer than one.
+     * A PDF's pages as it shows them: the larger of its page objects (/Type /Page, never the page tree's /Pages) and the largest /Count of its
+     * page tree; never fewer than one. A note for the runner's log only (AI20): the reservation is the API's own count (count()).
      */
     public static function pages(string $pdf): int
     {
         $objects = (int) preg_match_all('#/Type\s*/Page(?![A-Za-z])#', $pdf);
         $count = preg_match_all('#/Count\s+(\d{1,6})#', $pdf, $m) > 0 ? max(array_map('intval', $m[1])) : 0;
-        return max(1, $objects, $count, intdiv(strlen($pdf) + self::BYTES_PER_PAGE - 1, self::BYTES_PER_PAGE));
+        return max(1, $objects, $count);
     }
 
     /**
-     * The most input tokens a call may take (AI16): the request's own words (the system prompt, the kind's instructions and its schema) at a
-     * token a byte (M3, the re-check of ca8987b: a token is never less than a byte), FRAME_TOKENS, and PAGE_TOKENS for each page (a photo is
-     * one page). Its output is at most the kind's max_tokens (thinking included).
+     * The EXACT input of the reading read() will send (AI20, the lead, 25 Nov ~22:15 UK): the API's token-counting endpoint asked for the very
+     * request (the same document block, instructions, system prompt, model and output schema), through the same guard (AnthropicOnly) and
+     * within the same wall clock. Free; nothing is read. Anything but a whole count (a failure, a refusal elsewhere, an answer of another
+     * form) is `count_failed`: the caller sends nothing.
+     *
+     * @return array{reason: string, tokens: ?int, seconds: float}
      */
-    public static function maxInputTokens(Kind $kind, string $bytes, string $mediaType): int
+    public function count(Kind $kind, string $bytes, string $mediaType): array
     {
-        $words = strlen(self::SYSTEM) + strlen($kind->instructions()) + strlen((string) json_encode($kind->schema()));
-        $pages = $mediaType === 'application/pdf' ? self::pages($bytes) : 1;
-        return $words + self::FRAME_TOKENS + $pages * self::PAGE_TOKENS;
+        $this->begun ??= ($this->now)();
+        $started = ($this->now)();
+        $out = ['reason' => 'count_failed', 'tokens' => null, 'seconds' => 0.0];
+        try {
+            $r = $this->client()->beta->messages->countTokens(
+                messages: $this->messages($kind, $bytes, $mediaType),
+                model: $this->model,
+                outputConfig: $this->outputConfig($kind),
+                system: self::SYSTEM,
+                betas: [self::FALLBACK_BETA],
+            );
+            if (is_int($r->inputTokens) && $r->inputTokens > 0) {
+                $out = ['reason' => 'ok', 'tokens' => $r->inputTokens] + $out;
+            }
+        } catch (\Throwable) {
+            // count_failed: never a message kept (it could quote)
+        }
+        return self::done($out, $started, $this->now);
     }
 
     /**
@@ -141,26 +151,17 @@ final class Claude
      */
     public function read(Kind $kind, string $bytes, string $mediaType): array
     {
+        $this->begun ??= ($this->now)();
         $started = ($this->now)();
         $out = ['reason' => 'other', 'json' => null, 'input_tokens' => 0, 'output_tokens' => 0, 'served_model' => null, 'fallback' => false, 'refusal_category' => null,
             'status' => null, 'request_id' => null, 'seconds' => 0.0];
-        $data = base64_encode($bytes);
-        $doc = $mediaType === 'application/pdf'
-            ? BetaRequestDocumentBlock::with(source: BetaBase64PDFSource::with(data: $data))
-            : BetaImageBlockParam::with(source: BetaBase64ImageSource::with(data: $data, mediaType: $mediaType));
-        unset($data);
         try {
-            // H2: every request through AnthropicOnly (https://api.anthropic.com:443 only, a redirect never followed); M4: ONE wall clock over the
-            // whole call (a request after it is never sent; the HTTP client's own timeout ends the transfer at it; curl replays nothing)
-            $client = new Client(apiKey: $this->apiKey, baseUrl: self::BASE_URL, requestOptions: RequestOptions::with(maxRetries: $this->maxRetries,
-                transporter: new AnthropicOnly($this->transport ?? self::guzzle($this->deadlineSec), $started + $this->deadlineSec, $this->now),
-                timeout: (float) $this->deadlineSec), openTelemetry: false);
-            $stream = $client->beta->messages->createStream(
+            $stream = $this->client()->beta->messages->createStream(
                 maxTokens: $kind->maxTokens(),
-                messages: [['role' => 'user', 'content' => [$doc, BetaTextBlockParam::with(text: $kind->instructions())]]],
+                messages: $this->messages($kind, $bytes, $mediaType),
                 model: $this->model,
                 fallbacks: [BetaFallbackParam::with(model: self::FALLBACK_MODEL, maxTokens: $kind->maxTokens())],
-                outputConfig: BetaOutputConfig::with(effort: $this->effort, format: BetaJSONOutputFormat::with(schema: $kind->schema())),
+                outputConfig: $this->outputConfig($kind),
                 system: self::SYSTEM,
                 betas: [self::FALLBACK_BETA],
             );
@@ -168,7 +169,7 @@ final class Claude
             $late = false;
             foreach ($stream as $event) {
                 $acc->accumulate($event);
-                if (($this->now)() - $started > $this->deadlineSec) {
+                if (($this->now)() - $this->begun > $this->deadlineSec) {
                     $late = true;
                     break;
                 }
@@ -310,5 +311,39 @@ final class Claude
     private static function guzzle(int $deadlineSec): ClientInterface
     {
         return new \GuzzleHttp\Client(self::guzzleOptions($deadlineSec));
+    }
+
+    /**
+     * The SDK's client for this reading. H2: every request through AnthropicOnly (https://api.anthropic.com:443 only, a redirect never
+     * followed); M4: ONE wall clock over the reading's count and call (a request after it is never sent; the HTTP client's own timeout ends
+     * the transfer at what is left of it; curl replays nothing).
+     */
+    private function client(): Client
+    {
+        $deadline = (float) $this->begun + $this->deadlineSec;
+        $left = max(1, (int) ceil($deadline - ($this->now)()));
+        return new Client(apiKey: $this->apiKey, baseUrl: self::BASE_URL, requestOptions: RequestOptions::with(maxRetries: $this->maxRetries,
+            transporter: new AnthropicOnly($this->transport ?? self::guzzle(min($left, $this->deadlineSec)), $deadline, $this->now),
+            timeout: (float) $this->deadlineSec), openTelemetry: false);
+    }
+
+    /**
+     * The one user message: the document (a PDF block, or a photo) BEFORE the kind's instructions; the same for the count and the call.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function messages(Kind $kind, string $bytes, string $mediaType): array
+    {
+        $data = base64_encode($bytes);
+        $doc = $mediaType === 'application/pdf'
+            ? BetaRequestDocumentBlock::with(source: BetaBase64PDFSource::with(data: $data))
+            : BetaImageBlockParam::with(source: BetaBase64ImageSource::with(data: $data, mediaType: $mediaType));
+        return [['role' => 'user', 'content' => [$doc, BetaTextBlockParam::with(text: $kind->instructions())]]];
+    }
+
+    /** The effort and the answer's fixed shape (structured outputs): the same for the count and the call. */
+    private function outputConfig(Kind $kind): BetaOutputConfig
+    {
+        return BetaOutputConfig::with(effort: $this->effort, format: BetaJSONOutputFormat::with(schema: $kind->schema()));
     }
 }

@@ -12,8 +12,9 @@ use CW\Db;
  * thousandths of a penny on its log row (ai_call.cost_millipence; a call of a one-page invoice is about 3p, so pennies alone would round most
  * of it away), rounded UP (never under-counted); the month is the UK month (Europe/London), its sum in pence rounded up. The limit (setting
  * ai.monthly_limit_gbp) is reached when the month's sum is at it or above: no new reading starts that month (uploading as before still works).
- * A call's row is written before the request at the most it may cost (AI16: Claude::maxInputTokens and the kind's max_tokens), so the month
- * counts a call while it goes, and a call whose reader died (crashed) at that most; its answer's usage replaces it (charged()).
+ * A call's row is written before the request at the most it may cost (AI16, AI20: the API's count of its input and the kind's
+ * max_tokens), so the month counts a call while it goes, and a call whose reader died (crashed) at that most; its answer's usage replaces it
+ * (charged()).
  *
  * £ example: a 5-page Royal Mail bill of 160 lines read with 15,000 tokens in and 13,000 out at £3.20 / £16.00 per million costs
  * 15,000 x 3.20 / 10 + 13,000 x 16.00 / 10 = 4,800 + 20,800 = 25,600 thousandths of a penny = 25.6p; 100 such bills a month = £25.60, under £30.

@@ -52,7 +52,10 @@ exit(Cli::main(
                 }
                 $r = $reader->runNext();
                 if ($r !== null) {
-                    $cli->log(sprintf('read %d: %s (%s)', $r['id'], $r['state'], $r['reason']));
+                    // AI20: the API's count of the input (the reservation's base) and the PDF's own page count, a sanity note only
+                    $n = $reader->lastCount;
+                    $cli->log(sprintf('read %d: %s (%s)', $r['id'], $r['state'], $r['reason'])
+                        . ($n === null ? '' : sprintf('; input counted %s tokens, %d page(s) shown', $n['tokens'] === null ? '-' : (string) $n['tokens'], $n['pages'])));
                     continue;
                 }
                 if ($once || hrtime(true) / 1e9 + 2 > $until) {

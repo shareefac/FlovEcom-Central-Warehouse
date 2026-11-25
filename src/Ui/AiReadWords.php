@@ -30,6 +30,7 @@ final class AiReadWords
             'spend_limit' => Words::AIREAD['why_spend_limit'],
             'rate_limited', 'overloaded', 'server', 'timeout', 'connection' => Words::AIREAD['why_busy'],
             'redirect' => Words::AIREAD['why_redirect'],
+            'count_failed' => Words::AIREAD['why_count_failed'],
             'off' => Words::AIREAD['why_off'],
             'limit' => Words::AIREAD['why_limit'],
             'not_allowed' => Words::AIREAD['why_not_allowed'],

@@ -11503,6 +11503,8 @@ final class Words
         'why_busy' => 'Claude is busy or could not be reached: try again in a minute.',
         // H2 (Codex final of 86aebbd): the API answered with a redirect; CW never sends a document anywhere but Anthropic's API
         'why_redirect' => 'the Anthropic API sent CW elsewhere, so the document was not sent there: tell the CW team.',
+        // AI20: the API's count of the document's size comes first; without it nothing is sent (and nothing is spent)
+        'why_count_failed' => 'Anthropic could not say how large the document is, so it was not sent (nothing was spent): try again in a minute.',
         'why_refused_request' => 'Anthropic refused the request: send the document to the CW team.',
         'why_error' => 'something went wrong in CW while it was being read: try again, or send the document to the CW team.',
         'why_off' => 'reading was switched off meanwhile.',

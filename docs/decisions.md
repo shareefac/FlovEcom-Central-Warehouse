@@ -21638,7 +21638,7 @@ connector files it can see and STOPs if their expected lists no longer hold the 
   "write_off", provisional, NR1, set up by the migration) and the baseline's JSON exactly; every marker is written to a temporary name and
   renamed (atomic), every write and removal checked.
 
-## Claude reads the upload, phase 1 (CW-1182) and the Mac copy of a Royal Mail bill (CW-1181) (branch `ai-reader`, 25 Nov 2026; AI1-AI19; migration 0082)
+## Claude reads the upload, phase 1 (CW-1182) and the Mac copy of a Royal Mail bill (CW-1181) (branch `ai-reader`, 25 Nov 2026; AI1-AI20; migration 0082)
 
 The owner (CW chat, 25 Nov 2026 ~17:25 UK), after the Royal Mail bill of 23 Nov could not be pasted: "whatever we doing is wrong. wrong way to
 add an invoice you should focus on the claude api connected on all upload places as soon as posssible"; then "I'll create one" (an Anthropic
@@ -21857,12 +21857,25 @@ go-live of this release after such an undo needs no hand step: its own bin/migra
 types the key's row back to text (AiSettings::restoreKeyRow), and the kit recognises 0082 already applied. Code: a date read is a day after
 its blanks are trimmed (a date of blanks refuses the reading, so amounts never land beside a date the form held before); Save stores the
 VERIFIED bytes of the invoice Claude read, from a private copy, and the stored file's sha256 must be the job's before the expense commits;
-words before the amounts after a complete reference in a Mac copy are refused; a PDF counts at least one page for every 2,000 bytes (so a
-20-page invoice showing one page object is reserved as 20 pages or more), the request's own words at a token a byte, and ONE named fallback
-model (claude-opus-4-8, the same output limit) instead of the server's default list, so every billable attempt is known (x2); the cap
+words before the amounts after a complete reference in a Mac copy are refused; [superseded by AI20: the input is the API's own count] a
+PDF counted at least one page for every 2,000 bytes, the request's own words at a token a byte; ONE named fallback model (claude-opus-4-8,
+the same output limit) instead of the server's default list, so every billable attempt is known (x2); the cap
 compares the month's spend and the call's most to the thousandth of a penny; one wall clock over the whole call (a request after it is never
 sent; the HTTP client's timeout ends the transfer at it; curl replays nothing); a job is seen and taken only when its kind is its place's;
 the app login never removes a job row (no DELETE: a job can never be replaced), a finished job's typed fields emptied in place a day after.
-£ example (M2, M3): the real 5-page Royal Mail bill of 23 Nov (694 KB) reserves 347 pages: 2 x (3.47 M tokens at £3.20 + 64,000 at £16.00)
-= about £24.30 while it is read; read, it counts what it used (about 25p). With the £30 limit a bill is sent only while the month's spend is
-at most about £5.70; an invoice photo (most about 35p) while it is at most about £29.65. Raise the limit on Settings for more bills a month.
+(That byte rule reserved about £24.30 for the real 694 KB 5-page bill of 23 Nov, so a bill could be sent only while the month's spend was
+at most about £5.70: AI20 replaces it.)
+
+**AI20. The reservation is the API's EXACT count of the input (the lead, 25 Nov 2026 ~22:15 UK: the byte rule of AI19 M2 was wrong).**
+Before each call the reader asks the API's token-counting endpoint (`POST /v1/messages/count_tokens`, the SDK's
+`$client->beta->messages->countTokens()`) for the very request it will send: the same document block, the kind's instructions, the system
+prompt, the model and the output schema with its effort; through the same guard (AnthropicOnly: https://api.anthropic.com:443, no redirect)
+and within the same wall clock of 300 seconds as the call that follows (one clock over both). Counting is free and reads nothing. The
+reservation (the call's row before the request, `max_millipence`) is then: (counted input x the input price + the kind's max_tokens x the
+output price) x 2 (the request and the one named fallback, claude-opus-4-8), rounded up to the thousandth of a penny; the hard cap compares
+the month's spend plus that. A count that fails, times out, is refused elsewhere or answers anything but a whole number: the document is NOT
+sent (the job fails `count_failed`: "Anthropic could not say how large the document is, so it was not sent (nothing was spent): try again
+in a minute"), and nothing is reserved (no call row). A PDF's page objects and page-tree count are kept only as a note in the runner's log
+("input counted N tokens, P page(s) shown"), never as the bound. £ example: a 5-page Royal Mail bill counted at about 54,000 tokens in
+reserves 2 x (54,000 at £3.20 + 64,000 at £16.00 a million) = about £2.40 while it is read (the byte rule reserved about £24); read, it counts
+what it used (about 25p); with the £30 limit a bill is sent while the month's spend is at most about £27.60.

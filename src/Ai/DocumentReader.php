@@ -61,6 +61,9 @@ final class DocumentReader
     /** The form fields a job keeps of what the person had typed (an expense form read over what was typed): their most characters each. */
     private const CONTEXT_TEXT_MAX = 500;
 
+    /** @var array{tokens: ?int, pages: int}|null the last reading's count and its pages as the PDF shows them (the runner's log; AI20) */
+    public ?array $lastCount = null;
+
     private readonly string $spool;
     /** @var \Closure(AiSettings): Claude */
     private readonly \Closure $claude;
@@ -94,12 +97,13 @@ final class DocumentReader
     }
 
     /**
-     * The most a call may cost (AI16, M2), in thousandths of a penny: every attempt that may be billed (Claude::ATTEMPTS: the request and the
-     * server-side fallback's; no SDK retry), each at its most input (Claude::maxInputTokens) and the kind's max_tokens of output.
+     * The most a call may cost (AI16, AI20), in thousandths of a penny, rounded up: every attempt that may be billed (Claude::ATTEMPTS: the
+     * request and the one named fallback's; no SDK retry), each at the input the API COUNTED for that very request (Claude::count) and the
+     * kind's max_tokens of output (thinking included).
      */
-    public static function most(Kind $kind, string $bytes, string $mediaType, string $priceIn, string $priceOut): int
+    public static function most(Kind $kind, int $countedInput, string $priceIn, string $priceOut): int
     {
-        return AiUsage::millipence(Claude::ATTEMPTS * Claude::maxInputTokens($kind, $bytes, $mediaType), Claude::ATTEMPTS * $kind->maxTokens(), $priceIn, $priceOut);
+        return AiUsage::millipence(Claude::ATTEMPTS * max(0, $countedInput), Claude::ATTEMPTS * $kind->maxTokens(), $priceIn, $priceOut);
     }
 
     /**
@@ -253,6 +257,7 @@ final class DocumentReader
     public function runNext(): ?array
     {
         $job = null;
+        $this->lastCount = null;
         foreach ($this->db->all("SELECT * FROM ai_read WHERE state = 'waiting' ORDER BY id LIMIT 5") as $row) {
             if ($this->db->exec("UPDATE ai_read SET state = 'reading', started_at = ? WHERE id = ? AND state = 'waiting'", [Clock::db(($this->clock)()), (int) $row['id']]) === 1) {
                 $job = $row;
@@ -283,10 +288,22 @@ final class DocumentReader
                 return $this->finish($id, 'failed', 'file_gone', null, null);
             }
             $kind = self::kind((string) $job['kind']);
-            $most = self::most($kind, $bytes, (string) $job['media_type'], $s->priceIn, $s->priceOut);
+            // AI20: the reading's EXACT input counted by the API for the very request it will send; a count that fails sends nothing and
+            // reserves nothing
+            try {
+                $claude = ($this->claude)($s);
+                $count = $claude->count($kind, $bytes, (string) $job['media_type']);
+            } catch (\Throwable $e) {
+                return $this->finish($id, 'failed', 'error', null, mb_substr(get_class($e), 0, 200));
+            }
+            $this->lastCount = ['tokens' => $count['tokens'], 'pages' => (string) $job['media_type'] === 'application/pdf' ? Claude::pages($bytes) : 1];
+            if ($count['reason'] !== 'ok' || !is_int($count['tokens'])) {
+                return $this->finish($id, 'failed', 'count_failed', null, null);
+            }
+            $most = self::most($kind, $count['tokens'], $s->priceIn, $s->priceOut);
             if ($month['millipence'] + $most > $s->limitPence * 1000) {
-                // M3: a hard cap, to the thousandth of a penny: a call starts only when the month's spend plus its most (a bound: every billable
-                // attempt, each input at a token a byte and a page a 2,000 bytes, each output at max_tokens, rounded up) stays within the limit
+                // M3: a hard cap, to the thousandth of a penny: a call starts only when the month's spend plus its most (every billable attempt
+                // at the counted input and max_tokens of output, rounded up: AI20) stays within the limit
                 return $this->finish($id, 'failed', 'limit', null, null);
             }
             // AI16: the call's row BEFORE the request, counted at the most it may cost: a reader that dies mid-call still counts (the next run
@@ -295,7 +312,7 @@ final class DocumentReader
                 . "result, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'started', 'started')", [$id, Clock::db(($this->clock)()), (int) $job['staff_user_id'],
                     (string) $job['place'], (string) $job['kind'], mb_substr($s->model, 0, 64), (string) $job['media_type'], (int) $job['file_bytes'], $most, $most]);
             try {
-                $r = ($this->claude)($s)->read($kind, $bytes, (string) $job['media_type']);
+                $r = $claude->read($kind, $bytes, (string) $job['media_type']);
             } catch (\Throwable $e) {
                 // whatever went wrong, the job ends now (never left `reading`); what the call used is not known: its most. The class is said,
                 // never a message (it could quote)
