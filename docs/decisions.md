@@ -21973,7 +21973,8 @@ finding. `--status` says how many orders are queued.
 **PPF60. Two contents of a row in ONE answer, and repeats found before PayPal's count (the lead's decisions 11 and 12).** pp_conflict 2 is a row
 one answer gave two contents of (the newer kept, a look) apart from 1, two reads that disagree on one version (a look until a newer version):
 a later read that gives the row once says which version PayPal has (taken as a newer version would be: its facts, its captures; the look
-cleared), so £20 and £30 in one answer followed by £30 alone counts £30. PaypalApi counts the repeats of an answer BEFORE comparing its rows
+cleared), so £20 and £30 in one answer followed by £30 alone counts £30; an answer giving the two contents again (in any order) is still 2,
+never taken for a contradiction between reads. PaypalApi counts the repeats of an answer BEFORE comparing its rows
 with PayPal's total_items: A, A, B for two declared rows is a repeat (read again, READS times, then given back as it stands: B's £60 fee is
 stored and counted, the window proves nothing); a count the rows do not make with no repeat at all is still refused (after the reads again).
 

@@ -1175,7 +1175,8 @@ final class PaypalFees
                 $sameForms = $old['read_sig'] !== null && hash_equals((string) $old['read_sig'], $sig);
                 // a read giving this row once, of a row one answer gave two contents of (pp_conflict 2): it says which version PayPal has, taken
                 // as a newer version would be (round 5, the lead's decision 11, PPF60); two reads disagreeing on one version (1) stay a look
-                $settles = !isset($twice[$k]) && (int) $old['pp_conflict'] === 2;
+                $clean = !isset($twice[$k]);
+                $settles = $clean && (int) $old['pp_conflict'] === 2;
                 // the forms the row's captures are of after this read: these forms, unless the captures of the forms it was read by are kept
                 $rowSig = $sig;
                 if ($age === 0 && !$sameForms) {
@@ -1200,18 +1201,23 @@ final class PaypalFees
                 // the same version: what it says compared (its captures too when read by the same forms: other captures at the same time are
                 // PayPal saying two things of one version, never "the last read wins": round 3)
                 $compared = array_flip($sameForms ? [...self::PP_FACTS, ...self::CAPTURES] : self::PP_FACTS);
-                if ($age === 0 && !$settles && array_intersect_key($theirs, $compared) !== array_intersect_key($before, $compared)) {
-                    // the kept stay (under other forms: their captures are the forms' of now), the row needs a look until a newer version says which
-                    $conflicting = array_intersect_key($theirs, array_flip([...self::PP_FACTS, ...self::CAPTURES]));
-                    $after = array_merge($before, $sameForms ? [] : array_intersect_key($theirs, array_flip(self::CAPTURES)), ['pp_conflict' => 1]);
+                $differs = array_intersect_key($theirs, $compared) !== array_intersect_key($before, $compared);
+                if ($age === 0 && (!$clean || (!$settles && $differs))) {
+                    // the kept stay (under other forms: their captures are the forms' of now), the row needs a look: two reads saying two things of
+                    // one version (1: until a newer version says which), or this answer giving two contents of the version kept (2: until a read
+                    // gives it once, PPF60; never taken for a contradiction between reads, unless two reads disagreed on it before)
+                    $conflicting = $differs ? array_intersect_key($theirs, array_flip([...self::PP_FACTS, ...self::CAPTURES])) : null;
+                    $after = array_merge($before, $sameForms ? [] : array_intersect_key($theirs, array_flip(self::CAPTURES)),
+                        ['pp_conflict' => $clean || (int) $old['pp_conflict'] === 1 ? 1 : 2]);
                 } else {
                     $kind = PaypalCodes::kind((string) $r['event_code'], (int) $r['amount_pence']);
                     // what PayPal says AND what the rules make of it (a release that classes a code anew re-decides a row it reads again; PP3)
                     $after = $theirs + ['kind' => $kind, 'cost_pence' => PaypalCodes::cost($kind, (int) $r['amount_pence'], (int) $r['fee_pence']),
                         'pp_conflict' => $age === 0 && !$settles ? (int) $old['pp_conflict'] : 0];
                 }
-                if (isset($twice[$k]) && $after['pp_conflict'] === 0) {
-                    // two contents of it in this answer: a look until a read gives one (F-L5, round 4; PPF60: 2, apart from two reads disagreeing)
+                if (!$clean && $after['pp_conflict'] === 0) {
+                    // a newer version given with two contents in this answer: a look until a read gives one (F-L5, round 4; PPF60: 2, apart from two
+                    // reads disagreeing)
                     $after['pp_conflict'] = 2;
                 }
                 if ($before === $after) {
