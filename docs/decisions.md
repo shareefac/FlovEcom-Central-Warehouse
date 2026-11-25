@@ -21647,7 +21647,7 @@ start again; crashed, it stays £30.70 (no reading until the next month or a hig
 **AI17. bin/health_alert.php says when the reading is stuck (the lead, 25 Nov 2026 ~20:00 UK).** Two alerts of CW's own, in the same style
 as the others (a line in the log, the words sent once per window, "back to normal" when they clear), only while reading is switched on
 (`ai.read_uploads`; quiet while it is off, whatever is left): `ai_waiting` "Claude reads uploads: N document(s) have waited more than 10
-minutes to be read (the oldest X). The reader (bin/ai_read.php) runs every minute: tell the CW team." (the reader is not running, or is
+minutes to be read (the oldest X). The reader runs every minute from cron: tell the CW team." (bin/ai_read.php is not running, or is
 stuck on a call) and `ai_reader_failed` "Claude reads uploads: the reader's last run failed X ago (why). Documents sent to be read wait until a
 run ends well: tell the CW team." Each run records itself on `ai_reader`'s one row (began; ended well; failed with the error's class, never
 its message); a run that began and never ended (its process killed) is found by the next run (it holds the lock, so the last one is not

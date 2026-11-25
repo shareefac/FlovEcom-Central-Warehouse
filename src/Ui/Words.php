@@ -13720,8 +13720,8 @@ final class Words
         'rm_billed_more' => 'Royal Mail %s: %s day(s) or Special Delivery manifest(s) billed more than their labels by more than %s%% (the oldest %s). See "Needs a look" on the bill\'s page (Profit › Delivery bills).', // DL86 7
         'rm_check_failed' => 'Royal Mail %s: CW could not check its bills just now (%s). It checks again at the next run; tell the CW team if this stays.', // DL86 (the Codex check r10 #15)
         // CW-1182 (AI17): Claude reads uploads - how many documents wait, the limit in minutes, how long the oldest has waited; how long ago the reader's last run failed, why
-        'ai_waiting' => 'Claude reads uploads: %s document(s) have waited more than %s minutes to be read (the oldest %s). The reader (bin/ai_read.php) runs '
-            . 'every minute: tell the CW team.',
+        'ai_waiting' => 'Claude reads uploads: %s document(s) have waited more than %s minutes to be read (the oldest %s). The reader runs every minute '
+            . 'from cron: tell the CW team.',
         'ai_reader_failed' => 'Claude reads uploads: the reader\'s last run failed %s ago (%s). Documents sent to be read wait until a run ends well: tell the CW team.',
         'landing_orders' => 'Website bug: an order on %1$s for the landing page %2$s (option %3$s, order %4$s). %5$s such orders are open: '
             . 'Approvals › From the stores › Website bugs.',
