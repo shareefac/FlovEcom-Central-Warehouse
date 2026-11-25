@@ -137,4 +137,31 @@ final class AiClaudeTest extends TestCase
         self::assertSame(3_050, \CW\Ai\AiSettings::pence('30.5'));
         self::assertSame(0, \CW\Ai\AiSettings::pence('-1'));
     }
+    /**
+     * AI16: the most a call may cost, counted BEFORE it is sent (its row is written first, so a reader that dies mid-call still counts): the
+     * request's own words at 2 characters a token, 2,000 tokens of framing, 10,000 tokens a page (a page's text and its picture: at most
+     * 4,784 visual tokens) and the kind's max_tokens of output. A PDF's pages counted from its page objects, else its page tree's /Count,
+     * else 100; a photo is one page.
+     */
+    public function testTheMostACallMayCostIsCountedFromItsPages(): void
+    {
+        $five = "%PDF-1.4\n1 0 obj << /Type /Pages /Kids [2 0 R 3 0 R 4 0 R 5 0 R 6 0 R] /Count 5 >> endobj\n"
+            . implode('', array_map(static fn (int $i): string => "{$i} 0 obj << /Type /Page /Parent 1 0 R >> endobj\n", range(2, 6))) . "%%EOF\n";
+        self::assertSame(5, Claude::pages($five), 'five page objects (the page tree itself is not a page)');
+        self::assertSame(12, Claude::pages("%PDF-1.5\n1 0 obj << /Type/Pages /Count 12 >> endobj\n%%EOF\n"), 'no page objects to read: the page tree\'s count');
+        self::assertSame(Claude::PAGES_UNKNOWN, Claude::pages("%PDF-1.5\n(compressed object streams)\n%%EOF\n"), 'nothing to count: 100');
+        self::assertSame(100, Claude::PAGES_UNKNOWN);
+        $bill = new RoyalMailBillKind();
+        $words = strlen(Claude::SYSTEM) + strlen($bill->instructions()) + strlen((string) json_encode($bill->schema()));
+        $in = Claude::maxInputTokens($bill, $five, 'application/pdf');
+        self::assertSame(intdiv($words + 1, 2) + Claude::FRAME_TOKENS + 5 * Claude::PAGE_TOKENS, $in);
+        self::assertSame([10_000, 2_000], [Claude::PAGE_TOKENS, Claude::FRAME_TOKENS]);
+        $invoice = new ExpenseInvoiceKind();
+        self::assertSame(intdiv(strlen(Claude::SYSTEM) + strlen($invoice->instructions()) + strlen((string) json_encode($invoice->schema())) + 1, 2)
+            + Claude::FRAME_TOKENS + Claude::PAGE_TOKENS, Claude::maxInputTokens($invoice, 'not read', 'image/png'), 'a photo: one page');
+        // £ example (docs/decisions.md AI16): a 5-page bill's most = its ~54,000 tokens in at £3.20 + 64,000 out at £16.00 a million = about £1.20
+        $most = AiUsage::millipence($in, $bill->maxTokens(), '3.20', '16.00');
+        self::assertGreaterThan(115_000, $most);
+        self::assertLessThan(125_000, $most);
+    }
 }

@@ -11,8 +11,9 @@ use CW\Tests\Support\TestDb;
 
 /**
  * bin/ai_read.php (CW-1182; docs/decisions.md AI3, AI11), the job cron runs every minute: one run at a time (its lock), the clean-up first
- * whatever the switch, then the documents waiting; silent when there is nothing to do; never a call while reading is off (the job fails, its
- * file goes). No test here reaches Claude: the switch stays off.
+ * whatever the switch, then the documents waiting; silent when there is nothing to do; never a call while reading is off (the job fails; an
+ * invoice's file is kept for its Save, AI15); each run recorded on the reader's own row (AI17: the health alert reads it), a run that never
+ * ended said by the next. No test here reaches Claude: the switch stays off.
  */
 final class AiReadCliTest extends IntegrationTestCase
 {
@@ -61,6 +62,9 @@ final class AiReadCliTest extends IntegrationTestCase
         self::$db->exec("INSERT INTO staff_role (staff_user_id, role) VALUES (?, 'expenses')", [$staff]);
         $r = $this->cli('--once');
         self::assertSame([0, '', ''], [$r['code'], $r['out'], $r['err']], 'nothing to do: silent');
+        $run = self::$db->one('SELECT started_at, ended_at, ok_at, failed_at, error FROM ai_reader WHERE id = 1');
+        self::assertNotNull($run, 'the run recorded');
+        self::assertSame([true, true, null, null], [$run['ended_at'] !== null, $run['ok_at'] === $run['ended_at'], $run['failed_at'], $run['error']], 'ended well');
         // a job waiting while reading is off: failed with no call, its file gone; a stray file of a crash cleaned up
         file_put_contents($this->spool . '/' . str_repeat('a', 32), "%PDF-1.4\n");
         file_put_contents($this->spool . '/' . str_repeat('e', 32), 'stray');
@@ -77,14 +81,21 @@ final class AiReadCliTest extends IntegrationTestCase
         $lock->value('SELECT RELEASE_LOCK(?)', ['cw_job:ai_read:' . TestDb::name()]);
         $r = $this->cli('--once');
         self::assertSame(0, $r['code'], $r['err']);
-        self::assertStringContainsString('cleaned up: stopped=0 too_old=0 expired=0 files=1 rows=0', $r['out']);
+        self::assertStringContainsString('cleaned up: stopped=0 too_old=0 expired=0 crashed=0 files=1 rows=0', $r['out']);
         self::assertStringContainsString("read {$id}: failed (off)", $r['out']);
         self::assertSame(['failed', 'off'], array_values(self::$db->one('SELECT state, reason FROM ai_read WHERE id = ?', [$id]) ?? []));
-        self::assertSame(['.', '..'], scandir($this->spool));
+        self::assertSame(['.', '..', str_repeat('a', 32)], scandir($this->spool), 'the stray file gone; the invoice kept for its Save (an hour)');
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM ai_call'), 'no call while off');
         self::assertSame(2, $this->cli('--seconds=x')['code'], 'usage');
         self::assertSame(2, $this->cli('--bogus')['code']);
         $r = $this->cli('--seconds=0');
         self::assertSame([0, ''], [$r['code'], $r['out']], 'a run of no time: nothing waits, silent');
+        // a run that never ended (its process died): the next run says so and records it; it ended well itself
+        self::$db->exec('UPDATE ai_reader SET started_at = NOW(6), ended_at = NULL WHERE id = 1');
+        $r = $this->cli('--seconds=0');
+        self::assertSame(0, $r['code'], $r['err']);
+        self::assertStringContainsString('the last run did not end', $r['out']);
+        $run = self::$db->one('SELECT ended_at, ok_at, failed_at, error FROM ai_reader WHERE id = 1') ?? [];
+        self::assertSame(['did not end', true, true], [$run['error'], $run['failed_at'] !== null, (string) $run['ok_at'] >= (string) $run['failed_at']]);
     }
 }

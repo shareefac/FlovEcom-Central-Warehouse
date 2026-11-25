@@ -21,6 +21,8 @@ final class FakeClaude implements ClientInterface
     private array $queue = [];
     /** @var list<array{method: string, url: string, headers: array<string, string>, body: array<string, mixed>}> */
     public array $sent = [];
+    /** @var (\Closure(): void)|null run when a request arrives, before it is answered (a test reads what CW wrote before it sent it) */
+    public ?\Closure $onSend = null;
 
     public function push(ResponseInterface|\Throwable ...$answers): self
     {
@@ -39,6 +41,9 @@ final class FakeClaude implements ClientInterface
         $raw = (string) $request->getBody();
         $this->sent[] = ['method' => $request->getMethod(), 'url' => (string) $request->getUri(), 'headers' => $headers,
             'body' => (array) json_decode($raw === '' ? '{}' : $raw, true, 64, JSON_THROW_ON_ERROR)];
+        if ($this->onSend !== null) {
+            ($this->onSend)();
+        }
         $next = array_shift($this->queue) ?? throw new \LogicException('FakeClaude: an unexpected request (nothing queued)');
         if ($next instanceof \Throwable) {
             throw $next;

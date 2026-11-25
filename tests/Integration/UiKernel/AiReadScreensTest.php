@@ -276,7 +276,9 @@ final class AiReadScreensTest extends KernelUiTestCase
         $none = $web->postMultipart('/ui/profit/expenses/read', $form, []);
         self::assertSame(400, $none->status, $none->describe());
         self::assertStringContainsString(Words::AIREAD['read_no_file'], $none->text());
-        $r = $web->postMultipart('/ui/profit/expenses/read', $form, ['file' => ['path' => AiFixtures::pdf($this->dir, 'invoice'), 'name' => 'inv.pdf']]);
+        $invoice = AiFixtures::pdf($this->dir, 'invoice', 'invoice.pdf');
+        $invoiceSha = hash_file('sha256', $invoice);
+        $r = $web->postMultipart('/ui/profit/expenses/read', $form, ['file' => ['path' => $invoice, 'name' => 'inv.pdf']]);
         self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
         $wait = $web->follow($r);
         self::assertSame(['3', 200], [$wait->header('Refresh'), $wait->status]);
@@ -286,22 +288,52 @@ final class AiReadScreensTest extends KernelUiTestCase
         $filled = $web->get((string) $r->location());
         self::assertSame(200, $filled->status, $filled->describe() . ' ' . implode(' | ', self::$log));
         $v = $filled->form('/ui/profit/expenses/new');
-        self::assertSame(['Made Up Paper Ltd', 'INV-20417', '2026-11-20', '84.72', '70.60', '14.12', 'inc', (string) $vpg, $type, 'typed before', '1'],
+        $read = (string) self::$db->value('SELECT MAX(id) FROM ai_read');
+        self::assertSame(['Made Up Paper Ltd', 'INV-20417', '2026-11-20', '84.72', '70.60', '14.12', 'inc', (string) $vpg, $type, 'typed before', $read],
             [$v['supplier'], $v['invoice_no'], $v['invoice_date'], $v['total'], $v['net'], $v['vat'], $v['vat_way'], $v['shop'], $v['type'], $v['note'],
-                $v['file_again'] ?? null]);
+                $v['ai_file'] ?? null]);
         self::assertStringContainsString(Words::say('AIREAD', 'filled', implode(', ', array_map(static fn (string $k): string => Words::AIREAD['field_' . $k],
             ['supplier', 'invoice_no', 'invoice_date', 'total', 'net', 'vat']))), $filled->text());
-        self::assertStringContainsString(Words::AIREAD['file_again'], $filled->text());
-        // Save as today: without the file again it asks for it; "Save without a file": stored with Claude's figures, the supplier CW's own
-        $save = $web->postMultipart('/ui/profit/expenses/new', ['then' => 'done'] + $v, []);
-        self::assertSame(422, $save->status, $save->describe());
-        $save = $web->postMultipart('/ui/profit/expenses/new', ['then' => 'done', 'no_file_ok' => '1'] + $v, []);
+        // AI15: the invoice Claude read is kept for this expense: never asked for again
+        self::assertArrayNotHasKey('file_again', $v);
+        self::assertStringContainsString(Words::AIREAD['file_kept'], $filled->text());
+        self::assertCount(1, array_diff(scandir($this->spool) ?: [], ['.', '..']), 'kept in the spool for its Save');
+        // another person's form naming that reading attaches nothing: refused in words, nothing saved
+        $other = $this->signIn($this->uiUser('expenses'));
+        $theirs = $other->get('/ui/profit/expenses/new')->form('/ui/profit/expenses/new');
+        $steal = $other->postMultipart('/ui/profit/expenses/new', ['then' => 'done', 'csrf' => $theirs['csrf'], 'form_key' => $theirs['form_key']] + $v, []);
+        self::assertSame(422, $steal->status, $steal->describe());
+        self::assertStringContainsString(Words::AIREAD['file_gone'], $steal->text());
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM expense'));
+        // a Save refused for a field (no shop): the page keeps the reading for the next Save
+        $refused = $web->postMultipart('/ui/profit/expenses/new', ['then' => 'done', 'shop' => ''] + $v, []);
+        self::assertSame(422, $refused->status, $refused->describe());
+        $again = $refused->form('/ui/profit/expenses/new');
+        self::assertSame([$read, false], [$again['ai_file'] ?? null, isset($again['file_again'])]);
+        self::assertNull(self::$db->value('SELECT file_used_at FROM ai_read WHERE id = ?', [$read]), 'a refused Save uses nothing');
+        // Save: stored with Claude's figures, the supplier CW's own, and the invoice it read attached (as if chosen), once
+        $save = $web->postMultipart('/ui/profit/expenses/new', array_merge($again, ['then' => 'done', 'shop' => (string) $vpg]), []);
         self::assertSame(303, $save->status, $save->describe() . ' ' . implode(' | ', self::$log));
         self::assertSame([(string) $sup, '7060', '1412', 'INV-20417', '2026-11-20'], array_values(array_map('strval', self::$db->one('SELECT supplier_id, net_pence, vat_pence, '
             . 'invoice_no, invoice_date FROM expense') ?? [])));
+        $stored = self::$db->one('SELECT f.sha256, f.kind FROM expense e JOIN stored_file f ON f.id = e.file_id');
+        self::assertSame([$invoiceSha, 'expense_invoice'], [$stored['sha256'] ?? null, $stored['kind'] ?? null], 'the file Claude read, kept as the expense\'s');
+        self::assertSame([], array_values(array_diff(scandir($this->spool) ?: [], ['.', '..'])), 'gone from the spool once attached');
+        self::assertNotNull(self::$db->value('SELECT file_used_at FROM ai_read WHERE id = ?', [$read]));
+        // the same form sent again (a lost answer): where the first went, nothing added; a new form naming it: refused, it was attached once
+        $replay = $web->postMultipart('/ui/profit/expenses/new', array_merge($again, ['then' => 'done', 'shop' => (string) $vpg]), []);
+        self::assertSame([303, $save->location()], [$replay->status, $replay->location()]);
+        $fresh = $web->get('/ui/profit/expenses/new')->form('/ui/profit/expenses/new');
+        $twice = $web->postMultipart('/ui/profit/expenses/new', array_merge($again, ['then' => 'done', 'form_key' => $fresh['form_key'], 'invoice_no' => 'INV-OTHER',
+            'shop' => (string) $vpg]), []);
+        self::assertSame(422, $twice->status, $twice->describe());
+        self::assertStringContainsString(Words::AIREAD['file_gone'], $twice->text());
+        self::assertSame('1', ($twice->form('/ui/profit/expenses/new')['file_again'] ?? null), 'asked for a file, or Save without one');
+        self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM expense'));
 
-        // an expense's Change: its fold filled from the invoice, its version kept
+        // an expense's Change: its fold filled from the invoice, its version kept; Save attaches the photo Claude read in place of the PDF
         $id = (int) self::$db->value('SELECT id FROM expense');
+        $before = (int) self::$db->value('SELECT file_id FROM expense');
         $page = $web->get('/ui/profit/expenses/' . $id);
         $change = $page->form('/ui/profit/expenses/' . $id . '/change');
         $f->push(FakeClaude::answer(AiAnswers::invoice(['invoice_number' => 'INV-20418', 'net' => '50.00', 'vat' => '10.00', 'total' => '60.00']), 2_100, 640));
@@ -311,12 +343,21 @@ final class AiReadScreensTest extends KernelUiTestCase
         $filled = $web->get((string) $r->location());
         self::assertSame(200, $filled->status, $filled->describe());
         $v = $filled->form('/ui/profit/expenses/' . $id . '/change');
-        self::assertSame(['INV-20418', '60.00', '50.00', '10.00', $change['seen']], [$v['invoice_no'], $v['total'], $v['net'], $v['vat'], $v['seen']]);
+        self::assertSame(['INV-20418', '60.00', '50.00', '10.00', $change['seen'], (string) self::$db->value('SELECT MAX(id) FROM ai_read'), false],
+            [$v['invoice_no'], $v['total'], $v['net'], $v['vat'], $v['seen'], $v['ai_file'] ?? null, isset($v['file_again'])]);
         $fold = (new \DOMXPath($filled->dom()))->query('//details[@id="change"]')?->item(0);
         self::assertTrue($fold instanceof \DOMElement && $fold->hasAttribute('open'), 'the Change fold open, filled');
-        $saved = $web->postMultipart('/ui/profit/expenses/' . $id . '/change', ['no_file_ok' => '1'] + $v, []);
-        self::assertSame(303, $saved->status, $saved->describe());
+        // the add form never takes a Change's invoice
+        $wrong = $web->get('/ui/profit/expenses/new')->form('/ui/profit/expenses/new');
+        $cross = $web->postMultipart('/ui/profit/expenses/new', ['then' => 'done', 'ai_file' => $v['ai_file'], 'shop' => (string) $vpg, 'type' => $type, 'supplier' => 'Made Up Paper Ltd',
+            'invoice_no' => 'INV-X', 'invoice_date' => '2026-11-21', 'net' => '1.00', 'vat' => '0.00', 'vat_way' => 'none'] + $wrong, []);
+        self::assertSame(422, $cross->status, $cross->describe());
+        $saved = $web->postMultipart('/ui/profit/expenses/' . $id . '/change', $v, []);
+        self::assertSame(303, $saved->status, $saved->describe() . ' ' . implode(' | ', self::$log));
         self::assertSame(['5000', '1000', 'INV-20418'], array_values(array_map('strval', self::$db->one('SELECT net_pence, vat_pence, invoice_no FROM expense') ?? [])));
+        $now = self::$db->one('SELECT f.sha256, f.mime FROM expense e JOIN stored_file f ON f.id = e.file_id') ?? [];
+        self::assertSame([hash_file('sha256', $this->dir . '/photo.png'), 'image/png'], [$now['sha256'] ?? null, $now['mime'] ?? null]);
+        self::assertNotSame($before, (int) self::$db->value('SELECT file_id FROM expense'));
         // only the Expenses job sends an invoice
         $fin = $this->signIn($this->uiUser('finance'));
         self::assertSame(403, $fin->postMultipart('/ui/profit/expenses/read', ['csrf' => $this->token($fin)], ['file' => ['path' => AiFixtures::pdf($this->dir), 'name' => 'x.pdf']])->status);

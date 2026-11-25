@@ -48,6 +48,13 @@ final class AiFixtures
         return $dir . '/' . $name;
     }
 
+    /** A 1x1 GIF (a photo Claude reads, but not a file an expense keeps). */
+    public static function gif(string $dir, string $name = 'photo.gif'): string
+    {
+        file_put_contents($dir . '/' . $name, base64_decode('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', true));
+        return $dir . '/' . $name;
+    }
+
     /** The first bytes of an iPhone's HEIC photo. */
     public static function heic(string $dir, string $name = 'photo.heic'): string
     {

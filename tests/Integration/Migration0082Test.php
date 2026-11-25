@@ -13,10 +13,11 @@ use CW\Tests\Support\MigrationFixture;
 
 /**
  * 0082 ("Claude reads the upload", CW-1182; docs/decisions.md AI7-AI9), applied to a scratch schema at the file before it (on this branch
- * 0079, the live release's last: 0080 and 0081 are other branches' and are not needed): it only ADDS (two tables, seven settings with their
- * baselines, switched OFF and the key empty); no existing row changes; its CHECKs; the app login's rights (the call log is never changed or
- * removed except what CW's checks made of a reading; the jobs are removed a day after); running every statement again changes nothing, a
- * value set on the screen meanwhile stays.
+ * 0079, the live release's last: 0080 and 0081 are other branches' and are not needed): it only ADDS (three tables, seven settings with their
+ * baselines, switched OFF and the key empty); no existing row changes; its CHECKs; the app login's rights (a call's row is written before the
+ * request and finished once after it: who, where, the model asked and the most it may cost are never changed, a row is never removed; the
+ * jobs are removed a day after; the reader's one row of its last runs); running every statement again changes nothing, a value set on the
+ * screen meanwhile stays.
  */
 final class Migration0082Test extends IntegrationTestCase
 {
@@ -37,11 +38,16 @@ final class Migration0082Test extends IntegrationTestCase
         $statements = SqlSplitter::split($sql);
         self::assertDoesNotMatchRegularExpression('/\bDELETE\s+FROM\b|\bUPDATE\s+\w+\s+SET\b|\bDROP\b|\bALTER\b/i', $sql, 'nothing deleted, changed, dropped or altered');
         foreach ($statements as $st) {
-            self::assertMatchesRegularExpression('/^(CREATE TABLE IF NOT EXISTS (ai_read|ai_call) |INSERT INTO (app_setting|config_change) )/', $st);
+            self::assertMatchesRegularExpression('/^(CREATE TABLE IF NOT EXISTS (ai_read|ai_call|ai_reader) |INSERT INTO (app_setting|config_change) )/', $st);
         }
-        self::assertSame(['Select', 'Insert'], Grants::desired('ai_call'), 'a call is logged once');
-        self::assertSame(['checked', 'check_code', 'checked_at'], array_keys(Grants::desiredColumns('ai_call')), 'only what CW\'s checks made of it is written later');
+        self::assertCount(5, $statements, 'three tables, the settings and their baselines');
+        self::assertSame(['Select', 'Insert'], Grants::desired('ai_call'), 'a call is logged, never removed');
+        // AI16: the row is written BEFORE the request (started, at the most it may cost) and finished once after it; who, where, the model asked,
+        // the file and that most are frozen
+        self::assertSame(['served_model', 'input_tokens', 'output_tokens', 'cost_millipence', 'result', 'reason', 'refusal_category', 'request_id', 'fallback', 'seconds',
+            'checked', 'check_code', 'checked_at'], array_keys(Grants::desiredColumns('ai_call')), 'only the call\'s outcome and what CW\'s checks made of it are written later');
         self::assertSame(['Select', 'Insert', 'Update', 'Delete'], Grants::desired('ai_read'), 'the jobs: removed a day after they finish');
+        self::assertSame(['Select', 'Insert', 'Update', 'Delete'], Grants::desired('ai_reader'), 'the reader\'s own row of its runs');
         self::assertTrue(Settings::isSecret('ai.anthropic_api_key'), 'the key is a secret: never shown back, the history keeps a fingerprint');
 
         $files = array_map('basename', glob(dirname(__DIR__, 2) . '/migrations/*.sql') ?: []);
@@ -58,7 +64,7 @@ final class Migration0082Test extends IntegrationTestCase
         self::assertSame([self::FILE], MigrationFixture::migrateRest($db, $this->dir, self::FILE));
         $new = array_values(array_diff($db->column('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()'), $tables));
         sort($new);
-        self::assertSame(['ai_call', 'ai_read'], $new);
+        self::assertSame(['ai_call', 'ai_read', 'ai_reader'], $new);
         $want = ['ai.anthropic_api_key' => '""', 'ai.effort' => '"medium"', 'ai.model' => '"claude-opus-5-5"', 'ai.monthly_limit_gbp' => '"30"',
             'ai.price_input_gbp_per_mtok' => '"3.20"', 'ai.price_output_gbp_per_mtok' => '"16.00"', 'ai.read_uploads' => 'false'];
         self::assertSame($want, array_column($db->all("SELECT setting_key, CAST(value_json AS CHAR) AS v FROM app_setting WHERE setting_key LIKE 'ai.%' ORDER BY setting_key"),
@@ -81,7 +87,8 @@ final class Migration0082Test extends IntegrationTestCase
         $job();
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $job(['bytes' => 0])), 'a file of nothing');
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $job(['state' => 'done'])), 'done holds its answer');
-        $job(['state' => 'done', 'answer' => '{}', 'spool' => str_repeat('b', 32)]);
+        $kept = $job(['state' => 'done', 'answer' => '{}', 'spool' => str_repeat('b', 32)]);
+        $db->exec('UPDATE ai_read SET file_used_at = NOW(6) WHERE id = ?', [$kept]); // AI15: an invoice's file attached once by Save
         self::assertSame(1062, self::err(static fn () => $job(['spool' => str_repeat('b', 32)])), 'one job a spool file');
         self::assertSame(1452, self::err(static fn () => $job(['staff' => 999999])), 'a person CW has');
         $call = static fn (array $over = []): int => $db->insert('INSERT INTO ai_call (read_id, created_at, staff_user_id, place, kind, model, media_type, file_bytes, result, '
@@ -89,9 +96,14 @@ final class Migration0082Test extends IntegrationTestCase
                 'kind' => 'expense_invoice', 'model' => 'claude-opus-5-5', 'media' => 'image/png', 'bytes' => 10, 'result' => 'ok', 'reason' => 'ok', 'seconds' => '1.50',
                 'fallback' => 0], $over)));
         $call();
-        self::assertSame(1265, self::err(static fn () => $call(['result' => 'maybe'])), 'ok, refused or failed');
+        $call(['result' => 'started', 'reason' => 'started']);
+        $call(['result' => 'crashed', 'reason' => 'stopped']);
+        self::assertSame(1265, self::err(static fn () => $call(['result' => 'maybe'])), 'started, ok, refused, failed or crashed');
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $call(['fallback' => 2])));
         self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $call(['seconds' => '-1'])), 'never minus');
+        // the reader's runs (AI17): one row
+        $db->exec("INSERT INTO ai_reader (id, started_at, ended_at, ok_at) VALUES (1, NOW(6), NOW(6), NOW(6))");
+        self::assertSame(self::CHECK_VIOLATED, self::err(static fn () => $db->exec('INSERT INTO ai_reader (id) VALUES (2)')), 'one row');
 
         // Every statement again: nothing changes; a value set on the screen meanwhile stays.
         $db->exec("UPDATE app_setting SET value_json = CAST('\"15\"' AS JSON) WHERE setting_key = 'ai.monthly_limit_gbp'");
@@ -101,7 +113,8 @@ final class Migration0082Test extends IntegrationTestCase
         self::assertSame('"15"', (string) $db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'ai.monthly_limit_gbp'"));
         self::assertSame(7, (int) $db->value("SELECT COUNT(*) FROM config_change WHERE subject_type = 'setting' AND subject_key LIKE 'ai.%'"));
         self::assertSame(2, (int) $db->value('SELECT COUNT(*) FROM ai_read'), 'the two rows the CHECKs let in');
-        self::assertSame(1, (int) $db->value('SELECT COUNT(*) FROM ai_call'));
+        self::assertSame(3, (int) $db->value('SELECT COUNT(*) FROM ai_call'));
+        self::assertSame(1, (int) $db->value('SELECT COUNT(*) FROM ai_reader'));
     }
 
     private static function err(callable $fn): int
