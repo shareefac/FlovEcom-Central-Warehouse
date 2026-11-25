@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS paypal_txn (
   version         INT UNSIGNED      NOT NULL DEFAULT 1 COMMENT 'its latest paypal_txn_history version',
   first_run       BIGINT UNSIGNED   NOT NULL,
   last_run        BIGINT UNSIGNED   NOT NULL COMMENT 'the last run that read it',
-  older_run       BIGINT UNSIGNED   NULL COMMENT 'the last run read it, and gave an OLDER version than kept with other money or place: that run (the go-live gate STOPs on it, PPF61); NULL: the last read gave the kept version or one of the same money',
+  older_run       BIGINT UNSIGNED   NULL COMMENT 'the newest run that gave an OLDER version than kept with other money, shop or order (the go-live gate STOPs on it, PPF61); never cleared by a later run (PPF72); NULL: no run gave one',
   read_at         DATETIME(6)       NOT NULL COMMENT 'first read',
   changed_at      DATETIME(6)       NOT NULL COMMENT 'last changed (what PayPal says, or where it counts)',
   PRIMARY KEY (id),

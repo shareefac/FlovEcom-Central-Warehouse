@@ -544,6 +544,7 @@ final class OrderSnapshots
         $this->deferred = false;
         $intake = null;
         $this->paypalOrders = [];
+        $done = false;
         try {
             $done = $this->guarded($channelId, $ref, null, function () use ($channelId, $ref, $override, &$intake): bool {
                 return $this->db->transaction(function (Db $db) use ($channelId, $ref, $override, &$intake): bool {
@@ -587,10 +588,6 @@ final class OrderSnapshots
                     return true;
                 });
             });
-            if ($done) {
-                $this->paypalAfter();
-            }
-            return $done;
         } catch (CwException $e) {
             if ($e->errorCode !== 'deferred') {
                 throw $e;
@@ -606,6 +603,12 @@ final class OrderSnapshots
                 }
             }
         }
+        // the PayPal work of the orders it queued only once the order's intake lock is let go (round 6, the lead's decision 12, PPF76): the API
+        // storing a snapshot of this order waits about a second for that lock, never for a chargeback's decision
+        if ($done) {
+            $this->paypalAfter();
+        }
+        return $done;
     }
 
     /**

@@ -86,6 +86,18 @@ final class PaypalFees
      */
     public const LOCAL_DECIDE_SEC = 30;
     /**
+     * The orders queued for their chargebacks (paypal_order_due) one transaction takes (round 6, the lead's decision 4, PPF71): the queue is
+     * taken in such batches, each its own commit, the run's deadline checked between them and bounding every row wait inside them (Db::waitsUntil):
+     * a long queue never holds one transaction past the run's time; what is left stays queued for the next run.
+     */
+    public const TAKE_BATCH = 200;
+    /**
+     * The longest hold of the nightly the go-live kit writes (<key file>.hold: "until=<unix time>"; round 6, the lead's decision 5, PPF72): the
+     * kit's backfill and its gate run with the nightly held off; a hold further ahead than this is not the kit's (a mistake, or one forgotten)
+     * and holds nothing, so a kit that dies never stops the nightly for long.
+     */
+    public const HOLD_MAX_SEC = 7200;
+    /**
      * The looks whose row's FEE is certain while its money is held (H4, H5, round 4): a chargeback whose order's refunds are not on PayPal
      * (PPF43), a chargeback whose order number two orders have; the fee counts (on its order, or its shop's "not on an order" line, on its own
      * day), the money waits for staff.
@@ -128,17 +140,53 @@ final class PaypalFees
      * @param int $chunk the due rows one guarded write starts from (CHUNK; the tests use fewer to spread a chain over several writes)
      * @param float $decideReserve the seconds of a run's time kept for its decisions (DECIDE_RESERVE_SEC; the tests use less)
      * @param float $localDecide the budget of what a run stored but could not decide by its deadline (LOCAL_DECIDE_SEC; the tests use less)
+     * @param int $takeBatch the queued orders one transaction takes (TAKE_BATCH; the tests use fewer to spread the queue over several)
      */
     public function __construct(private readonly Db $db, ?\Closure $clock = null, private readonly ?\Closure $onChunk = null, private readonly int $chunk = self::CHUNK,
-        private readonly float $decideReserve = self::DECIDE_RESERVE_SEC, private readonly float $localDecide = self::LOCAL_DECIDE_SEC)
+        private readonly float $decideReserve = self::DECIDE_RESERVE_SEC, private readonly float $localDecide = self::LOCAL_DECIDE_SEC,
+        private readonly int $takeBatch = self::TAKE_BATCH)
     {
         $this->clock = $clock ?? static fn (): \DateTimeImmutable => Clock::now();
         if ($chunk < 1 || $chunk > self::CHUNK) {
             throw new \InvalidArgumentException('a decision chunk is 1 to ' . self::CHUNK . ' rows');
         }
+        if ($takeBatch < 1 || $takeBatch > self::TAKE_BATCH) {
+            throw new \InvalidArgumentException('a batch of the order queue is 1 to ' . self::TAKE_BATCH . ' orders');
+        }
     }
 
     // ---- settings --------------------------------------------------------------------------------------------------------------------
+
+    /**
+     * The go-live kit's hold of the nightly (round 6, the lead's decision 5, PPF72): a file beside the account's key, "<key file>.hold", holding
+     * "until=<unix time>" (written by the kit's `box.sh hold-nightly` before its switch-on and backfill, taken away by `box.sh release-nightly`
+     * once the gate has said its verdict). While it holds (its time still ahead, and at most HOLD_MAX_SEC ahead) the nightly does nothing, so no
+     * run of the account starts between the backfill the gate certifies and the gate (which refuses one that did). A hold run out, one further
+     * ahead than the kit ever writes (a mistake, or not the kit's), or one not in that form holds nothing: the nightly runs.
+     *
+     * @return string|null why the nightly is held (the job says it and does nothing), or null
+     */
+    public static function nightlyHold(?string $keyFile, \DateTimeImmutable $now): ?string
+    {
+        if ($keyFile === null || $keyFile === '') {
+            return null;
+        }
+        $f = $keyFile . '.hold';
+        clearstatcache(true, $f);
+        if (!is_file($f) || !is_readable($f)) {
+            return null;
+        }
+        $text = file_get_contents($f, false, null, 0, 64);
+        if (!is_string($text) || preg_match('/^until=([0-9]{9,11})\n?$/D', $text, $m) !== 1) {
+            return null;
+        }
+        $until = (int) $m[1];
+        $t = $now->getTimestamp();
+        if ($until <= $t || $until > $t + self::HOLD_MAX_SEC) {
+            return null;
+        }
+        return 'held by the go-live kit until ' . gmdate('Y-m-d H:i:s', $until) . ' UTC (' . basename($f) . '): nothing done; the next nightly after it reads';
+    }
 
     /** The first UK day a shop's PayPal fees count (profit.paypal_from_<code>), null: not switched on. */
     public static function feesFrom(Db $db, string $shopCode): ?string
@@ -310,10 +358,10 @@ final class PaypalFees
                         break; // its days start after now
                     }
                     self::inTime($readBy, 'the next window');
-                    [$first, $last, $w] = $this->readWindow($api, $span[0][0], $span[0][1], $runId, $account, $shop['id'], $caller, $shops, $sum);
+                    // the days this window PROVES read (c1, round 3; H7, round 4): what its answer proves (proven(), worked out before its rows
+                    // are stored: a row of two contents is settled only by a proven window, round 6)
+                    [$first, $last, $w, $p] = $this->readWindow($api, $span[0][0], $span[0][1], $runId, $account, $shop['id'], $caller, $shops, $sum);
                     $stored = true;
-                    // the days this window PROVES read (c1, round 3; H7, round 4): what its answer proves (proven())
-                    $p = self::proven($last, $w);
                     if ($p['why'] !== null) {
                         $sum['unproven'][$p['why']] = ($sum['unproven'][$p['why']] ?? 0) + 1;
                     }
@@ -371,10 +419,13 @@ final class PaypalFees
     }
 
     /**
-     * One window read whole from PayPal, parsed strictly and stored in one transaction (store()); the run's sums moved on.
+     * One window read whole from PayPal, parsed strictly and stored in one transaction (store()); the run's sums moved on. What its answer proves
+     * (proven()) is worked out before its rows are stored: a row one answer gave two contents of is settled only by a row given once in a window
+     * that proves its day (round 6, the lead's decision 6, PPF73).
      *
      * @param array<string, mixed> $sum
-     * @return array{0: string, 1: string, 2: array<string, mixed>} its first and last UK day and what PaypalApi::window() said
+     * @return array{0: string, 1: string, 2: array<string, mixed>, 3: array{to: ?string, cut: bool, why: ?string}} its first and last UK day, what
+     *   PaypalApi::window() said and what that proves
      */
     private function readWindow(PaypalApi $api, \DateTimeImmutable $a, \DateTimeImmutable $b, int $runId, string $account, int $channelId, Caller $caller, array $shops,
         array &$sum): array
@@ -391,7 +442,8 @@ final class PaypalFees
         $t = microtime(true);
         $first = ReportRefresh::ukDay(Clock::db($a));
         $last = ReportRefresh::ukDay(Clock::db($b));
-        $s = $this->store($runId, $account, $channelId, $rows, $caller, $shops);
+        $p = self::proven($last, $w);
+        $s = $this->store($runId, $account, $channelId, $rows, $caller, $shops, $p['to'] !== null && $p['to'] >= $first ? $p['to'] : null);
         $sum['seconds']['store'] += microtime(true) - $t;
         $sum['windows']++;
         $sum['pages'] += $w['pages'];
@@ -400,7 +452,7 @@ final class PaypalFees
         $sum['changed'] += $s['changed'];
         $sum['repeated'] += (int) ($w['repeated'] ?? 0);
         $sum['refreshed'] = $w['refreshed'] ?? $sum['refreshed'];
-        return [$first, $last, $w];
+        return [$first, $last, $w, $p];
     }
 
     /** decideAll() for run(), timed into the run's sums. @param array<string, mixed> $sum */
@@ -427,11 +479,11 @@ final class PaypalFees
         // the account's shops checked first (its main shop pinned): refused before any money moves (final review a8)
         $shops = self::accountShops($this->db, $account);
         // the orders snapshots queued (their refunds or payment changed: PPF59) first: their chargebacks marked due, each queue row taken away
-        // only with its chargebacks' due marks (in one transaction), so a refund recorded in CW is never left counted beside a chargeback's money
+        // only with its chargebacks' due marks (in one transaction), so a refund recorded in CW is never left counted beside a chargeback's money;
+        // in bounded batches, each its own commit, within the run's time (round 6, PPF71: takeQueue())
         $chs = array_values(array_filter(array_map(static fn (array $sh): ?int => $sh['id'], $shops), static fn (?int $id): bool => $id !== null));
         if ($chs !== []) {
-            self::takeQueued($this->db, $this->db->all('SELECT id, channel_id, order_ref, numbers FROM paypal_order_due WHERE channel_id IN ('
-                . implode(', ', array_fill(0, count($chs), '?')) . ') ORDER BY id', $chs), Clock::db(($this->clock)()), false);
+            $this->takeQueue($chs, $deadline);
         }
         $changed = 0;
         $this->lastRematchSec = 0.0;
@@ -466,6 +518,46 @@ final class PaypalFees
             }
         }
         return $changed;
+    }
+
+    /**
+     * The account's queued orders taken (decideAll(); round 6, the lead's decision 4, PPF71): TAKE_BATCH orders at a time in the queue's order,
+     * each batch its own short transaction (takeQueued()), up to the newest order queued when this starts (the orders queued meanwhile are taken
+     * by the next pass: the work is bounded). The run's deadline is checked before each batch and bounds every row wait inside one
+     * (Db::waitsUntil: never longer than the time left; a statement with less than a second left is not started): a batch that runs out of time,
+     * or waits for a PayPal row held elsewhere past it, is rolled back whole and stays queued with the batches after it (the next run takes them
+     * first), and the run is refused for it (paypal_deadline, busy). With no deadline (the tests): every batch, MySQL's own row wait.
+     *
+     * @param list<int> $chs the account's shops
+     */
+    private function takeQueue(array $chs, ?float $deadline): void
+    {
+        $in = implode(', ', array_fill(0, count($chs), '?'));
+        $top = (int) $this->db->value("SELECT COALESCE(MAX(id), 0) FROM paypal_order_due WHERE channel_id IN ({$in})", $chs);
+        for ($after = 0; $after < $top; ) {
+            self::inTime($deadline, 'the next orders queued for their chargebacks (they stay queued)');
+            $batch = $this->db->all("SELECT id, channel_id, order_ref, numbers FROM paypal_order_due WHERE channel_id IN ({$in}) AND id > ? AND id <= ? ORDER BY id LIMIT "
+                . $this->takeBatch, [...$chs, $after, $top]);
+            if ($batch === []) {
+                return;
+            }
+            $take = fn (): array => self::takeQueued($this->db, $batch, Clock::db(($this->clock)()), false);
+            try {
+                $deadline === null ? $take() : $this->db->waitsUntil($deadline, $take);
+            } catch (CwException $e) {
+                if ($e->errorCode !== 'out_of_time') {
+                    throw $e;
+                }
+                throw new CwException('paypal_deadline', "the run's time ran out while taking the orders queued for their chargebacks: they stay queued; the next run takes "
+                    . 'them first', 504);
+            } catch (\PDOException $e) {
+                if (Db::driverCode($e) !== 1205) {
+                    throw $e;
+                }
+                throw new CwException('busy', 'a PayPal row of an order queued for its chargebacks is held elsewhere: the orders stay queued; the next run takes them first', 503);
+            }
+            $after = (int) $batch[count($batch) - 1]['id'];
+        }
     }
 
     /**
@@ -668,10 +760,13 @@ final class PaypalFees
         // decided by other shops or forms (a NULL: never decided, due anyway): a row read under other forms is held at once (H3, round 4)
         array_push($ids, ...array_map('intval', $this->db->column('SELECT id FROM paypal_txn WHERE account = ? AND due = 0 AND decided_sig IS NOT NULL AND decided_sig <> ?',
             [$account, $sig])));
-        // the referred row read since
+        // the referred row read since. Not a row that counts nothing whatever its shop (ignored, denied: not_counted) once decided under the forms
+        // of now (one decided under others is marked by the query above): never marked again at every pass (round 6, the lead's decision 7,
+        // PPF74, as PPF67 for the rows read under other forms); it still follows its parent whenever the parent is read (store()) or moves
+        // (decide())
         array_push($ids, ...array_map('intval', $this->db->column("SELECT t.id FROM paypal_txn t JOIN paypal_txn p ON p.account = t.account AND p.txn_id = t.ref_txn_id "
             . "WHERE t.account = ? AND t.due = 0 AND t.kind IN ('refund', 'chargeback', 'fee') AND (t.matched_by IS NULL OR t.matched_by <> 'reference') "
-            . "AND t.count_state <> 'look' "
+            . "AND t.count_state NOT IN ('look', 'not_counted') "
             . "AND p.kind IN ('sale', 'chargeback') AND p.form_shop IS NOT NULL", [$account])));
         // a chargeback whose order's refunds not on PayPal changed (a few rows: chargebacks are rare; worked out as decide() does): one that
         // counts on its order, and one that needs a look for them (refund_not_on_paypal: its order found again by its shop and number)
@@ -1095,25 +1190,31 @@ final class PaypalFees
      *    its captures are the forms' of now, except when a narrowed form no longer makes one the forms it was read by made (the evidence of
      *    whose order it is: PPF36): then ALL its captures stay those forms', with those forms, never mixed with one of now (round 5, PPF63),
      *    and it is held (form_unread) until one read under the forms of now gives all of them; two shops' forms now are held: a look.
-     *  - Two contents of one row in ONE answer (pp_conflict 2, apart from two reads disagreeing: PPF60): the newer kept, a look until a read
-     *    giving the row once says which. An older version with other money or place than kept: the row says this run gave it (older_run,
-     *    PPF61).
+     *  - Two contents of one row in ONE answer (pp_conflict 2, apart from two reads disagreeing: PPF60): the newer kept, a look until an answer
+     *    gives the row exactly ONCE in a window that proves its day (round 6, the lead's decision 6, PPF73: the copies are counted before the
+     *    identical ones are let go, so the same content twice settles nothing; nor does a window that proves nothing: its rows may be missing or
+     *    moved); then that version is taken, as a newer one would be. An older version with other money, shop or order than kept: the row says
+     *    the newest run that gave it (older_run, PPF61; round 6, PPF72: never cleared by a later run, so the gate always sees it).
      *  - read_sig: the forms the row's captures are of, set only on a row this read gave and applied (never on a row PayPal did not give, nor
      *    from an older version: a7, round 3); a row of other forms is read again by the nightly (nightlyExtra()).
      *
      * @param list<array<string, mixed>> $rows PaypalRow::parse()d
+     * @param string|null $provenTo the last UK day this window's answer proves read (proven(); null: none of its days)
      * @return array{new: int, changed: int}
      */
-    private function store(int $runId, string $account, int $channelId, array $rows, Caller $caller, array $shops): array
+    private function store(int $runId, string $account, int $channelId, array $rows, Caller $caller, array $shops, ?string $provenTo = null): array
     {
         $sig = self::formsSig($shops);
         $byKey = [];
         $seenRaw = [];
         // a row PayPal gave twice in one answer (F-L5, round 4): the same content kept once; two contents of one row: the newer version kept and the
-        // row held for a look (pp_conflict) until a later read gives one; never the whole window refused night after night
+        // row held for a look (pp_conflict) until a later read gives one; never the whole window refused night after night. Every copy is counted
+        // first, the identical ones too (round 6, PPF73): only a row given ONCE settles a conflict of one answer
         $twice = [];
+        $copies = [];
         foreach ($rows as $r) {
             $k = $r['txn_id'] . '|' . $r['event_code'];
+            $copies[$k] = ($copies[$k] ?? 0) + 1;
             if (isset($seenRaw[$k]) && $seenRaw[$k] === $r) {
                 continue;
             }
@@ -1132,7 +1233,7 @@ final class PaypalFees
             $byKey[$k] = $r;
         }
         unset($seenRaw);
-        return $this->db->transaction(function (Db $db) use ($runId, $account, $channelId, $byKey, $caller, $sig, $twice): array {
+        return $this->db->transaction(function (Db $db) use ($runId, $account, $channelId, $byKey, $caller, $sig, $twice, $copies, $provenTo): array {
             $now = Clock::db(($this->clock)());
             $have = [];
             // by the unique key's first two columns (account, txn_id: an index range per id), the event code compared here
@@ -1146,7 +1247,8 @@ final class PaypalFees
             $new = [];
             $same = [];
             $older = [];
-            // an older version with other money or place than the kept one: the run returned it, the row says so (older_run; round 5, PPF61)
+            // an older version with other money, shop or order than the kept one: the run returned it, the row says so (older_run; round 5, PPF61;
+            // round 6, PPF72: its captures compared whatever forms they were made by)
             $olderOther = [];
             $changed = 0;
             // the rows whose captures, facts or forms (read_sig) change now: the rows that refer to them follow (round 4: a child decided while
@@ -1163,9 +1265,10 @@ final class PaypalFees
                 }
                 $age = self::age($r['pp_updated_at'], $old['pp_updated_at']);
                 if ($age < 0) {
-                    // an older version than the one kept (or one of no update time): changes nothing; one with other money or place than the kept
-                    // version is said on the row (older_run: the go-live gate never certifies a pin the run did not return; round 5, PPF61)
-                    if (self::otherMoney($r, $old, $sig)) {
+                    // an older version than the one kept (or one of no update time): changes nothing; one with other money, shop or order than
+                    // the kept version is said on the row (older_run: the go-live gate never certifies a pin the run did not return; round 5,
+                    // PPF61; round 6, PPF72)
+                    if (self::otherMoney($r, $old)) {
                         $olderOther[] = (int) $old['id'];
                     } else {
                         $older[] = (int) $old['id'];
@@ -1173,10 +1276,12 @@ final class PaypalFees
                     continue;
                 }
                 $sameForms = $old['read_sig'] !== null && hash_equals((string) $old['read_sig'], $sig);
-                // a read giving this row once, of a row one answer gave two contents of (pp_conflict 2): it says which version PayPal has, taken
-                // as a newer version would be (round 5, the lead's decision 11, PPF60); two reads disagreeing on one version (1) stay a look
+                // a read giving this row exactly ONCE in a window that proves its day, of a row one answer gave two contents of (pp_conflict 2): it
+                // says which version PayPal has, taken as a newer version would be (round 5, the lead's decision 11, PPF60; round 6, the lead's
+                // decision 6, PPF73: the same content twice, or a window that proves nothing, settles nothing); two reads disagreeing on one
+                // version (1) stay a look until a newer version
                 $clean = !isset($twice[$k]);
-                $settles = $clean && (int) $old['pp_conflict'] === 2;
+                $settles = ($copies[$k] ?? 0) === 1 && $provenTo !== null && (string) $r['day'] <= $provenTo && (int) $old['pp_conflict'] === 2;
                 // the forms the row's captures are of after this read: these forms, unless the captures of the forms it was read by are kept
                 $rowSig = $sig;
                 if ($age === 0 && !$sameForms) {
@@ -1207,13 +1312,21 @@ final class PaypalFees
                     // one version (1: until a newer version says which), or this answer giving two contents of the version kept (2: until a read
                     // gives it once, PPF60; never taken for a contradiction between reads, unless two reads disagreed on it before)
                     $conflicting = $differs ? array_intersect_key($theirs, array_flip([...self::PP_FACTS, ...self::CAPTURES])) : null;
+                    // two contents in this answer: 2 (1 when two reads disagreed on it before); one content that differs: two reads disagree (1),
+                    // unless the row is held for one answer's two contents and this read could not settle it (round 6: it stays 2)
                     $after = array_merge($before, $sameForms ? [] : array_intersect_key($theirs, array_flip(self::CAPTURES)),
-                        ['pp_conflict' => $clean || (int) $old['pp_conflict'] === 1 ? 1 : 2]);
+                        ['pp_conflict' => match (true) {
+                            !$clean => (int) $old['pp_conflict'] === 1 ? 1 : 2,
+                            (int) $old['pp_conflict'] === 2 => 2,
+                            default => 1,
+                        }]);
                 } else {
                     $kind = PaypalCodes::kind((string) $r['event_code'], (int) $r['amount_pence']);
                     // what PayPal says AND what the rules make of it (a release that classes a code anew re-decides a row it reads again; PP3)
+                    // a row held for one answer's two contents stays held until a read settles it (round 6: a newer version given twice, or in a
+                    // window that proves nothing, too); two reads disagreeing are settled by a newer version (round 3)
                     $after = $theirs + ['kind' => $kind, 'cost_pence' => PaypalCodes::cost($kind, (int) $r['amount_pence'], (int) $r['fee_pence']),
-                        'pp_conflict' => $age === 0 && !$settles ? (int) $old['pp_conflict'] : 0];
+                        'pp_conflict' => (int) $old['pp_conflict'] === 2 ? ($settles ? 0 : 2) : ($age === 0 ? (int) $old['pp_conflict'] : 0)];
                 }
                 if (!$clean && $after['pp_conflict'] === 0) {
                     // a newer version given with two contents in this answer: a look until a read gives one (F-L5, round 4; PPF60: 2, apart from two
@@ -1238,7 +1351,7 @@ final class PaypalFees
                     $params[] = $after[$f];
                 }
                 $db->exec('UPDATE paypal_txn SET ' . implode(', ', $set) . ', read_sig = ?, due = 1, due_since = COALESCE(due_since, ?), version = version + 1, last_run = ?, '
-                    . 'older_run = NULL, changed_at = ? WHERE id = ?', [...$params, $rowSig, $now, $runId, $now, (int) $old['id']]);
+                    . 'changed_at = ? WHERE id = ?', [...$params, $rowSig, $now, $runId, $now, (int) $old['id']]);
                 $db->exec("INSERT INTO paypal_txn_history (txn_row, version, what, before_json, after_json, run_id, actor, at) VALUES (?, ?, 'changed', ?, ?, ?, ?, ?)",
                     [(int) $old['id'], (int) $old['version'] + 1, self::json($before), self::json($after + ($conflicting === null ? [] : ['conflicting' => $conflicting])),
                         $runId, $caller->actor, $now]);
@@ -1263,14 +1376,16 @@ final class PaypalFees
                 $db->exec('INSERT INTO paypal_txn (' . implode(', ', $cols) . ') VALUES '
                     . implode(', ', array_fill(0, count($chunk), '(' . implode(', ', array_fill(0, count($cols), '?')) . ')')), $params);
             }
+            // the row read (older_run kept: the mark of a run that returned an older version with other money, shop or order is never cleared by a
+            // later run, so the go-live gate always sees it: round 6, the lead's decision 5, PPF72)
             foreach (array_chunk($same, 1000) as $chunk) {
-                $db->exec('UPDATE paypal_txn SET last_run = ?, read_sig = ?, older_run = NULL WHERE id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')',
+                $db->exec('UPDATE paypal_txn SET last_run = ?, read_sig = ? WHERE id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')',
                     [$runId, $sig, ...$chunk]);
             }
             // an older version read (or the same one under forms that keep its captures): the row was read, its captures are still of the forms
-            // they were made by (a7, round 3); one with other money or place than kept: this run is said on it (older_run, PPF61)
+            // they were made by (a7, round 3); one with other money, shop or order than kept: this run is said on it (older_run, PPF61, PPF72)
             foreach (array_chunk($older, 1000) as $chunk) {
-                $db->exec('UPDATE paypal_txn SET last_run = ?, older_run = NULL WHERE id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')', [$runId, ...$chunk]);
+                $db->exec('UPDATE paypal_txn SET last_run = ? WHERE id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')', [$runId, ...$chunk]);
             }
             foreach (array_chunk($olderOther, 1000) as $chunk) {
                 $db->exec('UPDATE paypal_txn SET last_run = ?, older_run = ? WHERE id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')', [$runId, $runId, ...$chunk]);
@@ -1294,20 +1409,18 @@ final class PaypalFees
     }
 
     /**
-     * Whether an older version than the kept one says other money or another place (round 5, the lead's decision 9, PPF61): any of PayPal's
-     * facts but its update time (its status, day, amounts, fee, currencies, reference), and its captures when read under the forms the kept
-     * ones are of. Such a read is said on the row (older_run), so the go-live gate never certifies a pin that run did not return.
+     * Whether an older version than the kept one says other money, another shop or another order (round 5, the lead's decision 9, PPF61; round
+     * 6, the lead's decision 11, PPF72): any of PayPal's facts but its update time (its status, day, amounts, fee, currencies, reference), and
+     * its captures (each field there or not, the shop and number taken) WHATEVER forms they were made by: under other forms than the kept ones,
+     * CW cannot tell whether the version or the forms make the difference, so the run that returned it cannot be certified for that row either.
+     * Such a read is said on the row (older_run), so the go-live gate never certifies a pin that run did not return.
      *
      * @param array<string, mixed> $r the version read (its captures made)
      * @param array<string, mixed> $old the row kept
      */
-    private static function otherMoney(array $r, array $old, string $sig): bool
+    private static function otherMoney(array $r, array $old): bool
     {
-        $keys = array_values(array_diff(self::PP_FACTS, ['pp_updated_at']));
-        if ($old['read_sig'] !== null && hash_equals((string) $old['read_sig'], $sig)) {
-            array_push($keys, ...self::CAPTURES);
-        }
-        $keys = array_flip($keys);
+        $keys = array_flip([...array_values(array_diff(self::PP_FACTS, ['pp_updated_at'])), ...self::CAPTURES]);
         return array_intersect_key(self::facts($r), $keys) !== array_intersect_key(self::facts($old), $keys);
     }
 
@@ -1536,18 +1649,24 @@ final class PaypalFees
      */
     private static function resolveForms(Db $db, string $account, array $rows, array $shops, string $sig): array
     {
-        // the rows referred to, three steps up at most (a chargeback fee -> its chargeback -> its sale), read once
+        // the rows referred to, three steps up at most (a chargeback fee -> its chargeback -> its sale), read once: EVERY row of each id referred
+        // to (one PayPal id may have several event codes: round 6, the lead's decision 10, PPF75), the decision's own rows as they are here, the
+        // others from the table (never only those of the id that happen to be among the rows decided now)
         $byTxn = [];
+        $loaded = [];
         foreach ($rows as $r) {
-            $byTxn[(string) $r['txn_id']][] = $r;
+            $byTxn[(string) $r['txn_id']][(int) $r['id']] = $r;
         }
         $want = array_values(array_unique(array_filter(array_map(static fn (array $r): ?string => in_array($r['kind'], self::REFERRING, true) ? $r['ref_txn_id'] : null,
             $rows))));
         for ($step = 0; $step < 3 && $want !== []; $step++) {
             $next = [];
-            foreach (array_chunk(array_values(array_filter($want, static fn (string $t): bool => !isset($byTxn[$t]))), 500) as $chunk) {
+            foreach (array_chunk(array_values(array_filter($want, static fn (string $t): bool => !isset($loaded[$t]))), 500) as $chunk) {
+                foreach ($chunk as $t) {
+                    $loaded[$t] = true;
+                }
                 foreach ($db->all('SELECT * FROM paypal_txn WHERE account = ? AND txn_id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')', [$account, ...$chunk]) as $p) {
-                    $byTxn[(string) $p['txn_id']][] = $p;
+                    $byTxn[(string) $p['txn_id']][(int) $p['id']] ??= $p;
                     if (in_array($p['kind'], self::REFERRING, true) && $p['ref_txn_id'] !== null) {
                         $next[] = (string) $p['ref_txn_id'];
                     }
@@ -1566,25 +1685,48 @@ final class PaypalFees
             if ($depth > 3 || !in_array($r['kind'], self::REFERRING, true) || $r['ref_txn_id'] === null) {
                 return $own;
             }
-            $parents = array_values(array_filter($byTxn[(string) $r['ref_txn_id']] ?? [], static fn (array $p): bool => isset($rank[$p['kind']]) && $p['id'] !== $r['id']));
+            $parents = array_values(array_filter($byTxn[(string) $r['ref_txn_id']] ?? [], static fn (array $p): bool => isset($rank[$p['kind']])
+                && (int) $p['id'] !== (int) $r['id']));
             if ($parents === []) {
                 // a transaction CW does not hold (before what was read, or not read yet): its own invoice says its shop; without one it waits
                 // for a look (a reference that is not a transaction, an agreement's, never comes: its own fields as for any row)
                 return $own['state'] === 'ok' || ($r['ref_type'] !== null && $r['ref_type'] !== 'TXN') ? $own : ['state' => 'missing'] + $own;
             }
-            usort($parents, static fn (array $a, array $b): int => $rank[$a['kind']] <=> $rank[$b['kind']]);
+            // the rows of the best rank (a sale before a chargeback before a fee before a refund): ALL of them, never the first one read (round 6,
+            // the lead's decision 10, PPF75: one PayPal id with two event codes, e.g. two chargebacks)
+            $best = min(array_map(static fn (array $p): int => $rank[$p['kind']], $parents));
+            $top = array_values(array_filter($parents, static fn (array $p): bool => $rank[$p['kind']] === $best));
             // a row it refers to whose PayPal versions disagree (pp_conflict: a6, round 3), or whose captures were made under other forms than now
             // (its shop not known now: H3, round 4), gives no shop: its child waits with it, a look; it is released when the parent is settled (a
             // newer version, a read under the forms of now: the parent's place changes and its children are due again)
-            if ((int) ($parents[0]['pp_conflict'] ?? 0) !== 0 || self::unread($parents[0], $sig)) {
-                return ['state' => 'unresolved'] + $own;
+            foreach ($top as $p) {
+                if ((int) ($p['pp_conflict'] ?? 0) !== 0 || self::unread($p, $sig)) {
+                    return ['state' => 'unresolved'] + $own;
+                }
             }
-            $ref = $resolve($parents[0], $depth + 1);
-            if ($ref['state'] === 'none') {
-                // the row it refers to names no shop either: as that row (the main shop's line), unless it had a shop and lost it
-                return $parents[0]['form_shop'] !== null ? ['state' => 'unresolved'] + $own : $own;
+            $refs = array_map(static fn (array $p): array => $resolve($p, $depth + 1), $top);
+            $states = array_values(array_unique(array_map(static fn (array $x): string => (string) $x['state'], $refs)));
+            if ($states === ['none']) {
+                // the rows it refers to name no shop either: as those rows (the main shop's line), unless one had a shop and lost it
+                foreach ($top as $p) {
+                    if ($p['form_shop'] !== null) {
+                        return ['state' => 'unresolved'] + $own;
+                    }
+                }
+                return $own;
             }
-            if ($ref['state'] !== 'ok') {
+            if ($states === ['ok']) {
+                // rows of one rank that name two shops or two orders: which one it belongs to is not known: held (ref_conflict), whichever was
+                // read first (round 6, PPF75)
+                $names = array_values(array_unique(array_map(static fn (array $x): string => $x['code'] . '|' . ($x['no'] ?? ''), $refs)));
+                if (count($names) > 1) {
+                    return ['state' => 'conflict'] + $own;
+                }
+                $ref = $refs[0];
+            } elseif (in_array('ok', $states, true) && in_array('none', $states, true) && array_diff($states, ['ok', 'none']) === []) {
+                // one of them names a shop and another none: they disagree (round 6, PPF75)
+                return ['state' => 'conflict'] + $own;
+            } else {
                 return ['state' => 'unresolved'] + $own;
             }
             // its own shop not its reference's, or its invoice's number not its reference's (compared only when BOTH have one: round 5, H2,
@@ -2008,10 +2150,11 @@ final class PaypalFees
         $done = (new \DateTimeImmutable(ReportRefresh::ukDay($refreshed)))->modify('-1 day')->format('Y-m-d');
         $cut = false;
         if (($w['returned_to'] ?? null) !== null) {
-            // the answer covers up to that second: its last whole UK day is the one before the UK day of the second after it (no slack below the
-            // end asked for: H7, round 4); the window then proves only that far and the next one starts on its first day not proven (H8)
-            $after = Clock::fromDb((string) $w['returned_to'])->modify('+1 second');
-            $answer = (new \DateTimeImmutable(ReportRefresh::ukDay(Clock::db($after))))->modify('-1 day')->format('Y-m-d');
+            // the answer covers up to that instant, at the precision PayPal gave it (no slack below the end asked for: H7, round 4): a UK day is
+            // complete only when the answer's end reaches the NEXT day's start (round 6, the lead's decision 3, PPF70: an end at 23:59:59.250
+            // leaves that day's last 0.75 s unanswered, so that day is not complete); the window then proves only that far and the next one
+            // starts on its first day not proven (H8). An end at or after the one asked for (at full precision) is the whole window (no cut).
+            $answer = (new \DateTimeImmutable(ReportRefresh::ukDay((string) $w['returned_to'])))->modify('-1 day')->format('Y-m-d');
             $cut = $answer < min($done, $last);
             $done = min($done, $answer);
         }

@@ -19,8 +19,10 @@ use CW\Ui\Words;
  *    alerts.repeat_minutes ago or more (or its own repeat_seconds, when longer: PayPal's rows that need a look, once a day; such a problem keeps
  *    its last send across episodes: back within that time, it is not said again before it, PPF58); otherwise it is only recorded (last seen,
  *    its words);
- *  - a problem that has gone is marked cleared, and a "back to normal" line is sent for it when it had been sent; one that could not
- *    be sent (every destination failed, or none was set) is owed and sent on a later run, once (clear_sent_at; review finding 8);
+ *  - a problem that has gone is marked cleared, and a "back to normal" line is sent for it when it had been sent IN THAT EPISODE (its last
+ *    send at or after the episode's first sight: a problem kept quiet across episodes never says "back to normal" for one that was not
+ *    said; round 6 of 0080, PPF77); one that could not be sent (every destination failed, or none was set) is owed and sent on a later run,
+ *    once (clear_sent_at; review finding 8);
  *  - one message per run with every line; a destination that fails is reported (never its address: a web address can hold a token),
  *    and the problems count as sent when at least one destination took the message (else they are tried again next run).
  * One run at a time (bin/health_alert.php takes the job lock).
@@ -46,7 +48,7 @@ final class AlertDispatch
         $destinations = ($url !== '' ? 1 : 0) + ($mail !== '' ? 1 : 0);
         $window = max(1, Alerts::int($s, 'alerts.repeat_minutes', 60)) * 60;
         $state = [];
-        foreach ($this->db->all('SELECT alert_key, last_sent_at, cleared_at, clear_sent_at, detail FROM alert_state') as $r) {
+        foreach ($this->db->all('SELECT alert_key, first_seen_at, last_sent_at, cleared_at, clear_sent_at, detail FROM alert_state') as $r) {
             $state[(string) $r['alert_key']] = $r;
         }
         $send = [];
@@ -102,8 +104,10 @@ final class AlertDispatch
                 $cleared[] = (string) $key;
                 $row['cleared_at'] = $at;
             }
-            // A "back to normal" is owed for a cleared alert that had been sent, until one is sent.
-            if ($row['last_sent_at'] !== null && $row['clear_sent_at'] === null && $destinations > 0) {
+            // A "back to normal" is owed for a cleared alert that had been sent in THIS episode, until one is sent (round 6 of 0080, the lead's
+            // decision 2, PPF77: a send kept from an earlier episode, PPF58, is not this one's: its recurrence was never said, so neither is its end).
+            if ($row['last_sent_at'] !== null && $row['clear_sent_at'] === null && $destinations > 0
+                && ($row['first_seen_at'] === null || Clock::fromDb((string) $row['last_sent_at']) >= Clock::fromDb((string) $row['first_seen_at']))) {
                 $clearedWords[$key] = Words::say('ALERT', 'cleared', (string) $row['detail']);
             }
         }

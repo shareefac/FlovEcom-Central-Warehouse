@@ -13675,12 +13675,12 @@ final class Words
         'sign' => 'money going the wrong way for its kind',
         'form_unread' => 'read before an order-number pattern was changed (it waits for PayPal to be read again)',
         'field_conflict' => 'its invoice and its custom field name two different shops',
-        'ref_conflict' => 'it names another order than the payment it belongs to',
+        'ref_conflict' => 'it names another order than the payment it belongs to, or that payment names two orders',
         'form_overlap' => 'two shops\' order-number patterns fit it',
         'ref_unresolved' => 'the payment it belongs to needs a look first',
         'ref_missing' => 'the payment it belongs to was not read from PayPal',
         'form_lost' => 'its shop\'s order-number pattern no longer fits it',
-        'refund_not_on_paypal' => 'a chargeback on an order refunded outside PayPal (its fee is counted)',
+        'refund_not_on_paypal' => 'a chargeback on an order with a refund in CW: CW could not verify this refund against PayPal (its fee is counted)',
         'order_ambiguous' => 'a chargeback whose order number two orders have (its fee is counted)',
     ];
 

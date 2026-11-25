@@ -14,7 +14,7 @@ declare(strict_types=1);
  *   php bin/paypal_fees.php --account=vapeandgo --decide          no PayPal call: the rows still due decided (after a run that stopped)
  *   php bin/paypal_fees.php --account=vapeandgo --status          read only: the newest runs, the rows by kind and state, the money, what waits
  *
- * Exit codes: 0 done (also: skipped, another run holds the job's lock) · 1 a problem (PayPal could not be read whole, an order was busy:
+ * Exit codes: 0 done (also: skipped, another run holds the job's lock; the nightly held by the go-live kit: <key file>.hold) · 1 a problem (PayPal could not be read whole, an order was busy:
  * the run is recorded as failed; what was read stays, its rows due) · 2 usage · 3 cannot run (no key, a refused key, no schema).
  */
 
@@ -79,6 +79,14 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
         if (!$cli->tryLock()) {
             $cli->log('another run of this job holds its lock: nothing done' . (isset($opts['from']) || isset($opts['decide']) ? '; run it again' : ''));
             return isset($opts['from']) || isset($opts['decide']) ? Cli::BUSY : Cli::OK;
+        }
+        // the go-live kit's hold of the nightly (round 6, the lead's decision 5, PPF72): from before its switch-on and backfill until its gate has
+        // said its verdict, no nightly run of the account starts (the gate certifies only the account's last run); a hold run out, or one not the
+        // kit's, holds nothing. A backfill or --decide asked for by hand is never held.
+        if (!isset($opts['from']) && !isset($opts['decide'])
+            && ($held = PaypalFees::nightlyHold(Config::load()->get(PaypalKey::configKey($account)), \CW\Clock::now())) !== null) {
+            $cli->log("{$account}: {$held}");
+            return Cli::OK;
         }
         // the overall deadline (below the installer's 6-minute drain for the nightly; fix round 1); of it, the decisions keep their reserve: no
         // PayPal request starts after the deadline less it (M2, round 4)
