@@ -21450,4 +21450,6 @@ row, so a wrapped label never sets a row's boxes apart); the drawing's 300 px dr
 words let drops and clicks through; left-aligned with the box's button, since a browser keeps a file box's contents at its start). The
 final review (Codex astra): a refusal in a fold takes the focus when the page opens (tabindex -1, autofocus), so a phone shows it below the
 facts; an incomplete form (bad_form) is either form's, so it is said at the top; the buttons of a row are one height when a name wraps; the drop
-words wrap and keep two lines of room (2.8em) above the box's button at any text size.
+words wrap. Its re-check: the drop words sit in flow UNDER the box's button (the box spans both rows of its place), so their real height
+at any text size sets the place's height (a file box's button always sits at its top, so words above it would need room reserved by guess);
+the scope lint reads selector tokens and refuses a sibling step only from the root itself.
