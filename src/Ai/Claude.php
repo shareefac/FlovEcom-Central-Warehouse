@@ -162,6 +162,8 @@ final class Claude
             $out['reason'] = 'other';
         } catch (\LogicException | \JsonException | \UnexpectedValueException $e) {
             $out['reason'] = 'bad_answer'; // a stream CW cannot fold, or an answer not of the SDK's shape
+        } catch (\RuntimeException $e) {
+            $out['reason'] = 'connection'; // the stream broke while it was read (Guzzle's read timeout, a dropped connection)
         }
         if ($e instanceof APIException) {
             $out['status'] = $e->status ?? $e->response?->getStatusCode();

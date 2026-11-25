@@ -107,7 +107,9 @@ final class DocumentReaderTest extends IntegrationTestCase
         $row = self::$db->one('SELECT * FROM ai_read WHERE id = ?', [$id]);
         self::assertSame(['waiting', 'delivery_upload', 'royal_mail_bill', 'application/pdf', (string) filesize($pdf), hash_file('sha256', $pdf)],
             [$row['state'], $row['place'], $row['kind'], $row['media_type'], (string) $row['file_bytes'], $row['file_sha256']]);
-        self::assertSame(['account' => 7, 'note' => str_repeat('n', 500)], json_decode((string) $row['context'], true));
+        $context = json_decode((string) $row['context'], true);
+        ksort($context);
+        self::assertSame(['account' => 7, 'note' => str_repeat('n', 500)], $context, 'ids and typed text only (MySQL keeps a JSON object\'s keys in its own order)');
         self::assertSame([(string) $row['spool_name']], $this->spooled());
         self::assertSame('0600', substr(sprintf('%o', fileperms($this->spool . '/' . $row['spool_name'])), -4));
         self::assertSame(file_get_contents($pdf), file_get_contents($this->spool . '/' . $row['spool_name']));
@@ -150,6 +152,48 @@ final class DocumentReaderTest extends IntegrationTestCase
         $r->checked($id, false, 'bad_file');
         $r->checked($id, true);
         self::assertSame(['refused', 'bad_file'], array_values(self::$db->one('SELECT checked, check_code FROM ai_call WHERE read_id = ?', [$id]) ?? []), 'written once');
+    }
+
+    /** Checklist 10: one effect per form: the same file sent again while its reading waits, goes or is not shown yet is that reading. */
+    public function testTheSameFileSentAgainIsTheSameReading(): void
+    {
+        $job = self::person('expenses');
+        AiFixtures::on(self::$db);
+        $f = new FakeClaude();
+        $r = AiFixtures::reader(self::$db, $this->spool, $f);
+        $pdf = AiFixtures::pdf($this->files);
+        $id = $r->start($job, 'expense_new', $pdf, ['shop' => '1']);
+        self::assertSame($id, $r->start($job, 'expense_new', $pdf, ['shop' => '1']), 'a double click: the same reading');
+        self::assertCount(1, $this->spooled(), 'one file kept');
+        $other = $r->start($job, 'expense_new', $pdf, ['shop' => '2']);
+        self::assertNotSame($id, $other, 'the same file with other typed fields is another reading');
+        $f->push(FakeClaude::answer(AiAnswers::invoice(), 100, 10), FakeClaude::answer(AiAnswers::invoice(), 100, 10));
+        $r->runNext();
+        $r->runNext();
+        self::assertSame($id, $r->start($job, 'expense_new', $pdf, ['shop' => '1']), 'read, not shown yet: the same reading (no second call)');
+        $r->take($job, $id);
+        $again = $r->start($job, 'expense_new', $pdf, ['shop' => '1']);
+        self::assertNotSame($id, $again, 'once shown, sending it again reads it again');
+        self::assertCount(2, $f->sent);
+    }
+
+    /** A read that breaks in a way no reason code names ends the job at once (never left `reading`), its file gone, the class said. */
+    public function testAnUnexpectedFailureEndsTheJob(): void
+    {
+        $job = self::person('expenses');
+        AiFixtures::on(self::$db);
+        $r = new \CW\Ai\DocumentReader(self::$db, $this->spool, static function (): never {
+            throw new \Error('made up');
+        });
+        $id = $r->start($job, 'expense_new', AiFixtures::pdf($this->files), []);
+        self::assertSame(['id' => $id, 'state' => 'failed', 'reason' => 'other'], $r->runNext());
+        self::assertSame('Error', $r->view($job, $id)['detail']);
+        self::assertSame([], $this->spooled());
+        // a stream that breaks while it is read (Guzzle's read timeout): a connection failure, said as busy
+        $f = (new FakeClaude())->push(new \RuntimeException('Read timed out (made up)'));
+        $r = AiFixtures::reader(self::$db, $this->spool, $f);
+        $id = $r->start($job, 'expense_new', AiFixtures::pdf($this->files, 'other'), []);
+        self::assertSame('connection', $r->runNext()['reason'] ?? null);
     }
 
     public function testEveryFailureDeletesTheFileAndSaysWhy(): void

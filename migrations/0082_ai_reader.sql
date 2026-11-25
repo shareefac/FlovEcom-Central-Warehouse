@@ -1,5 +1,5 @@
 -- 0082_ai_reader.sql — "Claude reads the upload", phase 1 (tracker CW-1182; the owner, CW chat 25 Nov 2026 ~17:25 UK: "you should focus on the
--- claude api connected on all upload places as soon as posssible"; docs/decisions.md AI1-AI14). Staff drop a PDF or a photo where they upload
+-- claude api connected on all upload places as soon as posssible"; docs/decisions.md AI1-AI14). Staff send a PDF or a photo where they upload
 -- today (Profit > Delivery bills: a Royal Mail bill; Profit > Expenses: an invoice); CW sends it to the Claude API and fills the same check
 -- page or form; CW's own checks still decide and a person always stores.
 --
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS ai_call (
   COMMENT='every call to the Claude API, without content (CW-1182, docs/decisions.md AI9): never changed except what CW''s checks made of it';
 
 INSERT INTO app_setting (setting_key, value_type, value_json, provisional, decision, description) VALUES
- ('ai.read_uploads','bool','false',1,'AI7','Claude reads a PDF or a photo dropped where staff upload (a Royal Mail bill, an expense''s invoice) and fills the same check page; off until switched on'),
+ ('ai.read_uploads','bool','false',1,'AI7','Claude reads a PDF or a photo sent where staff upload (a Royal Mail bill, an expense''s invoice) and fills the same check page; off until switched on'),
  ('ai.anthropic_api_key','string','""',1,'AI7','The Anthropic API key CW uses for Claude (a secret: never shown back). Empty: Claude reads nothing'),
  ('ai.model','string','"claude-opus-5-5"',1,'AI7','The Claude model that reads the documents'),
  ('ai.effort','string','"medium"',1,'AI7','How hard Claude thinks while reading: low, medium, high, xhigh or max'),

@@ -147,6 +147,31 @@ final class DocumentReader
         if (!is_dir($this->spool) || !is_writable($this->spool)) {
             throw new CwException('ai_spool', 'the folder CW keeps a document in while it is read is missing', 503);
         }
+        // One effect per form (checklist 10): the same file sent again from the same place by the same person (a double click, a form sent again)
+        // while its reading is waiting, going or not yet shown is that reading, never a second call; under the person's own lock, so two sends
+        // at once never both miss it.
+        $sha = (string) hash_file('sha256', $path);
+        $ctx = json_encode(self::context($context), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+        $lock = 'cw_ai_start:' . substr(sha1((string) $this->db->value('SELECT DATABASE()') . ':' . $caller->staffUserId), 0, 40); // MySQL's locks are server-wide
+        if ((int) $this->db->value('SELECT GET_LOCK(?, 10)', [$lock]) !== 1) {
+            throw new CwException('busy', 'another document of yours is being sent: try again in a moment', 409);
+        }
+        try {
+            foreach ($this->db->all("SELECT id, context FROM ai_read WHERE staff_user_id = ? AND place = ? AND file_sha256 = ? AND state IN ('waiting', 'reading', 'done') "
+                . 'AND created_at > ? ORDER BY id DESC', [$caller->staffUserId, $place, $sha, Clock::db(($this->clock)()->modify('-' . self::KEEP_MINUTES . ' minutes'))]) as $r) {
+                if (json_decode((string) $r['context'], true) == json_decode($ctx, true)) {
+                    return (int) $r['id'];
+                }
+            }
+            return $this->keep($caller, $place, $path, $size, $media, $sha, $ctx);
+        } finally {
+            $this->db->value('SELECT RELEASE_LOCK(?)', [$lock]);
+        }
+    }
+
+    /** The file copied into the spool (0600, a random name) and its job made, `waiting`; nothing left behind when either fails. */
+    private function keep(Caller $caller, string $place, string $path, int $size, string $media, string $sha, string $ctx): int
+    {
         $name = bin2hex(random_bytes(16));
         $dest = $this->spool . '/' . $name;
         $in = fopen($path, 'rb');
@@ -164,14 +189,14 @@ final class DocumentReader
             fclose($in);
             fclose($out);
         }
-        if ($copied !== $size) {
+        if ($copied !== $size || hash_file('sha256', $dest) !== $sha) {
             @unlink($dest);
             throw new CwException('ai_spool', 'the document could not be kept to be read', 503);
         }
         try {
             return $this->db->insert('INSERT INTO ai_read (staff_user_id, place, kind, context, media_type, file_bytes, file_sha256, spool_name, state, created_at) '
-                . "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?)", [$caller->staffUserId, $place, self::PLACES[$place], json_encode(self::context($context),
-                    JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE), $media, $size, (string) hash_file('sha256', $dest), $name, Clock::db(($this->clock)())]);
+                . "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?)", [$caller->staffUserId, $place, self::PLACES[$place], $ctx, $media, $size, $sha, $name,
+                    Clock::db(($this->clock)())]);
         } catch (\Throwable $e) {
             @unlink($dest);
             throw $e;
@@ -217,7 +242,12 @@ final class DocumentReader
                 return $this->finish($id, 'failed', 'file_gone', null, null);
             }
             $kind = self::kind((string) $job['kind']);
-            $r = ($this->claude)($s)->read($kind, $bytes, (string) $job['media_type']);
+            try {
+                $r = ($this->claude)($s)->read($kind, $bytes, (string) $job['media_type']);
+            } catch (\Throwable $e) {
+                // whatever went wrong, the job ends now (never left `reading`), its file goes; the class is said, never a message (it could quote)
+                return $this->finish($id, 'failed', 'other', null, mb_substr(get_class($e), 0, 200));
+            }
             unset($bytes);
             $this->drop($path);
             $call = ['model' => $s->model, 'r' => $r, 'cost' => AiUsage::millipence($r['input_tokens'], $r['output_tokens'], $s->priceIn, $s->priceOut)];
