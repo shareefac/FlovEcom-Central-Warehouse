@@ -12,7 +12,7 @@ use CW\Reports\ReportRefresh;
 use CW\Settings;
 
 /**
- * PayPal's payment fees in CW's profit (CW-1172; docs/decisions.md PPF1-PPF57), read from PayPal's own API every night (bin/paypal_fees.php).
+ * PayPal's payment fees in CW's profit (CW-1172; docs/decisions.md PPF1-PPF69), read from PayPal's own API every night (bin/paypal_fees.php).
  *
  *  run()      reads the days asked for from PayPal window by window (WINDOW_DAYS at most each; a window is stored whole or not at all), stores
  *             every transaction by account, PayPal's id and event code (a re-read changes the row in place with its history, never a second
