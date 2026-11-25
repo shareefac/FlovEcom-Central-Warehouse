@@ -26,16 +26,18 @@ final class RollbackReleaseTest extends IntegrationTestCase
      * the rollback release is b54163a's code with 0077 added, byte for byte. Royal Mail's bills (docs/decisions.md DL69): the release before is
      * 14c6e31 (DPD bills live), whose last is 0077; the rollback release is 14c6e31's code with 0078 added, byte for byte. The expenses (CW-1150,
      * docs/decisions.md EX) go live on top of Royal Mail's bills: the release before is ae5f36e (Royal Mail's bills), whose last is 0078; the
-     * plain rollback source is ae5f36e's code with 0079 added, byte for byte.
+     * plain rollback source is ae5f36e's code with 0079 added, byte for byte. CW-1180 went live on 04dbab6 (last 0079); Claude reads the upload
+     * (CW-1182, docs/decisions.md AI14) goes live on top of 86c21af (CW-1180), whose last is 0081 (ROLLBACK_FILES).
      */
-    public const BEFORE_LAST = '0079_expenses.sql';
+    public const BEFORE_LAST = '0081_cancel_not_restockable.sql';
     /**
      * The migration files the rollback release takes from this release (README of build/A, "Undo"; CW-1155: RR20; the delivery bills: DL22).
-     * CW-1180 (don't restock = written off at once, docs/decisions.md NR1-NR9): the release before is 04dbab6 (the expense total's typing,
-     * CW-1176, live 25 Nov 13:31), whose last is 0079; the plain rollback (kit norestock_cw1180, branch nrkit-rollback) is 04dbab6's code with
-     * 0081 added, byte for byte. Built on another live release first (PayPal's 0080): its last, and the kit's tools/build_on_live.sh sets both.
+     * CW-1180 (don't restock = written off at once, docs/decisions.md NR1-NR9): the release before was 04dbab6 (CW-1176), whose last is 0079;
+     * its plain rollback (kit norestock_cw1180, branch nrkit-rollback) was 04dbab6's code with 0081 added, byte for byte. CW-1182 (Claude reads
+     * the upload, AI14) is built ON the live 86c21af (CW-1180, live 25 Nov 20:34), whose last is 0081; its plain rollback (the kit's
+     * aikit-rollback) is 86c21af's code with 0082 added, byte for byte. Built on another live release first (PayPal's 0080): its last.
      */
-    public const ROLLBACK_FILES = ['0081_cancel_not_restockable.sql'];
+    public const ROLLBACK_FILES = ['0082_ai_reader.sql'];
 
     private ?string $dir = null;
     private ?string $rollback = null;

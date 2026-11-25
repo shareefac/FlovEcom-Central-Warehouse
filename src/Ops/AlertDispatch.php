@@ -167,6 +167,8 @@ final class AlertDispatch
             // DL86 7: billed more than labels above the setting; an account that could not be checked
             'rm_billed_more' => Words::say('ALERT', 'rm_billed_more', (string) ($d['account'] ?? ''), $n('count'), (string) ($d['pct'] ?? ''), (string) ($d['oldest'] ?? '')),
             'rm_check_failed' => Words::say('ALERT', 'rm_check_failed', (string) ($d['account'] ?? ''), (string) ($d['error'] ?? '')),
+            'ai_waiting' => Words::say('ALERT', 'ai_waiting', $n('count'), $n('limit'), self::duration($n('age'))), // CW-1182 (AI17)
+            'ai_reader_failed' => Words::say('ALERT', 'ai_reader_failed', self::duration($n('age')), (string) ($d['error'] ?? '')),
             default => (string) ($p['detail'] ?? $p['kind']),
         };
     }

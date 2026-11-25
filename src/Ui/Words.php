@@ -63,7 +63,7 @@ final class Words
         // Lines to place as a board (docs/decisions.md LQ)
         'LQ',
         // The redesign, step 2 part C (docs/decisions.md RD-C): Product matching, the reports, Approvals, Settings, Home
-        'RD_MATCH', 'RD_MATCH_FILTER', 'PROFIT', 'DELIVERY', 'EXPENSES', 'EXPENSES_ERROR', 'REGULAR', 'EXPENSE_TYPES', 'RD_REPORTS', 'RD_INBOX', 'RD_SETTINGS', 'RD_HOME',
+        'RD_MATCH', 'RD_MATCH_FILTER', 'PROFIT', 'DELIVERY', 'AIREAD', 'EXPENSES', 'EXPENSES_ERROR', 'REGULAR', 'EXPENSE_TYPES', 'RD_REPORTS', 'RD_INBOX', 'RD_SETTINGS', 'RD_HOME',
         // "Confirm all ready" for ERPNext corrections (docs/decisions.md CA), and every night (NC)
         'CONFIRM_ALL', 'NIGHTLY',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN',
@@ -2802,6 +2802,14 @@ final class Words
 
     /** Plain names of the settings (app_setting keys); SETTING_HELP says what each does (the raw description is the fallback). */
     public const SETTING = [
+        // "Claude reads the upload" (0082; docs/decisions.md AI7, AI8).
+        'ai.read_uploads' => 'Claude reads uploaded PDFs and photos',
+        'ai.anthropic_api_key' => 'Anthropic API key',
+        'ai.model' => 'Claude model',
+        'ai.effort' => 'How hard Claude thinks',
+        'ai.monthly_limit_gbp' => 'Most Claude may cost in a month',
+        'ai.price_input_gbp_per_mtok' => 'Model price: a million tokens sent',
+        'ai.price_output_gbp_per_mtok' => 'Model price: a million tokens written',
         // Stock counting (pack A2a, 0029; docs/decisions.md CT4, CT6, CT10).
         'counts.plan_days' => 'Days between two counts of an item',
         'counts.sheet_shows_stock' => 'Count sheets show what the system holds',
@@ -4272,10 +4280,25 @@ final class Words
         'rollback' => 'Way back to ERPNext', // Pack RB (0046)
         'erp_copy' => 'Invoices from ERPNext', // CW-917 (0060, EC2)
         'live' => 'Working together', // who is here on a draft order (0070, LV9)
+        'ai' => 'Claude reads uploads', // 0082 (AI7)
     ];
 
     /** app_setting key => what the setting does, in words (the migration's description is the fallback). */
     public const SETTING_HELP = [
+        // "Claude reads the upload" (0082; docs/decisions.md AI7, AI8).
+        'ai.read_uploads' => 'On: on Profit > Delivery bills (a Royal Mail bill) and Profit > Expenses (an invoice) staff may drop a PDF or a photo; CW sends it to '
+            . 'Claude (Anthropic\'s API), fills the same check page or form, and a person still presses Store or Save. CW\'s own checks still decide. Off: '
+            . 'nothing is sent; uploading works as before. Needs the API key below.',
+        'ai.anthropic_api_key' => 'The key CW uses for Claude, from the Anthropic console (API keys). Paste it here once: it is never shown again and never '
+            . 'logged (the history keeps only a fingerprint). Empty: Claude reads nothing.',
+        'ai.model' => 'The Claude model that reads the documents (claude-opus-5-5). When you change it, change the two prices below to that model\'s.',
+        'ai.effort' => 'How hard Claude thinks while it reads: low, medium, high, xhigh or max. Higher reads difficult documents better, costs more and takes longer.',
+        'ai.monthly_limit_gbp' => 'The most Claude\'s reading may cost in a UK month, in pounds (each document\'s tokens at the two prices below). At the limit no new '
+            . 'reading starts until the next month; uploading as before still works. 0: no reading.',
+        'ai.price_input_gbp_per_mtok' => 'The price of the model above for a million tokens sent to it (the document and what CW asks), in pounds. Claude Opus 5.5: '
+            . '$4, here at $1 = £0.80.',
+        'ai.price_output_gbp_per_mtok' => 'The price of the model above for a million tokens it writes (its thinking included), in pounds. Claude Opus 5.5: $20, '
+            . 'here at $1 = £0.80.',
         // Stock counting (pack A2a, 0029; docs/decisions.md CT4, CT6, CT10).
         'counts.plan_days' => 'The count plan: every item should be counted at least once in this many days (1 to 730). Stock > Counts says how many '
             . 'items are inside the plan and how many are overdue, and lists what to count next.',
@@ -10117,6 +10140,7 @@ final class Words
 
     /** The page of one setting (/ui/reference/settings/setting). */
     public const SETTING_EDIT = [
+        'secret_whole' => 'Paste the key from the Anthropic console. It is never shown again: the box keeps "(set: hidden)" while a key is set; leave it to keep the key, empty it to stop Claude reading.',
         'now' => 'Value now',
         'what' => 'What it does',
         'status' => 'Agreed by the owner',
@@ -11450,6 +11474,83 @@ final class Words
     ];
 
     /** Profit > Delivery bills (0077, docs/decisions.md DL23). */
+    /** "Claude reads the upload" (CW-1182; docs/decisions.md AI1-AI17): the waiting page, why a reading failed, the filled form's notes. */
+    public const AIREAD = [
+        'wait_title' => 'Claude is reading the document',
+        'wait_text' => 'Claude is reading %s. A one-page invoice takes about half a minute; a bill of several pages 1 to 3 minutes. This page looks again by '
+            . 'itself every few seconds; you may leave it and come back to it within an hour.',
+        'wait_queue' => 'It waits for its turn: CW reads one document at a time.',
+        'wait_since' => 'Sent %s seconds ago.',
+        'wait_again' => 'Look again now',
+        'wait_back' => 'Back without waiting',
+        'what_royal_mail_bill' => 'the Royal Mail bill',
+        'what_expense_invoice' => 'the invoice',
+        'failed' => 'CW could not read this document: %s',
+        'why_refusal' => 'Claude declined to read it.',
+        'why_not_readable' => 'Claude could not read it whole.',
+        'why_not_readable_not_a_royal_mail_bill' => 'it is not the page of a Royal Mail bill.',
+        'why_not_readable_pages_missing' => 'a page of the bill is missing.',
+        'why_not_readable_unreadable' => 'Claude could not read every line with certainty.',
+        'why_not_readable_not_an_invoice' => 'it is not an invoice, a credit note or a receipt.',
+        'why_bad_answer' => 'Claude\'s reading is not in the form CW needs (%s).',
+        'why_count' => 'Claude\'s reading lost or doubled lines on the way.',
+        'why_not_gbp' => 'the bill is not in pounds.',
+        'why_max_tokens' => 'the document is too long to read in one go.',
+        'why_auth' => 'the API key is wrong: a person who manages settings changes it in Settings > Rules and numbers (Claude reads uploads).',
+        'why_forbidden' => 'the API key may not use this model: Settings > Rules and numbers (Claude reads uploads).',
+        'why_billing' => 'the Anthropic account has no credit left: the owner tops it up in the Anthropic console.',
+        'why_spend_limit' => 'the Anthropic account reached its spending limit: the owner raises it in the Anthropic console.',
+        'why_busy' => 'Claude is busy or could not be reached: try again in a minute.',
+        'why_refused_request' => 'Anthropic refused the request: send the document to the CW team.',
+        'why_error' => 'something went wrong in CW while it was being read: try again, or send the document to the CW team.',
+        'why_off' => 'reading was switched off meanwhile.',
+        'why_limit' => 'this month\'s limit was reached meanwhile.',
+        'why_not_allowed' => 'your jobs no longer allow it.',
+        'why_late' => 'it was not finished in time: upload it again.',
+        'next_royal_mail_bill' => 'Upload the bill\'s saved page or paste its text, or send the PDF to the CW team.',
+        'next_expense_invoice' => 'Type the expense from the invoice as before.',
+        'rm_not_tie' => 'CW\'s reading of the PDF does not add up to the bill\'s total: try the bill page\'s own text or send it to the CW team.',
+        'taken' => 'This reading was shown already. If its check was not stored, upload the document again.',
+        'try_again' => 'Claude\'s reading is kept: open the same page again in a minute (it is not read a second time).',
+        'check_by_claude' => 'CW read this bill from the PDF or photo with Claude, then checked it as it checks a pasted bill: its lines add up to its totals to '
+            . 'the penny. Compare a few lines with the PDF before you press Store.',
+        'off_switch' => 'Claude reads a PDF or a photo only when "Claude reads uploads" is switched on (Settings > Rules and numbers).',
+        'off_key' => '"Claude reads uploads" is switched on, but the Anthropic API key is not set (Settings > Rules and numbers).',
+        'limit' => 'Claude\'s reading has reached this month\'s limit (%s of %s): upload as before, or a person who manages settings raises the limit.',
+        'heic' => 'This photo is in HEIC, an iPhone\'s own format, which Claude cannot read: send it as JPEG (on the iPhone: Settings > Camera > Formats > Most Compatible).',
+        'type' => 'Claude reads a PDF or a photo (JPEG, PNG, WebP or GIF) only.',
+        // AI15: the file Claude reads for an expense becomes the expense's own file, so it is one an expense keeps
+        'type_expense' => 'An expense keeps a PDF, a JPEG or a PNG: save the photo as one of those (or as a PDF) and send it again.',
+        'spool' => 'CW cannot keep the document to read it on this server: tell the CW team.',
+        'too_large' => 'The file is larger than %s MB.',
+        'rm_needs_page' => 'Upload the bill\'s saved page or paste its text.',
+        'dpd_pdf' => 'DPD: upload the CSV file DPD sends with each bill. CW does not read DPD\'s PDF: it is pages of parcels with delivery addresses, and the CSV is the exact list.',
+        'hint_bill' => 'Or a PDF of the bill\'s page (printed from the browser) or a photo of it: Claude reads it, then CW checks it as it checks a pasted bill.',
+        'read_button' => 'Fill from the file with Claude',
+        'read_hint' => 'Choose the invoice\'s PDF or photo first, then press this: Claude reads it and fills the boxes; you check them and press Save.',
+        'read_no_file' => 'Choose the invoice\'s PDF or photo first, then press "Fill from the file with Claude".',
+        'filled' => 'Claude filled: %s. Check each one against the invoice, then press Save.',
+        'filled_none' => 'Claude read the invoice but filled nothing: type the expense from it.',
+        'field_supplier' => 'the supplier',
+        'field_invoice_no' => 'the invoice number',
+        'field_invoice_date' => 'the invoice date',
+        'field_shop' => 'the shop',
+        'field_credit' => 'credit note',
+        'field_total' => 'the total with VAT',
+        'field_net' => 'the amount without VAT',
+        'field_vat' => 'the VAT',
+        'fill_supplier_choose' => 'Claude read the supplier as "%s", which is not one of CW\'s: choose it from the list, or tick "Add it as a new supplier".',
+        'fill_not_gbp' => 'The invoice is in %s: type the amounts in pounds yourself.',
+        'fill_amounts_missing' => 'Claude could not read all of the amount without VAT, the VAT and the total: type them from the invoice.',
+        'fill_amounts_disagree' => 'The invoice\'s amount without VAT and VAT add up to %s, not to its total %s: type the amounts from the invoice.',
+        // AI15: the invoice Claude read is kept for this form's Save (an hour), attached as if it had been chosen
+        'file_kept' => 'The invoice Claude read is kept for this expense: Save attaches it, as if you had chosen it (within an hour). To keep another file '
+            . 'instead, choose it here.',
+        'file_gone' => 'The invoice Claude read is no longer kept for this form (it is kept for an hour, for the person who sent it, and attached once): '
+            . 'choose the file again, or tick "Save without a file". Nothing was saved.',
+        'month' => 'This month: %s documents read, £%s of the £%s limit.',
+    ];
+
     public const DELIVERY = [
         'bill_title' => '%s bill %s',
         'headline' => '%s bill %s (%s): %s - on orders %s (%s lines), not on an order %s (%s lines)',
@@ -13299,6 +13400,7 @@ final class Words
 
     /** A switch's two words where they are not Yes / No (docs/decisions.md NC8: the board's On / Off). */
     public const SETTING_BOOL = [
+        'ai.read_uploads' => ['On', 'Off'], // 0082 (AI7)
         'relay.nightly_confirm' => ['On', 'Off'],
         'relay.mode_review' => ['On', 'Off'],
         'erp_copy.on' => ['On', 'Off'], // CW-917 (EC2)
@@ -13652,6 +13754,10 @@ final class Words
         'rm_days_waiting' => 'Royal Mail %s: %s day(s) of its bills have waited more than %s days for a Click & Drop report (the oldest %s). Upload the "Manifested Orders" report for those days on Profit › Delivery bills.', // DL84, DL86 1
         'rm_billed_more' => 'Royal Mail %s: %s day(s) or Special Delivery manifest(s) billed more than their labels by more than %s%% (the oldest %s). See "Needs a look" on the bill\'s page (Profit › Delivery bills).', // DL86 7
         'rm_check_failed' => 'Royal Mail %s: CW could not check its bills just now (%s). It checks again at the next run; tell the CW team if this stays.', // DL86 (the Codex check r10 #15)
+        // CW-1182 (AI17): Claude reads uploads - how many documents wait, the limit in minutes, how long the oldest has waited; how long ago the reader's last run failed, why
+        'ai_waiting' => 'Claude reads uploads: %s document(s) have waited more than %s minutes to be read (the oldest %s). The reader runs every minute '
+            . 'from cron: tell the CW team.',
+        'ai_reader_failed' => 'Claude reads uploads: the reader\'s last run failed %s ago (%s). Documents sent to be read wait until a run ends well: tell the CW team.',
         'landing_orders' => 'Website bug: an order on %1$s for the landing page %2$s (option %3$s, order %4$s). %5$s such orders are open: '
             . 'Approvals › From the stores › Website bugs.',
         'cleared' => 'Back to normal: %s',

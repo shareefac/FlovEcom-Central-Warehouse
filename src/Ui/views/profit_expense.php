@@ -55,6 +55,14 @@ $errorIn = $error === null || !$canEdit || $errorCode === 'changed_meanwhile' ||
   <p class="error" role="alert" tabindex="-1" autofocus data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
 <?= $partial('same_list', ['items' => $sameList, 'group' => 'EXPENSES']) ?>
 <?php endif; ?>
+<?php if (($aiFilled ?? null) !== null): ?>
+  <div class="alert ai-filled" role="status">
+    <p><?= $e($aiFilled) ?></p>
+<?php foreach ($aiNotes as $aiNote): ?>
+    <p><?= $e($aiNote) ?></p>
+<?php endforeach; ?>
+  </div>
+<?php endif; ?>
   <form class="record expense-form" method="post" enctype="multipart/form-data" action="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/change') ?>" data-vat-bp="<?= $e((string) $vatBp) ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
@@ -75,6 +83,9 @@ $errorIn = $error === null || !$canEdit || $errorCode === 'changed_meanwhile' ||
 <?php if ($fileAgain): ?>
         <p class="note" role="status"><?= $word('EXPENSES', 'file_again') ?></p>
         <input type="hidden" name="file_again" value="1">
+<?php elseif (($aiFile ?? null) !== null): ?>
+        <p class="note" role="status"><?= $word('AIREAD', 'file_kept') ?></p>
+        <input type="hidden" name="ai_file" value="<?= $e((string) $aiFile) ?>">
 <?php endif; ?>
         <div class="field">
           <label for="ex-file"><?= $word('EXPENSES', 'change_file') ?></label>
@@ -86,6 +97,10 @@ $errorIn = $error === null || !$canEdit || $errorCode === 'changed_meanwhile' ||
         </div>
 <?php if ($fileAgain): ?>
         <label class="choice"><input type="checkbox" name="no_file_ok" value="1"> <?= $word('EXPENSES', 'no_file_ok') ?></label>
+<?php endif; ?>
+<?php if ($aiOn ?? false): ?>
+        <p class="actions ai-read"><button type="submit" class="btn" formaction="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/read') ?>" formnovalidate><?= $word('AIREAD', 'read_button') ?></button></p>
+        <p class="hint"><?= $word('AIREAD', 'read_hint') ?></p>
 <?php endif; ?>
       </fieldset>
     </div>

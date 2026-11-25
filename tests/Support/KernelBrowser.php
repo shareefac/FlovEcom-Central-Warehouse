@@ -18,7 +18,8 @@ final class KernelBrowser
     public array $cookies = [];
 
     private const HEADERS = ['content-type', 'location', 'set-cookie', 'content-security-policy', 'x-content-type-options',
-        'x-frame-options', 'referrer-policy', 'cache-control', 'retry-after', 'strict-transport-security', 'x-request-id', 'content-disposition'];
+        'x-frame-options', 'referrer-policy', 'cache-control', 'retry-after', 'strict-transport-security', 'x-request-id', 'content-disposition',
+        'refresh']; // CW-1182 (AI3): the page that waits for Claude's reading looks again by itself
 
     public function __construct(private readonly Kernel $kernel, public string $ip = '198.51.100.20', private readonly string $host = 'cw-ui.review.invalid')
     {

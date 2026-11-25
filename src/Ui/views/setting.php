@@ -3,7 +3,8 @@
 // the eyebrow (DC3), its name; a card of what it is (what it does, its value now, whether the owner agreed it, its last change); for whoever
 // changes settings a card with its one form (the value, the agreed tick, the reason; Save), or where its rule is changed; then its History.
 // The value is a box to type in, Yes / No, the ticked boxes of a list, or (a setting that names a reason; docs/decisions.md AJ10) a choice of
-// the reasons offered: $choices, code => words.
+// the reasons offered: $choices, code => words. The Anthropic API key (Settings::SECRET_WHOLE; 0082, AI7) is a password box holding only
+// "(set: hidden)" while set: sent back as it is, the key stays; nothing of it is ever drawn.
 ?>
 <?= $head((string) $name, intro: 'setting', more: $lookOnly, back: ['/ui/reference/settings', \CW\Ui\Words::SETTINGS_PAGE['title']]) ?>
 <div class="set-shell">
@@ -57,6 +58,11 @@
     <label><?= $word('SETTING_EDIT', 'value') ?>
       <span class="hint"><?= $e($hint) ?></span>
       <textarea name="value" rows="6" maxlength="4000"<?php if ($errorCode === 'bad_value'): ?> aria-invalid="true"<?php endif; ?>><?= $e($raw) ?></textarea>
+    </label>
+<?php elseif (in_array($key, \CW\Settings::SECRET_WHOLE, true)): ?>
+    <label><?= $word('SETTING_EDIT', 'value') ?>
+      <span class="hint"><?= $e($hint) ?> <?= $word('SETTING_EDIT', 'secret_whole') ?></span>
+      <input type="password" name="value" value="<?= $e($raw) ?>" maxlength="255" autocomplete="new-password" spellcheck="false"<?php if ($errorCode === 'bad_value'): ?> aria-invalid="true"<?php endif; ?>>
     </label>
 <?php else: ?>
     <label><?= $word('SETTING_EDIT', 'value') ?>

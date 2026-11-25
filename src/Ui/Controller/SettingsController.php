@@ -94,7 +94,9 @@ final class SettingsController
             $parts[] = sprintf(Words::SETTING_EDIT['one_of'], implode(', ', $rule['in']));
         }
         if (isset($rule['pattern'])) {
-            $parts[] = Words::SETTING_EDIT[isset($rule['uk_time']) ? 'uk_time' : ($key === 'staff.sign_in_address' ? 'address' : 'sites')];
+            // the AI settings (0082) say their own form: an API key, a model id
+            $parts[] = str_starts_with($key, 'ai.') && isset($rule['pattern_says']) ? ucfirst((string) $rule['pattern_says']) . '.'
+                : Words::SETTING_EDIT[isset($rule['uk_time']) ? 'uk_time' : ($key === 'staff.sign_in_address' ? 'address' : 'sites')];
         }
         if (isset($rule['list_in'])) {
             return Words::SETTING_EDIT['list'];
@@ -190,7 +192,9 @@ final class SettingsController
             // form sent) holds it.
             'items' => self::items($key, $typed['value'] ?? (is_string($value) ? $value : '')),
             // What the form's field holds: what was typed on a refused form, else the value now (as the CLI takes it).
-            'raw' => $typed['value'] ?? (is_bool($value) ? ($value ? 'true' : 'false') : ($value === null ? '' : (string) $value)),
+            // (a key typed into a refused form is never drawn back: the box is empty again; AI7)
+            'raw' => in_array($key, Settings::SECRET_WHOLE, true) && $typed !== null ? ''
+                : ($typed['value'] ?? (is_bool($value) ? ($value ? 'true' : 'false') : ($value === null ? '' : (string) $value))),
             // A switch's two words: its own where it has them (On / Off for the nightly Confirm all, docs/decisions.md NC8), else Yes / No.
             'yesWord' => isset(Words::SETTING_BOOL[$key]) ? Words::settingBool($key, true) : Words::CONFIG['yes'],
             'noWord' => isset(Words::SETTING_BOOL[$key]) ? Words::settingBool($key, false) : Words::CONFIG['no'],

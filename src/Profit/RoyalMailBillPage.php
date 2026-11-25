@@ -10,7 +10,8 @@ use CW\CwException;
  * Reads Royal Mail's weekly OBA bill (delivery cost, phase 1; docs/decisions.md DL52-DL55). Pure: no database, no file kept.
  *
  * Two ways in, one reader: the bill's page saved from the browser (Ctrl+S, "Webpage, complete": HTML) or the page's text copied with
- * select-all and pasted (cells split by tabs). The page (SAP Biller Direct, cw_work/delivery_cost_20261123/RM_BILL_PAGE_SHAPE.md): a top block
+ * select-all and pasted (cells split by tabs; a copy from Chrome on a Mac breaks each line of the bill in two: joined again, CW-1181, AI13; a
+ * PDF or a photo of the bill read by Claude is written out as the page reader's text and read here: CW-1182, AI4). The page (SAP Biller Direct, cw_work/delivery_cost_20261123/RM_BILL_PAGE_SHAPE.md): a top block
  * ("Customer Account Number: 0706703000", "Date: Nov 16, 2026", "Total Price Net: GBP 18,859.74", "VAT: GBP 3,771.95", "Total Gross Price: GBP
  * 22,631.69", "Invoice: 9077300608"), then the line table whose header names the 8 columns (LINE_HEADINGS), one row per line: service date
  * (dd:mm:yyyy), product code, quantity ("5.000"), description, the Sales Order / Your Reference cell (a form button with Royal Mail's sales
@@ -201,7 +202,57 @@ final class RoyalMailBillPage
             }
             $table[] = $cells;
         }
-        return [self::squash(str_replace("\t", ' ', $bytes)), $table ?? self::fromSpaced($lines)];
+        return [self::squash(str_replace("\t", ' ', $bytes)), $table === null ? self::fromSpaced($lines) : self::joinTabbed($table)];
+    }
+
+    /**
+     * A tabbed copy whose lines of the bill come on TWO lines (CW-1181; Chrome on a Mac breaks a row where the reference cell starts with the
+     * sales order's form): "date, product, quantity, description" then "reference, net, gross, VAT code" (the reference may be empty, a
+     * description may run on over lines of its own), joined into the one row of cells the page gives, as fromSpaced() joins the page
+     * reader's two lines. Only a row that starts as a bill line, holds fewer than 7 cells and no amount waits for the rest: the next row that
+     * ends with the amounts and a VAT code (and is no bill line itself) completes it; a row of words between them is its description's.
+     * Anything else (a bill line next, money in the row between, the end of the copy) leaves the half row as it was: refused whole (a line
+     * has at least 7 cells), never read as something else.
+     *
+     * @param list<list<string>> $rows the rows after the heading, cells split by tabs
+     * @return list<list<string>>
+     */
+    private static function joinTabbed(array $rows): array
+    {
+        $out = [];
+        $half = null;
+        $money = static fn (array $cells): bool => preg_grep('/GBP\s*-?\s*[0-9][0-9,]*\.[0-9]{2}/i', $cells) !== [];
+        foreach ($rows as $cells) {
+            $filled = array_values(array_filter($cells, static fn (string $c): bool => $c !== ''));
+            if ($half !== null) {
+                $c = count($filled);
+                if ($c >= 3 && !self::isLineStart($filled) && preg_match('/^[A-Z]$/D', $filled[$c - 1]) === 1 && self::amount($filled[$c - 2]) !== null
+                    && self::amount($filled[$c - 3]) !== null) {
+                    $out[] = [...$half, ...$filled]; // the reference (if any), net, gross, VAT code
+                    $half = null;
+                    continue;
+                }
+                if ($filled !== [] && !self::isLineStart($filled) && !$money($filled)) {
+                    $half[3] = trim($half[3] . ' ' . implode(' ', $filled)); // the description over more lines
+                    continue;
+                }
+                $out[] = $half;
+                $half = null;
+            }
+            if (self::isLineStart($filled) && count($filled) < 7 && !$money($filled)) {
+                $lead = $cells;
+                while ($lead !== [] && $lead[0] === '') {
+                    array_shift($lead);
+                }
+                $half = array_pad(array_slice($lead, 0, 4), 4, ''); // date, product, quantity, description: in their places
+                continue;
+            }
+            $out[] = $cells;
+        }
+        if ($half !== null) {
+            $out[] = $half;
+        }
+        return $out;
     }
 
     /**

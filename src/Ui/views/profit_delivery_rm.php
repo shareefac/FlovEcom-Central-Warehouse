@@ -243,7 +243,10 @@ $lookRed = count(array_filter($look ?? [], static fn (array $i): bool => $i['red
 <form class="record delivery-replace" method="post" enctype="multipart/form-data" action="<?= $u('/ui/profit/delivery/' . (int) $b['id'] . '/replace') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <label for="r-file"><?= $word('DELIVERY', 'file') ?> <span class="hint"><?= $word('DELIVERY', 'rm_replace_hint') ?></span></label>
-  <input id="r-file" type="file" name="file" accept=".html,.htm,text/html">
+  <input id="r-file" type="file" name="file" accept="<?= $e(($aiOn ?? false) ? '.html,.htm,text/html,.pdf,application/pdf,image/jpeg,image/png,image/webp,image/gif' : '.html,.htm,text/html') ?>">
+<?php if ($aiOn ?? false): ?>
+  <p class="hint ai-hint"><?= $word('AIREAD', 'hint_bill') ?></p>
+<?php endif; ?>
   <label for="r-text"><?= $word('DELIVERY', 'rm_text') ?></label>
   <textarea id="r-text" name="text" rows="3"></textarea>
   <p class="actions"><button type="submit" class="btn"><?= $word('DELIVERY', 'replace') ?></button></p>

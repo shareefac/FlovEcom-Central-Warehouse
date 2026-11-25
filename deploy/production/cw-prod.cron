@@ -93,3 +93,10 @@ MAILTO=""
 35 3 * * *  root  cd /opt/cw-prod && php bin/match_delivery_bills.php --db=cw_prod >> /var/log/cw/match_delivery_bills.log 2>&1
 # The Profit screens' day summaries of the last three days worked out again from the stored orders (PR22).
 40 3 * * *  root  cd /opt/cw-prod && php bin/rebuild_profit_days.php --db=cw_prod --days=3 --apply >> /var/log/cw/rebuild_profit_days.log 2>&1
+
+# ---- Claude reads the upload (CW-1182; docs/decisions.md AI3, AI11) ----
+# The PDFs and photos staff dropped on Profit > Delivery bills and Profit > Expenses read by Claude one at a time, here and never in the web
+# server's workers (a five-page bill takes minutes): each run stays about 55 seconds and looks every 2 seconds; one run at a time. It first
+# cleans up whatever the switch: a file or an answer older than an hour, a job left by a run that stopped, job rows older than a day. Nothing
+# is read while the setting ai.read_uploads is off or ai.anthropic_api_key is empty (as installed). 512M: a 10 MB PDF goes as base64.
+* * * * *  root  cd /opt/cw-prod && php -d memory_limit=512M bin/ai_read.php --db=cw_prod >> /var/log/cw/ai_read.log 2>&1
