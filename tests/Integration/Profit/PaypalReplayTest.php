@@ -94,6 +94,7 @@ final class PaypalReplayTest extends StockTestCase
         $ch = (int) $this->site('vapeandgo', 'live')->channelId;
         $ef = (int) $this->site('electrofag', 'live')->channelId;
         $this->setting('profit.paypal_from_vapeandgo', '"2026-10-01"');
+        $this->setting('profit.paypal_merchant_vapeandgo', '"TESTACCOUNT"');
         // a made-up paid order for each number of the two CW shops' forms, paid at its first sale
         $paid = ['vpg' => [], 'ef' => []];
         foreach ($rows as $r) {

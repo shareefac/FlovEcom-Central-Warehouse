@@ -8,8 +8,8 @@
 --    words: never a PayPal answer's text, never the key). The health alert reads the newest ok run (PPF14). Never deleted.
 --  * paypal_txn: one row per PayPal transaction read, by account, PayPal's transaction id AND its event code (PayPal gives a dispute hold
 --    T1110 and its release T1111 the same id: PPF2). Only what the money and the matching need: never a name, an e-mail, an address, the
---    item text or a note; the invoice and custom fields are kept as written only when they are a reference (letters, digits, . _ : | = / + -;
---    one with a space or an @ could be personal: only "dropped" is kept). The shop a row belongs to is the shop whose order-number form its
+--    item text or a note; of the invoice and custom fields only what ONE shop's order-number form captured is kept (the shop and the number:
+--    never the text itself, PPF36; a capture kept before stays when a later read's forms capture nothing). The shop a row belongs to is the shop whose order-number form its
 --    invoice matches (a setting per shop: Vape and Go <7 digits>-<10 digits>, Electrofag <4-6 digits>-<10 digits>, Hayati Vapes
 --    faaeeb-<digits>; the owner, 25 Nov 2026: ONE PayPal account takes the three shops' payments; PPF21). A re-read that brings another status, amount or fee changes the row in place (version + 1, its history
 --    keeps before and after), never a second row. What it is (kind, by its event code: PPF3), what it costs (PPF4), whether it counts now
@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS paypal_run (
   rows_changed   INT UNSIGNED      NOT NULL DEFAULT 0,
   allocated      INT UNSIGNED      NOT NULL DEFAULT 0 COMMENT 'rows whose allocation was decided (new, or moved)',
   refreshed_to   DATETIME(6)       NULL COMMENT 'PayPal''s last_refreshed_datetime of the last window read (UTC): its data is complete up to it',
+  covered_to     DATE              NULL COMMENT 'the last UK day this run PROVED read from from_day (each window stored and decided, its data fresh past the day; PPF38)',
   error          VARCHAR(255)      NULL COMMENT 'why it failed, in CW''s own words (never PayPal''s text, never the key)',
   actor          VARCHAR(64)       NOT NULL,
   started_at     DATETIME(6)       NOT NULL,
@@ -79,22 +80,26 @@ CREATE TABLE IF NOT EXISTS paypal_txn (
   amount_pence    BIGINT            NOT NULL COMMENT 'transaction_amount in pence, signed as PayPal gives it',
   fee_currency    CHAR(3)           NULL COMMENT 'fee_amount.currency_code; NULL: PayPal gave no fee',
   fee_pence       BIGINT            NOT NULL DEFAULT 0 COMMENT 'fee_amount in pence, signed as PayPal gives it (a fee taken is below 0)',
-  invoice_state   ENUM('none','kept','dropped') NOT NULL COMMENT 'the invoice_id: none given, kept as written (a reference), or dropped (could be personal: never kept)',
-  invoice_ref     VARCHAR(127)      NULL COMMENT 'kept: the invoice_id as written (the shops write their order number there: PPF21)',
-  custom_state    ENUM('none','kept','dropped') NOT NULL COMMENT 'the custom_field, the same way',
-  custom_ref      VARCHAR(127)      NULL COMMENT 'kept: the custom_field as written',
+  invoice_state   ENUM('none','order','dropped','overlap') NOT NULL COMMENT 'the invoice_id: none given; an order number of ONE shop''s form (kept below); none of the forms (nothing of it kept); two shops'' forms',
+  invoice_shop    VARCHAR(32)       NULL COMMENT 'order: the shop whose form captured it',
+  invoice_no      VARCHAR(12)       NULL COMMENT 'order: the order number the form captured (the only part of the invoice kept: PPF36)',
+  custom_state    ENUM('none','order','dropped','overlap') NOT NULL COMMENT 'the custom_field, the same way',
+  custom_shop     VARCHAR(32)       NULL,
+  custom_no       VARCHAR(12)       NULL,
+  read_sig        CHAR(16)          NULL COMMENT 'the account''s shops and forms it was last read with (another now: read again, PPF36)',
+  pp_conflict     TINYINT(1)        NOT NULL DEFAULT 0 COMMENT '1: PayPal gave other facts with the same updated time: a look until a newer version (PPF37)',
   form_shop       VARCHAR(32)       NULL COMMENT 'the shop whose order-number form its invoice (else custom field) matches (profit.paypal_form_<shop>); NULL: none or two',
   order_no        VARCHAR(12)       NULL COMMENT 'the order number that form carries: digits only',
   kind            ENUM('sale','refund','chargeback','fee','ignore','unknown') NOT NULL COMMENT 'what it is, by its event code (PPF3)',
   cost_pence      BIGINT            NOT NULL DEFAULT 0 COMMENT 'what it costs the shop (PPF4): sale and refund: the fee; chargeback and fee: the money and the fee; money back below 0',
   count_state     ENUM('counts','pending','not_counted','before_start','outside','look') NOT NULL
                   COMMENT 'counts; pending (status P, read again); not_counted (ignored kind, denied); before_start (before its shop''s first fee day, or its shop not switched on); outside (a shop CW does not hold: Hayati Vapes; kept, never counted); look (needs a look: never counted)',
-  look_reason     VARCHAR(32)       NULL COMMENT 'look: why (unknown_code, currency, fee_on_ignored, sign, status, form_lost, form_overlap, ref_conflict)',
+  look_reason     VARCHAR(32)       NULL COMMENT 'look: why (unknown_code, status, fee_on_ignored, currency, sign, pp_conflict, ref_conflict, form_overlap, ref_unresolved, ref_missing, form_lost)',
   match_state     ENUM('order','no_order','ambiguous','no_number') NULL COMMENT 'counts: on a CW order, a number no CW order has (yet), a number of two or more, or no number',
   matched_by      ENUM('reference','invoice','custom','none') NULL COMMENT 'how its shop and number were found: PayPal''s reference to its sale first, then its invoice, then its custom field (PPF24)',
   match_order_ref VARCHAR(64)       NULL COMMENT 'order: the order of its shop with its number (also when nothing of it counts: a chargeback all refunded)',
   refund_offset_pence BIGINT        NOT NULL DEFAULT 0 COMMENT 'a chargeback on an order: the money taken back CW already holds as the order''s refund, not counted again (PPF23)',
-  refund_seen_pence BIGINT          NULL COMMENT 'a chargeback on an order: the order''s refunds (inc VAT) its decision was made with (another later: decided again)',
+  refund_seen_pence BIGINT          NULL COMMENT 'a chargeback that counts on an order: the order''s refund budget its decision was made with (the refunds CW counts in profit, less PayPal''s own refunds of it: PPF34; another later: decided again)',
   decided_sig     CHAR(16)          NULL COMMENT 'the account''s shops and forms its decision was made by (another now: decided again, PPF26)',
   candidates      TINYINT UNSIGNED  NOT NULL DEFAULT 0 COMMENT 'ambiguous: how many orders have its number',
   shop_channel    SMALLINT UNSIGNED NULL COMMENT 'counts, pending, before_start: the CW shop it belongs to (its form''s, else the account''s main shop; PPF21)',
@@ -125,6 +130,9 @@ CREATE TABLE IF NOT EXISTS paypal_txn (
   KEY ix_paypal_txn_last_run (last_run),
   KEY ix_paypal_txn_sig (account, decided_sig),
   KEY ix_paypal_txn_kind (account, kind, matched_by),
+  KEY ix_paypal_txn_no (account, order_no, kind),
+  KEY ix_paypal_txn_ref (account, ref_txn_id),
+  KEY ix_paypal_txn_read (account, read_sig, day),
   CONSTRAINT fk_paypal_txn_channel FOREIGN KEY (channel_id) REFERENCES channel (id),
   CONSTRAINT fk_paypal_txn_alloc_channel FOREIGN KEY (alloc_channel) REFERENCES channel (id),
   CONSTRAINT fk_paypal_txn_shop_channel FOREIGN KEY (shop_channel) REFERENCES channel (id),
@@ -137,7 +145,10 @@ CREATE TABLE IF NOT EXISTS paypal_txn (
     AND (ref_txn_id IS NULL OR REGEXP_LIKE(ref_txn_id, '^[A-Za-z0-9][A-Za-z0-9-]{0,31}$', 'c')) AND (ref_type IS NULL OR REGEXP_LIKE(ref_type, '^[A-Z]{1,8}$', 'c'))
     AND (order_no IS NULL OR REGEXP_LIKE(order_no, '^[0-9]{1,12}$', 'c')) AND (order_no IS NULL OR form_shop IS NOT NULL)
     AND (form_shop IS NULL OR REGEXP_LIKE(form_shop, '^[a-z][a-z0-9_]{0,31}$', 'c'))
-    AND (invoice_state = 'kept') = (invoice_ref IS NOT NULL) AND (custom_state = 'kept') = (custom_ref IS NOT NULL)),
+    AND (invoice_state = 'order') = (invoice_no IS NOT NULL) AND (invoice_shop IS NULL) = (invoice_no IS NULL)
+    AND (custom_state = 'order') = (custom_no IS NOT NULL) AND (custom_shop IS NULL) = (custom_no IS NULL)
+    AND (invoice_no IS NULL OR REGEXP_LIKE(invoice_no, '^[0-9]{1,12}$', 'c')) AND (custom_no IS NULL OR REGEXP_LIKE(custom_no, '^[0-9]{1,12}$', 'c'))
+    AND pp_conflict IN (0, 1)),
   CONSTRAINT ck_paypal_txn_alloc CHECK (
     (alloc_dest IS NULL AND alloc_channel IS NULL AND alloc_order_ref IS NULL AND alloc_day IS NULL AND alloc_pence = 0)
     OR (alloc_dest = 'order' AND alloc_channel IS NOT NULL AND alloc_order_ref IS NOT NULL)
@@ -188,6 +199,9 @@ INSERT INTO app_setting (setting_key, value_type, value_json, provisional, decis
  ('profit.paypal_form_vapeandgo','string','"^([0-9]{7})-[0-9]{10}$"',0,'PPF21','Vape and Go''s order number in a PayPal invoice: a pattern whose (part) is the order number'),
  ('profit.paypal_form_electrofag','string','"^([0-9]{4,6})-[0-9]{10}$"',0,'PPF21','Electrofag''s order number in a PayPal invoice: a pattern whose (part) is the order number'),
  ('profit.paypal_form_hayati','string','"^faaeeb-([0-9]{1,6})$"',0,'PPF21','Hayati Vapes'' order number in a PayPal invoice (a WooCommerce shop CW does not hold: kept, never counted)'),
+ ('profit.paypal_main_vapeandgo','string','"vapeandgo"',0,'PPF35','The main shop of the PayPal account vapeandgo, pinned: the account''s shops list must start with it, and its key must name it'),
+ ('profit.paypal_merchant_vapeandgo','string','""',0,'PPF39','PayPal''s account number of the merchant of the account vapeandgo: its key must name it and every page PayPal gives must be of it (the go-live kit sets it)'),
+ ('profit.paypal_live_vapeandgo','bool','true',0,'PPF39','The account vapeandgo''s key must be for PayPal''s live host (production)'),
  ('profit.paypal_reread_days','int','7',0,'PPF13','How many days back the nightly PayPal read goes again (statuses change, rows arrive late, orders reach CW late)'),
  ('profit.paypal_not_on_order_alarm','decimal','"50"',0,'PPF13','A day whose PayPal money on no CW order is above this many pounds is in the health alert')
  ON DUPLICATE KEY UPDATE setting_key = setting_key;
@@ -195,6 +209,6 @@ INSERT INTO app_setting (setting_key, value_type, value_json, provisional, decis
 INSERT INTO config_change (subject_type, subject_key, version, action, state, actor)
   SELECT 'setting', s.setting_key, 1, 'baseline', JSON_OBJECT('value', CAST(s.value_json AS CHAR), 'provisional', s.provisional), 'system:migrate'
   FROM app_setting s WHERE s.setting_key IN ('profit.paypal_from_vapeandgo', 'profit.paypal_from_electrofag', 'profit.paypal_from_vapebig',
-    'profit.paypal_shops_vapeandgo', 'profit.paypal_form_vapeandgo', 'profit.paypal_form_electrofag', 'profit.paypal_form_hayati', 'profit.paypal_reread_days',
+    'profit.paypal_shops_vapeandgo', 'profit.paypal_main_vapeandgo', 'profit.paypal_merchant_vapeandgo', 'profit.paypal_live_vapeandgo', 'profit.paypal_form_vapeandgo', 'profit.paypal_form_electrofag', 'profit.paypal_form_hayati', 'profit.paypal_reread_days',
     'profit.paypal_not_on_order_alarm')
     AND NOT EXISTS (SELECT 1 FROM config_change c WHERE c.subject_type = 'setting' AND c.subject_key = s.setting_key);

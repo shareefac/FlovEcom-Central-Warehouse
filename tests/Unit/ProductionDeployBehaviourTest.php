@@ -368,6 +368,31 @@ final class ProductionDeployBehaviourTest extends TestCase
         self::assertDoesNotMatchRegularExpression('/systemctl|a2dissite|migrate\.php/', $this->calls());
     }
 
+    /**
+     * The release a go-live kit pinned and the release it found running, checked again by the installer under its own lock (CW-1172 final
+     * review d2): a release copy replaced after the kit's check, or another release running, is refused before anything is built or paused.
+     */
+    public function testTheExpectedRevisionAndRunningReleaseAreCheckedUnderTheLock(): void
+    {
+        $this->needBox();
+        $this->installedBox();
+        $running = $this->running();
+        [$code, $out, $err] = $this->runScript('install_cron.sh', ['--migrate', '--expect-revision=' . self::MID]);
+        self::assertSame(1, $code, $out . $err);
+        self::assertStringContainsString('not the expected ' . self::MID . ' (a push replaced it): nothing was built or paused', $err);
+        [$code, $out, $err] = $this->runScript('install_cron.sh', ['--migrate', '--expect-revision=' . self::NEW, '--expect-active=' . self::MID]);
+        self::assertSame(1, $code, $out . $err);
+        self::assertStringContainsString('the running release is ' . self::OLD . ', not the expected ' . self::MID, $err);
+        self::assertSame([self::OLD], $this->entries('opt/cw-prod-releases'), 'nothing built');
+        self::assertSame($running, $this->running(), 'nothing paused, nothing switched');
+        self::assertDoesNotMatchRegularExpression('/systemctl|a2dissite|migrate\.php|rsync/', $this->calls());
+        [$code, , $err] = $this->runScript('install_cron.sh', ['--expect-revision=abc']);
+        self::assertSame(2, $code, $err);
+        // the expected pair: it installs as without them
+        [$code, $out, $err] = $this->runScript('install_cron.sh', ['--migrate', '--expect-revision=' . self::NEW, '--expect-active=' . self::OLD]);
+        self::assertSame(0, $code, $out . $err);
+    }
+
     /** A pending migration without --migrate: exit 3, and nothing that runs changes (the new release is only built beside the running one). */
     public function testAPendingMigrationWithoutMigrateChangesNothingThatRuns(): void
     {

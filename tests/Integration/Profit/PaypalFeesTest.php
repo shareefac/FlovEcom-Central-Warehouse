@@ -140,6 +140,7 @@ final class PaypalFeesTest extends StockTestCase
     {
         // Vape and Go switched on from 1 Nov (the go-live kit's step; 0080 leaves it empty)
         $this->setting('profit.paypal_from_vapeandgo', '"2026-11-01"');
+        $this->setting('profit.paypal_merchant_vapeandgo', '"TESTACCOUNT"');
         $ch = (int) $this->site('vapeandgo', 'live')->channelId;
         self::order($ch, '1001', '1312001', '2026-11-03T10:00:00Z');
         self::order($ch, '1002', '1312002', '2026-11-04T09:00:00Z');
@@ -209,9 +210,9 @@ final class PaypalFeesTest extends StockTestCase
         self::assertSame($days, self::days($ch));
         self::assertSame($hist, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn_history'));
         self::assertSame(18, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn'));
-        // PayPal says the pending sale is done now: the same row, changed in place with its history, its fee on its order's day
+        // PayPal says the pending sale is done now (a newer version: PPF37): the same row, changed in place with its history, its fee on its order's day
         $month = self::month();
-        $month[13] = PaypalTx::sale('1A0000000000000F1', '2026-11-08T10:00:00Z', '25.00', '-0.50', '1312004', 'S');
+        $month[13] = ['transaction_updated_date' => '2026-11-09T10:00:00Z'] + PaypalTx::sale('1A0000000000000F1', '2026-11-08T10:00:00Z', '25.00', '-0.50', '1312004', 'S');
         $http->set($month);
         $r = self::fees()->run(self::system(), self::api($http), '2026-11-02', '2026-11-24', 'nightly');
         self::assertSame([0, 1, 1], [$r['new'], $r['changed'], $r['allocated']]);
@@ -258,6 +259,7 @@ final class PaypalFeesTest extends StockTestCase
         self::assertDaysRebuild($ch);
         // the switch-on day moved back to 31 Oct: the sale of 31 Oct counts on its order's day now (the next run)
         $this->setting('profit.paypal_from_vapeandgo', '"2026-10-31"');
+        $this->setting('profit.paypal_merchant_vapeandgo', '"TESTACCOUNT"');
         self::fees()->run(self::system(), self::api($http), '2026-11-20', '2026-11-24', 'nightly');
         self::assertSame(['counts', '1001', 99], [self::rows()['1A0000000000000G1|T0006']['count_state'], self::rows()['1A0000000000000G1|T0006']['alloc_order_ref'],
             (int) self::rows()['1A0000000000000G1|T0006']['alloc_pence']]);
@@ -311,7 +313,9 @@ final class PaypalFeesTest extends StockTestCase
         // 27 hours later with no run: not read
         $late = array_column(PaypalFees::health(self::$db, new \DateTimeImmutable('2026-11-26T08:30:00Z')), 'kind');
         self::assertContains('paypal_not_read', $late);
-        self::assertContains('paypal_stale', $late, 'PayPal\'s own data complete only up to 25 Nov 02:00: 30 hours old (fix round 1)');
+        // PayPal's data was 3 hours old when read (25 Nov 02:00 at 05:20): never stale for it later (final review c3; the missed nightly is the
+        // "not read" alert above)
+        self::assertNotContains('paypal_stale', $late);
         // the Real profit: Vape and Go's fees line is its PayPal money of the month
         $real = (new ExpenseViews(self::$db))->realProfit('2026-11-01', '2026-11-30', $ch, false);
         self::assertSame([5870, '2026-11-01'], [$real[0]['fees'], $real[0]['fees_from']]);
@@ -328,6 +332,7 @@ final class PaypalFeesTest extends StockTestCase
             self::assertSame('staff_cannot', $e->errorCode);
         }
         $this->setting('profit.paypal_from_vapeandgo', '"2026-11-01"');
+        $this->setting('profit.paypal_merchant_vapeandgo', '"TESTACCOUNT"');
         self::fees()->refused('vapeandgo', 'the PayPal key file of vapeandgo is missing: nothing was read');
         self::assertContains('paypal_failed', $kinds());
     }

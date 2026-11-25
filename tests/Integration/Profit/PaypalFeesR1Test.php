@@ -117,6 +117,7 @@ final class PaypalFeesR1Test extends StockTestCase
         $this->vpg = (int) $this->site('vapeandgo', 'live')->channelId;
         $this->ef = (int) $this->site('electrofag', 'live')->channelId;
         $this->setting('profit.paypal_from_vapeandgo', '"2026-11-01"');
+        $this->setting('profit.paypal_merchant_vapeandgo', '"TESTACCOUNT"');
         $this->setting('profit.paypal_from_electrofag', '"2026-11-01"');
         self::order($this->vpg, '1001', '1312001', '2026-11-03T10:00:00Z');
         self::order($this->vpg, '1002', '1312002', '2026-11-04T09:00:00Z');
@@ -168,11 +169,19 @@ final class PaypalFeesR1Test extends StockTestCase
         self::assertSame(['look', 'form_lost'], [self::row('2A0000000000000H1')['count_state'], self::row('2A0000000000000H1')['look_reason']]);
         self::assertSame($vpg, self::days($this->vpg), 'nothing moved to Vape and Go');
         self::assertSame([], self::days($this->ef));
-        // two shops' forms for one invoice: a look, never a guess
+        // two shops' forms for one invoice: a row first read so needs a look, never a guess; a row whose shop was captured before keeps it (the
+        // evidence of the forms it was read by, final review a7, PPF36), read again or not
         $this->setting('profit.paypal_shops_vapeandgo', '"vapeandgo,electrofag,hayati"');
         $this->setting('profit.paypal_form_hayati', '"^([0-9]{7})-[0-9]{10}$"');
-        self::decideAll();
-        self::assertSame(['look', 'form_overlap'], [self::row('2A0000000000000V1')['count_state'], self::row('2A0000000000000V1')['look_reason']]);
+        $http->set([PaypalTx::sale('2A0000000000000E1', '2026-11-06T09:00:00Z', '20.00', '-0.70', '5457'),
+            PaypalTx::sale('2A0000000000000H1', '2026-11-05T11:30:00Z', '12.00', '-0.40', null) + ['invoice_id' => 'faaeeb-3090', 'custom_field' => '3090'],
+            PaypalTx::sale('2A0000000000000V1', '2026-11-03T10:01:00Z', '50.00', '-1.20', '1312001'),
+            PaypalTx::sale('2A0000000000000V2', '2026-11-04T10:01:00Z', '30.00', '-0.90', '1312002')]);
+        self::readPp($http);
+        self::assertSame(['look', 'form_overlap'], [self::row('2A0000000000000V2')['count_state'], self::row('2A0000000000000V2')['look_reason']]);
+        self::assertSame(['counts', '1001', 'vapeandgo'], [self::row('2A0000000000000V1')['count_state'], self::row('2A0000000000000V1')['match_order_ref'],
+            self::row('2A0000000000000V1')['invoice_shop']]);
+        self::assertSame($vpg, self::days($this->vpg), 'the new row of two forms counts nowhere');
         self::assertSame(['2026-11-06|fee_cost' => 70], self::days($this->ef), 'Electrofag back on its order');
         self::assertContains('paypal_needs_look', array_column(PaypalFees::health(self::$db, new \DateTimeImmutable(self::PP_NOW . 'Z')), 'kind'));
         self::assertDaysRebuild($this->vpg);
@@ -198,11 +207,13 @@ final class PaypalFeesR1Test extends StockTestCase
             (int) self::row('2A0000000000000E3')['alloc_pence']]);
         self::assertSame(['look', 'ref_conflict'], [self::row('2A0000000000000E4')['count_state'], self::row('2A0000000000000E4')['look_reason']]);
         self::assertSame(['2026-11-06|fee_cost' => 70, '2026-11-08|fee_cost' => 3400], self::days($this->ef));
-        // a refund read before its sale (its window first): on Vape and Go's line for now; the sale read later takes it to its own order
+        // a refund read before its sale (its window first), with no invoice of its own: it waits for a look, never on Vape and Go's line (final
+        // review a6); the sale read later takes it to its own order
         $refund = ['paypal_reference_id' => '2A0000000000000F1'] + PaypalTx::refund('2A0000000000000F2', '2026-11-12T12:00:00Z', '-5.00', '0.10', null);
         $http->set([...$rows, $refund]);
         self::readPp($http, '2026-11-12', '2026-11-12');
-        self::assertSame(['shop', 'no_number'], [self::row('2A0000000000000F2')['alloc_dest'], self::row('2A0000000000000F2')['match_state']]);
+        self::assertSame(['look', 'ref_missing', null], [self::row('2A0000000000000F2')['count_state'], self::row('2A0000000000000F2')['look_reason'],
+            self::row('2A0000000000000F2')['alloc_dest']]);
         $http->set([...$rows, $refund, PaypalTx::sale('2A0000000000000F1', '2026-11-06T09:30:00Z', '20.00', '-0.70', '5458')]);
         self::readPp($http, '2026-11-06', '2026-11-06');
         self::assertSame(['order', '2002', (string) $this->ef], [self::row('2A0000000000000F2')['alloc_dest'], self::row('2A0000000000000F2')['alloc_order_ref'],
@@ -232,13 +243,17 @@ final class PaypalFeesR1Test extends StockTestCase
         $this->shops();
         $http = new FakePaypalHttp([PaypalTx::sale('2A0000000000000E1', '2026-11-06T09:00:00Z', '20.00', '-0.70', '5457')]);
         self::readPp($http);
-        // B (Electrofag's numbers of 5 digits only) decided without a PayPal read (--decide), then A put back: decided back
+        // B (Electrofag's numbers of 5 digits only) decided without a PayPal read (--decide): decided again by B, its shop as captured (a form
+        // edit takes effect at a row's next read; the evidence is kept: final review a7), then A put back: decided again by A
+        $sigA = (string) self::row('2A0000000000000E1')['decided_sig'];
         $this->setting('profit.paypal_form_electrofag', '"^([0-9]{5})-[0-9]{10}$"');
         self::decideAll();
-        self::assertSame('look', self::row('2A0000000000000E1')['count_state']);
+        self::assertSame(['counts', '2001'], [self::row('2A0000000000000E1')['count_state'], self::row('2A0000000000000E1')['alloc_order_ref']]);
+        self::assertNotSame($sigA, (string) self::row('2A0000000000000E1')['decided_sig']);
         $this->setting('profit.paypal_form_electrofag', '"^([0-9]{4,6})-[0-9]{10}$"');
         self::decideAll();
-        self::assertSame(['counts', '2001'], [self::row('2A0000000000000E1')['count_state'], self::row('2A0000000000000E1')['alloc_order_ref']]);
+        self::assertSame(['counts', '2001', $sigA], [self::row('2A0000000000000E1')['count_state'], self::row('2A0000000000000E1')['alloc_order_ref'],
+            (string) self::row('2A0000000000000E1')['decided_sig']]);
         self::assertSame(['2026-11-06|fee_cost' => 70], self::days($this->ef));
     }
 
@@ -301,8 +316,8 @@ final class PaypalFeesR1Test extends StockTestCase
             + ['invoice_id' => '1312001-1763700000', 'custom_field' => '07700900123']]);
         self::readPp($http);
         $r = self::row('2A0000000000000V1');
-        self::assertSame(['kept', '1312001-1763700000', 'dropped', null], [$r['invoice_state'], $r['invoice_ref'], $r['custom_state'], $r['custom_ref']]);
-        self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM paypal_txn_history WHERE CAST(after_json AS CHAR) LIKE '%07700900123%'"));
+        self::assertSame(['order', 'vapeandgo', '1312001', 'dropped', null], [$r['invoice_state'], $r['invoice_shop'], $r['invoice_no'], $r['custom_state'], $r['custom_no']]);
+        self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM paypal_txn_history WHERE CAST(after_json AS CHAR) LIKE '%07700900123%' OR CAST(after_json AS CHAR) LIKE '%1763700000%'"));
         // made due long after it was read (a form change): never "due for 26 hours" at once
         self::$db->exec("UPDATE paypal_txn SET changed_at = '2026-10-01 00:00:00' WHERE txn_id = '2A0000000000000V1'");
         $this->setting('profit.paypal_form_electrofag', '"^([0-9]{4,5})-[0-9]{10}$"');

@@ -68,6 +68,8 @@ final class Settings
         // invoice (a pattern with ONE (part): the number; PaypalFees checks it compiles, else the run is refused and the alert says so)
         'profit.paypal_shops_vapeandgo' => ['pattern' => '/^[a-z][a-z0-9_]{0,31}(,[a-z][a-z0-9_]{0,31})*$/D',
             'pattern_says' => 'shop codes separated by commas, the main shop first, like vapeandgo,electrofag,hayati'],
+        'profit.paypal_main_vapeandgo' => ['pattern' => '/^[a-z][a-z0-9_]{0,31}$/D', 'pattern_says' => 'one shop code, the main shop of the account, like vapeandgo'],
+        'profit.paypal_merchant_vapeandgo' => ['pattern' => '/^([A-Z0-9]{8,20})?$/D', 'pattern_says' => 'PayPal\'s account number of the merchant (8 to 20 capital letters and digits)'],
         'profit.paypal_form_vapeandgo' => ['pattern' => '/^\^[^()]*\([^()]+\)[^()]*\$$/D', 'pattern_says' => 'a pattern from ^ to $ with one (part): the order number'],
         'profit.paypal_form_electrofag' => ['pattern' => '/^\^[^()]*\([^()]+\)[^()]*\$$/D', 'pattern_says' => 'a pattern from ^ to $ with one (part): the order number'],
         'profit.paypal_form_hayati' => ['pattern' => '/^\^[^()]*\([^()]+\)[^()]*\$$/D', 'pattern_says' => 'a pattern from ^ to $ with one (part): the order number'],

@@ -21655,3 +21655,66 @@ the kit's gate is bound to ITS run (the id its own line prints, RUN=<id> ok: an 
 day asked) and reconciles every shop's PayPal allocations, worked out on their own, against its profit days day by day; `golive.sh apply`
 checks the exact start again (or, after a stopped apply of the same tip, only the states its own install leaves); the switch-on step sets
 Electrofag's first fee day too (2026-12-01, its first real-profit day; tested: the day before out, the day itself in).
+
+### Final review: Codex astra on 5f197ca (`runs/codex_25nov/paypal_final_astra_final.md`: 13 HIGH, 9 MEDIUM, 3 LOW), each shown failing first on 5f197ca (`runs/paypal_r2_red.log`: 8 of 8 red) and then green (PPF34-PPF40)
+
+**PPF34. A chargeback's refund offset: only from chargebacks that count, only from refunds CW counts, never from PayPal's own refunds (a1, a3, a4; HIGH x3).**
+The order's budget is the refunds CW counts in profit on it (lines, order level, delivery, inc VAT; none while the order is not paid in CW,
+none on a re-send: its refunds take nothing off) LESS PayPal's own refunds of that order (T1107, done or reversed, counted or before the first
+fee day: PayPal paid that money out, so it is real money out beside the chargeback). Only the chargebacks that COUNT on that order (not
+pending, denied, not understood, before the first fee day, of two forms, another currency) use the budget, in time order, each at most its own
+money taken back. The budget a decision used is kept (`refund_seen_pence`); the nightly rematch works it out again (paid, unpaid, a re-send, a
+refund in CW, a PayPal refund read) and decides the chargeback again when it differs. Example (a3): a £20 refund PayPal paid out that CW
+holds, then an £80 chargeback: both count (£20 + £80). Example (a4): £30 refunded in CW on an order CW does not count yet, a £30 chargeback:
+£30 counts now; the order paid in CW later: the chargeback is decided again and counts £0 (its refund counts instead). **The lead's question
+(a3):** PayPal's refund rows have no "this refund is a dispute's" mark, so CW tells the two apart by whether PayPal paid the refund out (a
+T1107 on the order). My pick: the rule above (a CW refund PayPal did not pay out is taken as the chargeback's own, e.g. staff marking the
+order refunded after the chargeback; one PayPal paid out never offsets). The other way would be no offset at all (every chargeback counts
+whole, and a CW refund recorded because of the chargeback counts twice). Decide before the go-live if the pick is not right.
+
+**PPF35. A moved chargeback re-decides its old order's others; children follow their parent; an unresolved parent holds its child; the main
+shop is pinned (a2, a5, a6, a8; HIGH x4).** A refund or chargeback decided brings into the same guarded write every refund and chargeback on
+the same order number of its shop, as resolved now AND as stored (so a chargeback moved from A to B gives A's budget back to A's other
+chargebacks at once). A row whose shop, number, order or state changes marks due, in the same write, every row whose PayPal reference names
+it (its refunds, chargebacks, fees: fee -> chargeback -> sale), decided in the same decideAll (up to four rounds; a row decided more than
+eight times is a loop: refused). A row whose referred row has no clear shop (a conflict, two forms, a shop lost, unresolved itself) needs a
+look (`ref_unresolved`); a row whose PayPal reference (a transaction) is not held by CW and whose own fields name no shop needs a look
+(`ref_missing`; checked on the real rows: every refund, chargeback and fee of Oct-Nov carries its own invoice, so none is held). Neither is
+ever put on the main shop's line. `profit.paypal_main_<account>` pins the main shop (vapeandgo): a shops list that does not start with it is
+refused (`paypal_bad_shops`) before any decision or read, --decide included.
+
+**PPF36. Of the invoice and custom fields only a form's capture is kept, and the evidence is never lost to a re-read (a7, e1; HIGH +
+MEDIUM).** The store keeps `invoice_state` (none, order, dropped, overlap) with `invoice_shop` and `invoice_no` (the shop whose form captured
+it and the number: never the text, so a form like ^([0-9]{7})-.+$ never keeps the phone number after it), the same for the custom field. A
+capture kept before stays when a later read's forms capture nothing (a form narrowed meanwhile); a capture of a later read replaces it. A
+decision uses the captures (a form edit takes effect at a row's next read, never by --decide alone). Every row of a window's days is marked
+read with the account's shops and forms (`read_sig`); the nightly reads back from the oldest day of rows read under other forms (never
+before the first fee day), so a form put back recovers the rows first read under the narrowed one.
+
+**PPF37. The newer PayPal version wins (a9; MEDIUM).** transaction_updated_date to the microsecond: an older version than the one kept changes
+nothing; the same time with other facts keeps the facts, marks the row `pp_conflict` (needs a look, never counted; the history keeps both)
+until a newer version says which; a newer one replaces them and clears the mark.
+
+**PPF38. Coverage only with fresh data, window by window; the stale alert at the read (c1, c2, c3; HIGH x2 + MEDIUM).** Each window stored
+proves its days only up to the last whole UK day before PayPal's last_refreshed_datetime (none given: nothing proven); the run's
+`covered_to` moves on window by window and is kept when a later window fails or the deadline ends the run, so a catch-up longer than one
+night resumes where it stopped. coveredUntil joins every run's from_day..covered_to (any state). The "not read" alert wants the coverage to
+reach the day before yesterday (the 05:20 nightly proves yesterday); `paypal_stale` is PayPal's data more than 12 hours old WHEN CW READ IT
+(or no refresh time given), by the newest ok run: never against the clock between two nightlies.
+
+**PPF39. The merchant and the live host are CW's own settings, checked at every run; a refusal is a failed run (b1, b2; HIGH + MEDIUM).**
+`profit.paypal_merchant_<account>` (PayPal's account number of the merchant; the go-live kit sets it) must equal the key's merchant_id (and
+every page's account_number, PPF29); `profit.paypal_live_<account>` (true) requires the live host. Not set, another merchant, or a sandbox key:
+refused before reading, recorded as a failed run (`paypal_failed` at once), exit 3.
+
+**PPF40. The rest (c4, e2, e3, d6; LOW x3 + MEDIUM).** PP1 and PP2 judge decided rows only (a row due keeps its old place against its new facts
+until decided; PP4 times it); an offset only on a row that counts. An unknown status needs a look before an ignored row is let go.
+--status counts every row that needs a look and shows the newest 50 with CW's own row id. The job reads PayPal only when a shop of the account
+has its first fee day set AND reached (the quick stop clears every shop's day of the shared account; Electrofag's day to come reads nothing).
+
+Also (the kit; d1-d7): the apply gate accepts a part-applied 0080 (its tables empty and of the migration's shape, no migration record) and
+the installer finishes it under its lock; `install_cron.sh --expect-revision=<tip> --expect-active=<release>` checks the pinned tip and the
+starting release under the installer's own lock; the backfill gate reconciles gross, offsets and net (net = gross − offsets; the days hold
+the net, less sale fees on orders not paid in CW) and the day figures in ONE consistent read; a row needing a look, a row still due or money
+counted nowhere in the pinned days fails the gate; the RUNBOOK's quick stop clears every shop of the shared account; returning from the
+rollback release rebuilds every day from the first fee day and reconciles them.

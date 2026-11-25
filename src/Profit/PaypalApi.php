@@ -62,6 +62,18 @@ final class PaypalApi
         return $this->key->shop;
     }
 
+    /** PayPal's account number of the merchant the key is of (PaypalFees::run checks it against CW's own setting at every run: PPF39). */
+    public function merchant(): string
+    {
+        return $this->key->merchantId;
+    }
+
+    /** Whether the key is for PayPal's live host (not the sandbox). */
+    public function live(): bool
+    {
+        return $this->key->live();
+    }
+
     /**
      * Every row of the window [$from, $to] (UTC instants, at most MAX_WINDOW_DAYS apart): PayPal's transaction_info objects as decoded, the
      * pages read, and PayPal's last_refreshed_datetime (its data is complete up to it).

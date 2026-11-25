@@ -66,10 +66,10 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
             }
             $out[] = sprintf('  waiting: %d due, %d pending (oldest %s), %d sale fees on orders not paid in CW (%s)', $s['due'], $s['pending'], $s['oldest_pending'] ?? '-',
                 $s['unpaid']['rows'], ProfitViews::gbp($s['unpaid']['pence']));
-            $out[] = '  needs a look: ' . count($s['look']);
+            $out[] = sprintf('  needs a look: %d%s', $s['look_total'], $s['look_total'] > count($s['look']) ? sprintf(' (the newest %d shown)', count($s['look'])) : '');
             foreach ($s['look'] as $r) {
-                $out[] = sprintf('    %s %s status %s %s (%s): %s %s, fee %s', $r['day'], $r['event_code'], $r['status'], $r['kind'], $r['look_reason'], $r['currency'],
-                    ProfitViews::gbp((int) $r['amount_pence']), ProfitViews::gbp((int) $r['fee_pence']));
+                $out[] = sprintf('    row %d: %s %s status %s %s (%s): %s %s, fee %s', $r['id'], $r['day'], $r['event_code'], $r['status'], $r['kind'], $r['look_reason'],
+                    $r['currency'], ProfitViews::gbp((int) $r['amount_pence']), ProfitViews::gbp((int) $r['fee_pence']));
             }
             fwrite(STDOUT, implode("\n", $out) . "\n");
             return Cli::OK;
@@ -88,14 +88,17 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
             $cli->log("{$account}: {$n} PayPal rows decided again");
             return Cli::OK;
         }
-        // no shop of the account switched on: nothing to read (exit 0, as a job switched off; before the go-live and on staging)
+        // no shop of the account switched on with its first fee day reached: nothing to read (exit 0, as a job switched off; before the go-live,
+        // on staging, and the quick stop: every shop of the shared account cleared; a shop whose day is still to come reads nothing yet: final
+        // review d6)
+        $today = $fees->today();
         $on = array_filter(PaypalFees::accountShops($cli->db, $account), static fn (array $sh): bool => $sh['id'] !== null
-            && PaypalFees::feesFrom($cli->db, $sh['code']) !== null);
+            && ($d = PaypalFees::feesFrom($cli->db, $sh['code'])) !== null && $d <= $today);
         if ($on === []) {
             // switched off (also: switched off again, the quick stop): no PayPal call, but every row counted before is decided again, so its
             // money leaves the profit days (before_start); the rows stay
             $n = $fees->locked($account, static fn (): int => $fees->decideAll($caller, $account, null, $deadline));
-            $cli->log("{$account}: switched off (no shop of it has profit.paypal_from_<shop> set); nothing read; {$n} rows decided again");
+            $cli->log("{$account}: switched off (no shop of it has profit.paypal_from_<shop> set on or before today); nothing read; {$n} rows decided again");
             return Cli::OK;
         }
         // the local decisions first, with no PayPal call (a shop switched off, forms changed, orders that reached CW): made even when the key or
@@ -115,7 +118,6 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
             $cli->error($e->getMessage());
             return Cli::CANNOT_RUN;
         }
-        $today = $fees->today();
         if (isset($opts['from'])) {
             $from = (string) $opts['from'];
             $to = is_string($opts['to'] ?? null) ? $opts['to'] : $today;
@@ -134,7 +136,12 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
             $r = $fees->run($caller, $api, $from, $to, $kind, $deadline);
         } catch (CwException $e) {
             $cli->error("{$account} {$kind} {$from}..{$to}: " . $e->getMessage());
-            return $e->errorCode === 'paypal_bad_days' ? Cli::USAGE : Cli::PROBLEM;
+            // refused before reading (the key's shop, merchant or host; the account's shops): recorded as a failed run, said as cannot run
+            return match ($e->errorCode) {
+                'paypal_bad_days' => Cli::USAGE,
+                'paypal_key_refused', 'paypal_no_shops', 'paypal_bad_shops', 'paypal_bad_form' => Cli::CANNOT_RUN,
+                default => Cli::PROBLEM,
+            };
         }
         $cli->log(sprintf('%s %s %s..%s: RUN=%d ok, %d windows, %d pages, %d rows (%d new, %d changed), %d decided (+%d before reading), PayPal complete to %s, %.1f s (%s)',
             $account, $kind, $from, $to, $r['run'], $r['windows'], $r['pages'], $r['read'], $r['new'], $r['changed'], $r['allocated'], $local, $r['refreshed'] ?? '-', microtime(true) - $t,

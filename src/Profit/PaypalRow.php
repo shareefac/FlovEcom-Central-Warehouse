@@ -10,22 +10,20 @@ use CW\Reports\ReportRefresh;
 /**
  * One transaction_info object of PayPal's Transaction Search, read strictly (docs/decisions.md PPF2, PPF10): the fields CW keeps, in CW's
  * shapes, or a refusal that names the row and the field, never what it holds (checklist 6: a window with one row not understood is
- * refused whole). Nothing personal is read or kept: no payer, no item text, no note. The invoice and custom fields are kept as written only
- * when they are a reference (letters, digits and . _ : | = / + - only, at most 127: the shops write the order number there, PPF21); one with
- * a space, an @ or anything else (it could be a name or an e-mail) is never kept, only that there was one ("dropped").
+ * refused whole). Nothing personal is read or kept: no payer, no item text, no note. The invoice and custom fields are given to the store as
+ * read (`invoice_raw`, `custom_raw`), which keeps of them ONLY the order number a shop's form captures (PPF36): the text itself is never
+ * stored.
  */
 final class PaypalRow
 {
-    /** What an invoice or custom field kept as written may hold. */
-    public const REF_FORM = '/^[A-Za-z0-9._:|=\/+-]{1,127}$/D';
     /** PayPal's longest invoice_id / custom_field (127 characters); anything much longer is not PayPal's. */
     public const TEXT_MAX = 255;
 
     /**
      * @param mixed $ti one transaction_info object as decoded from PayPal's JSON
      * @return array{txn_id: string, event_code: string, ref_txn_id: ?string, ref_type: ?string, status: string, initiated_at: string,
-     *   pp_updated_at: ?string, day: string, currency: string, amount_pence: int, fee_currency: ?string, fee_pence: int, invoice_state: string,
-     *   invoice_ref: ?string, custom_state: string, custom_ref: ?string}
+     *   pp_updated_at: ?string, day: string, currency: string, amount_pence: int, fee_currency: ?string, fee_pence: int, invoice_raw: ?string,
+     *   custom_raw: ?string}
      */
     public static function parse(mixed $ti, int $index): array
     {
@@ -61,7 +59,7 @@ final class PaypalRow
         return ['txn_id' => $txn, 'event_code' => $code, 'ref_txn_id' => $refId, 'ref_type' => $refType, 'status' => $status,
             'initiated_at' => $initiated, 'pp_updated_at' => $updated, 'day' => ReportRefresh::ukDay($initiated), 'currency' => (string) $currency,
             'amount_pence' => (int) $amount, 'fee_currency' => $feeCurrency, 'fee_pence' => $feeCurrency === null ? 0 : (int) $fee,
-            'invoice_state' => $invoice[0], 'invoice_ref' => $invoice[1], 'custom_state' => $custom[0], 'custom_ref' => $custom[1]];
+            'invoice_raw' => $invoice, 'custom_raw' => $custom];
     }
 
     /** A PayPal time (2026-11-22T10:00:00Z, +0000 or +00:00) as CW's UTC database time. */
@@ -73,7 +71,7 @@ final class PaypalRow
             throw $bad($field, 'is not a time in the form PayPal uses');
         }
         $t = new \DateTimeImmutable($s);
-        return $t->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s.000000');
+        return $t->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s.u'); // to the microsecond: which of two versions is newer (PPF37)
     }
 
     /**
@@ -98,21 +96,16 @@ final class PaypalRow
         return [$m['currency_code'], $v[1] === '-' ? -$pence : $pence];
     }
 
-    /**
-     * The invoice or custom field as kept: ['kept', as written] for a reference (REF_FORM), ['dropped', null] for anything else (it could be
-     * personal: never kept), ['none', null] when absent or empty.
-     *
-     * @return array{0: string, 1: ?string}
-     */
-    private static function ref(array $ti, string $field, \Closure $bad): array
+    /** The invoice or custom field as read (null when absent or empty); its content is never stored (the store keeps a form's capture only). */
+    private static function ref(array $ti, string $field, \Closure $bad): ?string
     {
         $v = $ti[$field] ?? null;
         if ($v === null || $v === '') {
-            return ['none', null];
+            return null;
         }
         if (!is_string($v) || strlen($v) > self::TEXT_MAX) {
             throw $bad($field, 'is not a text PayPal sends');
         }
-        return preg_match(self::REF_FORM, $v) === 1 ? ['kept', $v] : ['dropped', null];
+        return $v;
     }
 }

@@ -41,22 +41,18 @@ final class PaypalReadTest extends TestCase
         $r = PaypalRow::parse(PaypalTx::sale('9XA00001', '2026-10-31T23:30:00Z', '198.99', '-2.84', '1312345'), 1);
         self::assertSame(['txn_id' => '9XA00001', 'event_code' => 'T0006', 'ref_txn_id' => 'REF9XA00001', 'ref_type' => 'TXN', 'status' => 'S',
             'initiated_at' => '2026-10-31 23:30:00.000000', 'pp_updated_at' => '2026-10-31 23:30:00.000000', 'day' => '2026-10-31', 'currency' => 'GBP',
-            'amount_pence' => 19899, 'fee_currency' => 'GBP', 'fee_pence' => -284, 'invoice_state' => 'kept', 'invoice_ref' => '1312345-1763700000', 'custom_state' => 'kept',
-            'custom_ref' => '1312345-1763700000'], $r);
+            'amount_pence' => 19899, 'fee_currency' => 'GBP', 'fee_pence' => -284, 'invoice_raw' => '1312345-1763700000', 'custom_raw' => '1312345-1763700000'], $r);
         // the UK day: 23:30 UTC on 24 Oct (BST) is the 25th in the UK; on 31 Oct (GMT) it is the 31st
         self::assertSame('2026-10-25', PaypalRow::parse(PaypalTx::sale('9XA00002', '2026-10-24T23:30:00Z', '1.00', '-0.01', null), 1)['day']);
         self::assertSame('2026-11-22', PaypalRow::parse(PaypalTx::sale('9XA00003', '2026-11-22T10:00:00+0000', '1.00', '-0.01', null), 1)['day']);
-        // a reference is kept as written (the shop's form is decided by the settings later, PPF21); one that could be a name or an e-mail never
+        // the invoice and custom fields go to the store as read (it keeps only what a shop's form captures: PPF36; PaypalFeesR2Test, PaypalFeesR1Test)
         $o = PaypalRow::parse(PaypalTx::sale('9XA00004', '2026-11-22T10:00:00Z', '5', '-0.5', null) + ['invoice_id' => 'faaeeb-1234', 'custom_field' => '1234'], 1);
-        self::assertSame(['kept', 'faaeeb-1234', 'kept', '1234', 500, -50], [$o['invoice_state'], $o['invoice_ref'], $o['custom_state'], $o['custom_ref'], $o['amount_pence'],
-            $o['fee_pence']]);
-        $n = PaypalRow::parse(PaypalTx::sale('9XA00005', '2026-11-22T10:00:00Z', '5.00', '-0.50', null) + ['invoice_id' => 'Jane Smith 1234', 'custom_field' => 'jane@example.com'], 1);
-        self::assertSame(['dropped', null, 'dropped', null], [$n['invoice_state'], $n['invoice_ref'], $n['custom_state'], $n['custom_ref']]);
-        self::assertStringNotContainsString('Jane', json_encode($n));
-        self::assertStringNotContainsString('example.com', json_encode($n));
-        // no fee given: 0 and no currency (a hold, many refunds)
+        self::assertSame(['faaeeb-1234', '1234', 500, -50], [$o['invoice_raw'], $o['custom_raw'], $o['amount_pence'], $o['fee_pence']]);
+        // no fee given: 0 and no currency (a hold, many refunds); no invoice: null
         $h = PaypalRow::parse(PaypalTx::row('9XA00006', 'T1501', '2026-11-22T10:00:00Z', '-10.00', null), 1);
-        self::assertSame([null, 0, 'none', null], [$h['fee_currency'], $h['fee_pence'], $h['invoice_state'], $h['invoice_ref']]);
+        self::assertSame([null, 0, null], [$h['fee_currency'], $h['fee_pence'], $h['invoice_raw']]);
+        // a time to the microsecond (which of two versions is newer: PPF37)
+        self::assertSame('2026-11-22 10:00:00.123456', PaypalRow::parse(PaypalTx::row('9XA00007', 'T1501', '2026-11-22T10:00:00.123456Z', '-10.00', null), 1)['initiated_at']);
         self::assertArrayNotHasKey('transaction_subject', $r);
     }
 
