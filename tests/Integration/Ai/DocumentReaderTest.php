@@ -368,13 +368,13 @@ final class DocumentReaderTest extends IntegrationTestCase
         $f = new FakeClaude();
         $r = AiFixtures::reader(self::$db, $this->spool, $f, $clock);
         // a job left `reading` by a runner that stopped; a job waiting for more than an hour; an answer not taken for more than an hour
-        $stopped = $r->start($job, 'expense_new', AiFixtures::pdf($this->files, 'a'), []);
+        $stopped = $r->start($job, 'expense_new', AiFixtures::pdf($this->files, 'a'), ['note' => 'typed a']);
         self::$db->exec("UPDATE ai_read SET state = 'reading', started_at = ? WHERE id = ?", [Clock::db($now), $stopped]);
         $stoppedFile = (string) self::$db->value('SELECT spool_name FROM ai_read WHERE id = ?', [$stopped]);
-        $old = $r->start($job, 'expense_new', AiFixtures::pdf($this->files, 'b'), []);
+        $old = $r->start($job, 'expense_new', AiFixtures::pdf($this->files, 'b'), ['note' => 'typed b']);
         self::$db->exec('UPDATE ai_read SET created_at = ? WHERE id = ?', [Clock::db($now->modify('-61 minutes')), $old]);
         $f->push(FakeClaude::answer(AiAnswers::invoice(), 100, 10));
-        $done = $r->start($job, 'expense_new', AiFixtures::pdf($this->files, 'c'), []);
+        $done = $r->start($job, 'expense_new', AiFixtures::pdf($this->files, 'c'), ['note' => 'typed c']);
         self::$db->exec("UPDATE ai_read SET state = 'waiting' WHERE id IN (?, ?)", [$old, $done]);
         self::$db->exec("UPDATE ai_read SET state = 'failed' WHERE id = ?", [$old]); // held aside while $done is read
         self::assertSame($done, $r->runNext()['id'] ?? null);
