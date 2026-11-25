@@ -42,13 +42,18 @@ final class Migration0081Test extends IntegrationTestCase
             self::assertMatchesRegularExpression('/^INSERT INTO (app_setting|config_change)\b/', $st);
         }
 
+        // on top of the file just before it in this tree (0079 on branch no-restock; 0080 when built on PayPal's fees)
+        $files = array_map('basename', glob(dirname(__DIR__, 2) . '/migrations/*.sql') ?: []);
+        sort($files, SORT_STRING);
+        $at = array_search(self::FILE, $files, true);
+        self::assertIsInt($at);
         /** @var Db $db */
-        [$db, $this->dir] = MigrationFixture::upTo('m81', '0079_expenses.sql');
+        [$db, $this->dir] = MigrationFixture::upTo('m81', $files[$at - 1]);
         $tables = $db->column('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME');
         $settings = (int) $db->value('SELECT COUNT(*) FROM app_setting');
         self::assertFalse((new Settings($db))->has(self::KEY));
         self::assertSame('verify', (new Reservations($db))->notRestockableMode(), 'before 0081 the code keeps the way before');
-        self::assertSame([self::FILE], MigrationFixture::migrateRest($db, $this->dir, self::FILE), 'applied with 0080 missing: a gap is allowed');
+        self::assertSame([self::FILE], MigrationFixture::migrateRest($db, $this->dir, self::FILE));
         self::assertSame($tables, $db->column('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME'));
         self::assertSame($settings + 1, (int) $db->value('SELECT COUNT(*) FROM app_setting'));
         self::assertSame(['string', '"write_off"', 1, 'NR1'], array_values(array_map(static fn (mixed $v): mixed => is_numeric($v) && !is_string($v) ? (int) $v : $v,
@@ -71,9 +76,14 @@ final class Migration0081Test extends IntegrationTestCase
 
     public function testItGoesInBeforeOrAfterAnother0080(): void
     {
-        // A stand-in 0080 (the PayPal fees' own file is on its branch; it touches none of 0081's rows): applied AFTER 0081 when it comes later
+        // A schema at 0079 with ONLY 0081 added (0080 missing: a gap is allowed), then a stand-in 0080 (the PayPal fees' own file is on its branch;
+        // it touches none of 0081's rows): applied AFTER 0081 when it comes later. The files are copied by hand, so the test holds whatever else
+        // this tree has.
+        $file = dirname(__DIR__, 2) . '/migrations/' . self::FILE;
         [$db, $this->dir] = MigrationFixture::upTo('m81', '0079_expenses.sql');
-        self::assertSame([self::FILE], MigrationFixture::migrateRest($db, $this->dir, self::FILE));
+        copy($file, $this->dir . '/' . self::FILE);
+        self::assertSame([self::FILE], (new Migrator($db, $this->dir))->migrate(), 'applied with 0080 missing: a gap is allowed');
+        self::assertSame('write_off', (new Settings($db))->get(self::KEY));
         file_put_contents($this->dir . '/0080_paypal_fees.sql', "-- stand-in\nDO 0;\n");
         $m = new Migrator($db, $this->dir);
         self::assertSame(['0080_paypal_fees.sql'], $m->pending(), 'a lower number still pending after a higher one is applied');
@@ -88,7 +98,8 @@ final class Migration0081Test extends IntegrationTestCase
         file_put_contents($this->dir . '/0080_paypal_fees.sql', "-- stand-in\nDO 0;\n");
         $m = new Migrator($db, $this->dir);
         self::assertSame(['0080_paypal_fees.sql'], $m->migrate());
-        self::assertSame([self::FILE], MigrationFixture::migrateRest($db, $this->dir, self::FILE));
+        copy($file, $this->dir . '/' . self::FILE);
+        self::assertSame([self::FILE], (new Migrator($db, $this->dir))->migrate());
         self::assertSame('write_off', (new Settings($db))->get(self::KEY));
         unlink($this->dir . '/0080_paypal_fees.sql');
     }
