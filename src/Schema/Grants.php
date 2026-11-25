@@ -156,6 +156,19 @@ final class Grants
             'deleted_actor', 'deleted_reason'],
         'expense_supplier' => ['name', 'is_active', 'version'],
         'expense_type' => ['name', 'is_active', 'sort_order', 'version'],
+        // 0082 (docs/decisions.md AI9, AI16): a call to the Claude API is logged, never removed; its row is written BEFORE the request (started,
+        // at the most it may cost) and finished once after it (its outcome: the model that answered, the tokens, the cost, the result and why,
+        // the request's id, seconds); who, where, when, the model asked, the file and that most are frozen. What CW's own checks made of the
+        // reading is written later, when its person takes it.
+        'ai_call' => ['served_model', 'input_tokens', 'output_tokens', 'cost_millipence', 'result', 'reason', 'refusal_category', 'request_id', 'fallback', 'seconds',
+            'checked', 'check_code', 'checked_at'],
+        // M10 (Codex final of 86aebbd, its re-check of ca8987b): a job's who, place, kind, file (type, size, sha256) and when it was made are
+        // frozen once it is made, and the app login never removes one (so a job can never be replaced by another of the same id); only its
+        // lifecycle is written, and a day after it finishes what its page typed (context) is emptied in place. (The app login may change any
+        // expense itself, so writing a job's context gives it nothing new.) The reader's one row of runs: only what the runner writes, never
+        // removed.
+        'ai_read' => ['context', 'state', 'reason', 'detail', 'answer', 'started_at', 'finished_at', 'taken_at', 'spool_name', 'file_used_at'],
+        'ai_reader' => ['started_at', 'ended_at', 'ok_at', 'failed_at', 'error'],
     ];
     /**
      * Tables the app login may INSERT into naming only the listed columns (column-level INSERT instead of a table-level one; the

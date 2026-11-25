@@ -36,7 +36,7 @@
 -- statement, as 0077 added its two), the settings ON DUPLICATE KEY with their baselines only when missing. No role, no permission (the fees
 -- show on Profit > Real profit and an order's page, under profit.view). Every statement can run again and changes nothing the second time.
 -- No undo release (the owner, 24 Nov 2026: CW is fixed forward; docs/decisions.md EX41, PPF20); RollbackReleaseTest keeps the old recipe's
--- check (the release before, 86c21af since 25 Nov 20:34 with 0081 (04dbab6, 27dea71, f044e2f, 0e3db2a before it), with this file added byte for byte): the release before never reads these tables, and its rebuild of a day writes the
+-- check (the release before, 19980e0 since 25 Nov 22:13 with 0081 and 0082 (86c21af, 04dbab6, 27dea71, f044e2f, 0e3db2a before it), with this file added byte for byte): the release before never reads these tables, and its rebuild of a day writes the
 -- columns it knows and leaves fee_cost and fee_other at 0 on that day.
 
 CREATE TABLE IF NOT EXISTS paypal_run (

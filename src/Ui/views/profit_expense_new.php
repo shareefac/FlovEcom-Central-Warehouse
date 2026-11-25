@@ -5,7 +5,9 @@
 // dollar bills, a note, the PDF or a photo; "Save expense" and "Save and add another". A refusal comes back with what was typed.
 // The layout (EX64): one card (div.ex-main: the shop and the fields), the file panel (div.ex-side: beside the card on a wide screen, inside it
 // on a narrow one), then at the card's foot the "same one" tick when asked and Save; the file comes before Save in the reading and keyboard
-// order, the tick just above Save.
+// order, the tick just above Save. Claude reads the invoice (CW-1182, AI5): while it is on, "Fill from the file with Claude" under the file sends
+// the form with its file to be read (the page that waits, then this form filled: a note says which boxes Claude filled; the file is asked for
+// again: the copy Claude read is deleted).
 $X = \CW\Ui\Words::EXPENSES;
 $t = $typed;
 $net = \CW\Expenses\ExpenseMoney::pence((string) $t['net']);
@@ -14,6 +16,14 @@ $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
 <?= $head($X['new_title'], intro: 'profit_expense_new', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_expenses'], [$vatPct]), back: ['/ui/profit/expenses', $X['back']]) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
+<?php endif; ?>
+<?php if (($aiFilled ?? null) !== null): ?>
+<div class="alert ai-filled" role="status">
+  <p><?= $e($aiFilled) ?></p>
+<?php foreach ($aiNotes as $aiNote): ?>
+  <p><?= $e($aiNote) ?></p>
+<?php endforeach; ?>
+</div>
 <?php endif; ?>
 <?= $partial('same_list', ['items' => $sameList, 'group' => 'EXPENSES']) ?>
 <form class="record expense-form" method="post" action="/ui/profit/expenses/new" enctype="multipart/form-data" data-vat-bp="<?= $e((string) $vatBp) ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
@@ -34,6 +44,10 @@ $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
 <?php if ($fileAgain): ?>
       <p class="note" role="status"><?= $word('EXPENSES', 'file_again') ?></p>
       <input type="hidden" name="file_again" value="1">
+<?php elseif (($aiFile ?? null) !== null): ?>
+      <p class="note" role="status"><?= $word('AIREAD', 'file_kept') ?></p>
+      <input type="hidden" name="ai_file" value="<?= $e((string) $aiFile) ?>">
+      <input type="hidden" name="file_again" value="1">
 <?php endif; ?>
       <div class="field">
         <label for="ex-file"><?= $word('EXPENSES', 'file_label') ?></label>
@@ -46,6 +60,9 @@ $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
 <?php if ($fileAgain): ?>
       <label class="choice"><input type="checkbox" name="no_file_ok" value="1"> <?= $word('EXPENSES', 'no_file_ok') ?></label>
 <?php endif; ?>
+<?php if ($aiOn ?? false): ?>
+      <p class="hint"><?= $word('AIREAD', 'read_hint') ?></p>
+<?php endif; ?>
       <p class="muted"><?= $word('EXPENSES', 'file_kept') ?></p>
     </fieldset>
   </div>
@@ -56,5 +73,8 @@ $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
   <p class="actions">
     <button type="submit" class="btn primary lg" name="then" value="done"><?= $word('EXPENSES', 'save') ?></button>
     <button type="submit" class="btn lg" name="then" value="another"><?= $word('EXPENSES', 'save_another') ?></button>
+<?php if ($aiOn ?? false): ?>
+    <button type="submit" class="btn ai-read" formaction="/ui/profit/expenses/read" formnovalidate><?= $word('AIREAD', 'read_button') ?></button>
+<?php endif; ?>
   </p>
 </form>

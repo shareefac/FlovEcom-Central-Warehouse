@@ -31,6 +31,13 @@ abstract class IntegrationTestCase extends TestCase
         // CW-1180 (0081, NR1): a cancelled paid unit the store marked "don't restock" starts back at the seeded rule, written off at once; the
         // tests of the way before (VERIFY, D37) set "verify" themselves (notRestockable()).
         self::notRestockable('write_off');
+        // "Claude reads the upload" (0082, AI7) starts back at its seeded state after a test that set it: off, no key, the month's limit and
+        // the prices as seeded (a schema before 0082 has none of these rows: nothing changes).
+        self::$db->exec("UPDATE app_setting SET value_json = CASE setting_key WHEN 'ai.read_uploads' THEN CAST('false' AS JSON) "
+            . "WHEN 'ai.anthropic_api_key' THEN CAST('\"\"' AS JSON) WHEN 'ai.model' THEN CAST('\"claude-opus-5-5\"' AS JSON) "
+            . "WHEN 'ai.effort' THEN CAST('\"medium\"' AS JSON) WHEN 'ai.monthly_limit_gbp' THEN CAST('\"30\"' AS JSON) "
+            . "WHEN 'ai.price_input_gbp_per_mtok' THEN CAST('\"3.20\"' AS JSON) ELSE CAST('\"16.00\"' AS JSON) END WHERE setting_key IN ('ai.read_uploads', "
+            . "'ai.anthropic_api_key', 'ai.model', 'ai.effort', 'ai.monthly_limit_gbp', 'ai.price_input_gbp_per_mtok', 'ai.price_output_gbp_per_mtok')");
     }
 
     /** CW-1180 (0081, NR1): what a not-restockable cancel of a paid unit does, `write_off` (the seeded rule) or `verify` (D37, the way before). */

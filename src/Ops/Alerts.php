@@ -41,6 +41,9 @@ use CW\Settings;
  *     paypal_needs_look    PayPal rows that need a look since its first fee day, with their reasons (the money in doubt not counted until looked
  *                          at; said at most once a day)
  *     paypal_not_on_order  a day of the last re-read days with more PayPal money on no CW order than profit.paypal_not_on_order_alarm
+ *   "Claude reads uploads", only while it is switched on (CW-1182, docs/decisions.md AI17; DocumentReader::health):
+ *     ai_waiting         a document waiting more than 10 minutes to be read (the reader, bin/ai_read.php, is not running or is stuck)
+ *     ai_reader_failed   the reader's last run failed (an error, or it never ended), until a run ends well
  *
  * Read only. The probe is injectable (tests).
  */
@@ -97,6 +100,10 @@ final class Alerts
         // PayPal's fees (0080, docs/decisions.md PPF14): per shop switched on, not read for 26 hours, rows not understood, money on no order
         foreach (\CW\Profit\PaypalFees::health($this->db, Clock::now()) as $p) {
             $out[] = $p;
+        }
+        // Claude reads the upload (AI17): a document waiting too long, the reader's last run failed; quiet while reading is switched off
+        foreach (\CW\Ai\DocumentReader::health($this->db, Clock::now()) as $p) {
+            $out[] = $p + ['channel' => null, 'channel_id' => null, 'name' => null, 'mode' => null];
         }
         return $out;
     }

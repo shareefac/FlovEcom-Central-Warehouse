@@ -4,7 +4,7 @@
 // (as its page shows it once stored: on orders per shop, a shop's "not on an order", the days' lines, Hayati Vapes, before CW start per shop,
 // held per reason), a red line when days wait (each with its reason: DL86 1), the "needs a look" list (DL86 7), its flat days (labels, billed by every bill with it, priced, the day's line),
 // what moves on the bills already live (DL80), its rows as read, and the Store button for who checked it (the bill as read is kept for it,
-// never the file), or "in the profit already".
+// never the file), or "in the profit already". Read by Claude from a PDF or a photo (CW-1182, AI4): a line says so, above all.
 $W = \CW\Ui\Words::DELIVERY;
 $gbp = static fn (int $p): string => \CW\Profit\DpdInvoiceFile::gbp($p);
 $groupText = static function (array $w) use ($W): string {
@@ -29,6 +29,9 @@ $waiting = count(array_filter($days, static fn (array $d): bool => $d['waiting']
 ?>
 <?= $head(\CW\Ui\Words::say('DELIVERY', 'rm_check_title', (string) $bill['invoice_no']), lede: $W['rm_check_intro'],
     aside: $explain('delivery_bills', \CW\Ui\Words::MENU['profit_delivery']), back: ['/ui/profit/delivery', $W['back']]) ?>
+<?php if ($byClaude ?? false): ?>
+<p class="alert ai-read-note" role="status"><?= $word('AIREAD', 'check_by_claude') ?></p>
+<?php endif; ?>
 <?php if ($check['same']): ?>
 <p class="notice" role="status"><?= $word('DELIVERY', 'rm_check_same') ?></p>
 <?php endif; ?>

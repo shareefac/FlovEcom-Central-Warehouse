@@ -2910,6 +2910,23 @@ ERPNext doors to the stores are still closed, and only into an ERPNext that was 
 **Every night of the rollback window** (plan step 5.2) the production server runs the command from cron and copies the directory off CW (the
 write-once storage), so the way back does not need CW on the day. It is set up with the production server's backups.
 
+## Claude reads the upload (CW-1182; `docs/decisions.md` AI1-AI17)
+
+- **What:** on Profit > Delivery bills (a Royal Mail bill) and Profit > Expenses (an invoice) staff may drop a PDF or a photo; Claude reads it
+  and CW fills the same check page or form; a person stores. Off as installed.
+- **Switching it on:** Settings > Rules and numbers > "Claude reads uploads": paste the Anthropic API key (the box keeps "(set: hidden)"), then
+  "Claude reads uploaded PDFs and photos" On. The month's limit (£30) and the model's prices are there too, with "This month: ...".
+- **The runner:** `bin/ai_read.php` every minute from cron (`/var/log/cw/ai_read.log`: a line only when it read or cleaned something up, or
+  the last run did not end). By hand: `php -d memory_limit=512M bin/ai_read.php --db=cw_prod --once`. Its runs:
+  `SELECT * FROM ai_reader` (began, ended, last ended well, last failed and why).
+- **The spool folder:** app.env `ai_spool_dir`, else `/var/lib/cw/ai-read` (0700 www-data). A Royal Mail bill's file stays only until it is
+  read; an invoice's until its expense's Save attaches it (AI15), else an hour after its page took the reading.
+- **The log:** `SELECT created_at, place, kind, result, reason, input_tokens, output_tokens, cost_millipence, max_millipence, checked FROM ai_call
+  ORDER BY id DESC` (no content). A row is written BEFORE its request (`started`, counted at `max_millipence`, AI16); `crashed` = its reader
+  stopped mid-call (counted at its most). Switch off at once: the setting Off (or empty the key): nothing more is sent; jobs waiting fail as `off`.
+- **Alerts (AI17):** while reading is on, `bin/health_alert.php` says `AI_WAITING` (a document waiting more than 10 minutes: is the cron line
+  there, is a run stuck?) and `AI_READER_FAILED` (the reader's last run failed: read `/var/log/cw/ai_read.log` and `SELECT * FROM ai_reader`).
+
 ## The production server (`deploy/production/`; go-live plan "Ops and security for I-Day")
 
 | What | Where |

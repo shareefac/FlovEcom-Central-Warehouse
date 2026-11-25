@@ -7,9 +7,12 @@ $statusWords = ['live' => \CW\Ui\Words::DELIVERY['status_live'], 'superseded' =>
 $tone = ['live' => 'done', 'superseded' => 'off', 'undone' => 'off', 'loading' => 'waiting'];
 // Royal Mail (0078; DL69): its bills in the same list (their money summed by destination), the account to choose on the upload, the pasted text,
 // and the accounts' labels (covered up to which day, the last report, the days waiting; the Click & Drop report's upload with its From and To: DL84).
+// Claude reads the upload (CW-1182, AI4): while it is on, a Royal Mail bill may be a PDF of its page or a photo (the hint says so); the Click &
+// Drop report never goes to Claude (it holds customer addresses: AI10).
 $accounts ??= [];
 $said ??= null;
 $gbp = static fn (int $p): string => \CW\Profit\DpdInvoiceFile::gbp($p);
+$accept = ($aiOn ?? false) ? '.csv,text/csv,.html,.htm,text/html,.pdf,application/pdf,image/jpeg,image/png,image/webp,image/gif' : '.csv,text/csv,.html,.htm,text/html';
 ?>
 <?= $head(\CW\Ui\Words::MENU['profit_delivery'], intro: 'profit_delivery', aside: $explain('delivery_bills', \CW\Ui\Words::MENU['profit_delivery'])) ?>
 <?php if ($error !== null): ?>
@@ -39,7 +42,10 @@ $gbp = static fn (int $p): string => \CW\Profit\DpdInvoiceFile::gbp($p);
 <?php endforeach; ?>
     </select>
     <label for="d-file"><?= $word('DELIVERY', 'file') ?> <span class="hint"><?= $say('DELIVERY', 'rm_file_hint', $maxMiB) ?></span></label>
-    <input id="d-file" type="file" name="file" accept=".csv,text/csv,.html,.htm,text/html">
+    <input id="d-file" type="file" name="file" accept="<?= $e($accept) ?>">
+<?php if ($aiOn ?? false): ?>
+    <p class="hint ai-hint"><?= $word('AIREAD', 'hint_bill') ?></p>
+<?php endif; ?>
     <label for="d-account"><?= $word('DELIVERY', 'rm_account') ?> <span class="hint"><?= $word('DELIVERY', 'rm_account_hint') ?></span></label>
     <select id="d-account" name="account">
       <option value=""></option>

@@ -8,7 +8,9 @@
         "ext-json": "*",
         "ext-pdo": "*",
         "ext-pdo_mysql": "*",
+        "anthropic-ai/sdk": "^1.14",
         "bacon/bacon-qr-code": "^3.1",
+        "guzzlehttp/guzzle": "^7.9",
         "openspout/openspout": "^4.32",
         "setasign/fpdf": "1.8.2"
     },
@@ -28,7 +30,10 @@
     "config": {
         "sort-packages": true,
         "optimize-autoloader": false,
-        "platform-check": true
+        "platform-check": true,
+        "allow-plugins": {
+            "php-http/discovery": false
+        }
     },
     "minimum-stability": "stable",
     "prefer-stable": true

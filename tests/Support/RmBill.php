@@ -159,6 +159,51 @@ final class RmBill
         return $out . 'Total ' . self::gbp($gross) . "\n\nPlease Pay By: Nov 23, 2026 Terms of payment: 7 Days\n";
     }
 
+    /**
+     * The page's text as Chrome on a Mac copies it (CW-1181, the bill of 23 Nov 2026): cells split by tabs, but each bill line broken where its
+     * reference cell starts, so it comes on TWO lines: "date, product, quantity, description" (a trailing tab or none), then the reference cell
+     * (with its sales order when it has one), the net, the gross and the VAT code (a leading tab or none); a description of $longDescription
+     * runs onto a line of its own ("(HV)").
+     *
+     * @param list<array<string, mixed>> $lines
+     * @param array<string, mixed> $over as page()
+     */
+    public static function macText(array $lines, array $over = [], int $longDescription = -1): string
+    {
+        $t = self::totals($lines);
+        $net = $over['net'] ?? $t['net'];
+        $vat = $over['vat'] ?? $t['vat'];
+        $gross = $over['gross'] ?? $net + $vat;
+        $out = "Invoice\nCustomer Account Number:\t" . ($over['account'] ?? '0706703000') . "\nLegal Entity Number:\tLE1\nDate:\t" . ($over['date'] ?? 'Nov 16, 2026')
+            . "\nDue Date:\tNov 30, 2026\nTotal Price Net:\t" . self::gbp($net) . "\nVAT:\t" . self::gbp($vat) . "\nTotal Gross Price:\t" . self::gbp($gross)
+            . "\nInvoice:\t" . ($over['invoice'] ?? '9070000001') . "\n\n" . implode("\t", \CW\Profit\RoyalMailBillPage::LINE_HEADINGS) . "\n";
+        foreach ($lines as $i => $l) {
+            [$y, $m, $d] = explode('-', $l['day']);
+            $long = $i === $longDescription;
+            $ref = array_values(array_filter([$l['sales'] ?? '', ($l['sales'] === null ? '' : '/ ') . $l['ref']], static fn (string $c): bool => $c !== ''));
+            $money = [self::gbp($l['net']), self::gbp($l['gross']), $l['vat']];
+            if (in_array($i, $over['break_after_ref'] ?? [], true)) {
+                // M1 (Codex final of 86aebbd): the copy breaks AFTER the reference cell: "date, product, quantity, description, reference" then
+                // "net, gross, VAT code"
+                $prefix = isset($over['amount_prefix'][$i]) ? [(string) $over['amount_prefix'][$i]] : [];
+                $out .= implode("\t", ["{$d}:{$m}:{$y}", $l['product'], number_format($l['qty'], 3, '.', ''), 'A DESCRIPTION OF THE PRODUCT', ...$ref]) . "\n"
+                    . ($long ? "(HV)\n" : '') . implode("\t", [...$prefix, ...$money]) . "\n";
+                continue;
+            }
+            $out .= implode("\t", ["{$d}:{$m}:{$y}", $l['product'], number_format($l['qty'], 3, '.', ''), $long ? 'ROYAL MAIL TRACKED 48' : 'A DESCRIPTION OF THE PRODUCT'])
+                . ($i % 2 === 0 ? "\t" : '') . "\n" . ($long ? "(HV)\n" : '')
+                . ($i % 3 === 0 ? "\t" : '') . implode("\t", [...$ref, ...$money]) . "\n";
+        }
+        if (!($over['no_summary'] ?? false)) {
+            foreach ($t['by_code'] as $code => $f) {
+                $out .= "\t{$code}\t" . ($code === 'T' ? 'Std Rated 20%' : 'Zero Rated 0%') . "\t" . self::gbp($f['net']) . "\t" . self::gbp($f['vat']) . "\t"
+                    . self::gbp($f['net'] + $f['vat']) . "\n";
+            }
+            $out .= "\tTotal\t\t\t\t" . self::gbp($gross) . "\n";
+        }
+        return $out;
+    }
+
     /** Royal Mail's product codes (carrier_product's seed). */
     public const PRODUCTS = ['TPL', 'TPM', 'TRN', 'SD1', 'RX1', 'RXA', 'RW4', 'TSS'];
 }

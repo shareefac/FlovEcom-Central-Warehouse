@@ -62,6 +62,9 @@
 <?php foreach (array_values($topics) as $t => $rows): ?>
 <section class="set-card" aria-labelledby="topic-<?= $e($t) ?>">
   <h2 id="topic-<?= $e($t) ?>"><?= $e(array_keys($topics)[$t]) ?></h2>
+<?php if (array_keys($topics)[$t] === ($aiTopic ?? null) && ($aiMonth ?? null) !== null): ?>
+  <p class="set-kh ai-month" role="status"><?= $e($aiMonth) ?></p>
+<?php endif; ?>
 <?php foreach ($rows as $s): ?>
 <?php if ($s['inline']): ?>
   <form method="post" action="/ui/reference/settings/setting" class="set-row<?php if (($s['unused'] ?? null) !== null): ?> unused<?php endif; ?>" data-key="<?= $e($s['key']) ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>" data-leaves="1">

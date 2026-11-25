@@ -26,19 +26,24 @@ final class RollbackReleaseTest extends IntegrationTestCase
      * the rollback release is b54163a's code with 0077 added, byte for byte. Royal Mail's bills (docs/decisions.md DL69): the release before is
      * 14c6e31 (DPD bills live), whose last is 0077; the rollback release is 14c6e31's code with 0078 added, byte for byte. The expenses (CW-1150,
      * docs/decisions.md EX) go live on top of Royal Mail's bills: the release before is ae5f36e (Royal Mail's bills), whose last is 0078; the
-     * plain rollback source is ae5f36e's code with 0079 added, byte for byte.
+     * plain rollback source is ae5f36e's code with 0079 added, byte for byte. CW-1180 went live on 04dbab6 (last 0079); Claude reads the upload
+     * (CW-1182, docs/decisions.md AI14) went live on top of 86c21af (CW-1180), whose last is 0081. PayPal's fees (CW-1172) go live on top of
+     * 19980e0 (CW-1182, live 25 Nov 22:13), whose migrations stop at 0079 and add 0081 and 0082 (BEFORE_ALSO): its own 0080 sorts before them.
      */
     public const BEFORE_LAST = '0079_expenses.sql';
     /**
      * The migration files the rollback release takes from this release (README of build/A, "Undo"; CW-1155: RR20; the delivery bills: DL22).
-     * PayPal's fees (CW-1172, docs/decisions.md PPF20): the release before is 86c21af (CW-1180, don't restock = written off at once, live 25 Nov
-     * 20:34 with 0081; 04dbab6, 27dea71, f044e2f and 0e3db2a before it), whose migrations stop at 0079 and add 0081 (BEFORE_ALSO); the plain
-     * rollback source is 86c21af's code with 0080 added, byte for byte (no undo release is built: CW is fixed forward). 0080 sorts before
-     * 0081: the migrator applies what is pending whatever its order (Migrator::pending).
+     * CW-1180 (don't restock = written off at once, docs/decisions.md NR1-NR9): the release before was 04dbab6 (CW-1176), whose last is 0079;
+     * its plain rollback (kit norestock_cw1180, branch nrkit-rollback) was 04dbab6's code with 0081 added, byte for byte. CW-1182 (Claude reads
+     * the upload, AI14) was built ON the live 86c21af (CW-1180, live 25 Nov 20:34), whose last is 0081; its plain rollback (the kit's
+     * aikit-rollback) was 86c21af's code with 0082 added, byte for byte. PayPal's fees (CW-1172, docs/decisions.md PPF20): the release before is
+     * 19980e0 (CW-1182, live 25 Nov 22:13 with 0082; 86c21af, 04dbab6, 27dea71, f044e2f and 0e3db2a before it), whose migrations stop at 0079
+     * and add 0081 and 0082 (BEFORE_ALSO); the plain rollback source is 19980e0's code with 0080 added, byte for byte (no undo release is built:
+     * CW is fixed forward). 0080 sorts before 0081 and 0082: the migrator applies what is pending whatever its order (Migrator::pending).
      */
     public const ROLLBACK_FILES = ['0080_paypal_fees.sql'];
-    /** The release before's migrations after BEFORE_LAST (a live release that went first with a later number: CW-1180's 0081). */
-    public const BEFORE_ALSO = ['0081_cancel_not_restockable.sql'];
+    /** The release before's migrations after BEFORE_LAST (live releases that went first with later numbers: CW-1180's 0081, CW-1182's 0082). */
+    public const BEFORE_ALSO = ['0081_cancel_not_restockable.sql', '0082_ai_reader.sql'];
 
     private ?string $dir = null;
     private ?string $rollback = null;

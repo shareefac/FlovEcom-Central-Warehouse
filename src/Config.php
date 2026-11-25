@@ -64,7 +64,8 @@ final class Config
         $dbPath = self::nonEmpty($env['CW_DB_ENV'] ?? null) ?? self::DEFAULT_DB_ENV;
         $appPath = self::nonEmpty($env['CW_APP_ENV'] ?? null) ?? self::DEFAULT_APP_ENV;
 
-        $db = is_file($dbPath) ? self::normaliseDbKeys(self::parseEnvFile($dbPath)) : [];
+        // a job run as www-data (the Claude reader, CW-1182 H1) may not read db.env (0600 root): it gets the app login only, as the web does
+        $db = is_file($dbPath) && is_readable($dbPath) ? self::normaliseDbKeys(self::parseEnvFile($dbPath)) : [];
         $app = is_file($appPath) ? self::parseEnvFile($appPath) : [];
 
         return new self($db, $app, $env, $dbPath, $appPath);

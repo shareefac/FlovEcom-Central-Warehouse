@@ -21640,7 +21640,8 @@ every day gives the same pence; Electrofag switched on puts its October sales' f
 added byte for byte); the release before never reads the new tables, and its rebuild of a day writes the columns it knows and leaves fee_cost
 and fee_other at 0 on that day. (25 Nov 09:49: live moved to f044e2f, the expense page layout, no migration; 25 Nov 12:31: to 27dea71, the expense total with VAT, no migration; 25 Nov 13:31: to 04dbab6, its typing (CW-1176), no migration; 25 Nov 20:34: to 86c21af, CW-1180 "don't restock" with migration 0081; the
 branch merged them and the recipe is 86c21af + 0080: 0080 sorts before 0081 and the migrator applies what is pending whatever its order;
-RollbackReleaseTest's BEFORE_ALSO names 0081 as the release before's own.)
+RollbackReleaseTest's BEFORE_ALSO names 0081 as the release before's own. 25 Nov 22:13: to 19980e0, CW-1182 "Claude reads uploads" with
+migration 0082; the branch merged it (round 6) and the recipe is 19980e0 + 0080; BEFORE_ALSO names 0081 and 0082.)
 
 **PPF21. One account, several shops, by the invoice's form.** A row's shop is the ONE shop of the account whose form its invoice matches
 (else its custom field's); none, or two shops' forms: no shop (the main shop's "not on an order" line, match `no_number`). A shop CW does not
@@ -22241,3 +22242,245 @@ connector files it can see and STOPs if their expected lists no longer hold the 
 - *The kit:* the connector files checked are pinned and apply checks the same list; a resume needs the seeded row exactly (type string, value
   "write_off", provisional, NR1, set up by the migration) and the baseline's JSON exactly; every marker is written to a temporary name and
   renamed (atomic), every write and removal checked.
+
+## Claude reads the upload, phase 1 (CW-1182) and the Mac copy of a Royal Mail bill (CW-1181) (branch `ai-reader`, 25 Nov 2026; AI1-AI20; migration 0082)
+
+The owner (CW chat, 25 Nov 2026 ~17:25 UK), after the Royal Mail bill of 23 Nov could not be pasted: "whatever we doing is wrong. wrong way to
+add an invoice you should focus on the claude api connected on all upload places as soon as posssible"; then "I'll create one" (an Anthropic
+API key for CW). Staff drop a PDF or a photo where they upload today; CW sends it to the Claude API and fills the SAME check page or form; CW's
+own checks still decide and a person always presses Store or Save. Phase 1 = Profit > Delivery bills (a Royal Mail bill) and Profit > Expenses
+(an invoice). Nothing goes live without the owner's word.
+
+**AI1. One service, a small class per kind of document (`CW\Ai\DocumentReader`, `CW\Ai\Kind`).** A kind says what Claude is told
+(instructions), the fixed JSON answer (schema, sent as structured outputs: every object closed with `additionalProperties: false`, every field
+required; only what structured outputs take: no lengths, patterns or bounds, CW checks those itself), the answer's limit in tokens, and CW's
+strict reading of the answer (`shape()`: every field in its form or the whole answer refused, naming the field and the line, never what it
+holds). Phase 1 kinds: `royal_mail_bill`, `expense_invoice`. A later kind (a supplier invoice with lines, a goods-in, return, PO or count
+file) is one more class and one more place in `DocumentReader::PLACES`.
+
+**AI2. Anthropic's own PHP SDK, with a PSR-18 client as the seam (`CW\Ai\Claude`).** `anthropic-ai/sdk` v1.14.0 (PHP ^8.1) and
+`guzzlehttp/guzzle` 7.17 (its PSR-18 client) are production packages; `php-http/discovery`'s Composer plugin is not allowed (push_code.sh
+installs with --no-plugins anyway). The call: beta messages, streamed (a five-page bill is minutes of output) and folded with the SDK's
+`MessageAccumulator`; the document as a `document` block (a photo as an `image` block), base64, BEFORE the text; the model and the effort
+from the settings (claude-opus-5-5, medium: set explicitly, its default); no `thinking` (always on for that model; disabling it is a 400);
+the server-side refusal fallback opted in (beta `server-side-fallback-2026-07-01`, `fallbacks: "default"`); the base URL fixed (an
+ANTHROPIC_BASE_URL in the environment never redirects the key), OpenTelemetry off, the key passed in (never read from the environment).
+`stop_reason` is read before any content: `refusal` and `max_tokens` are failures, never half an answer; the text read is the one after the
+last `fallback` block; every attempt's tokens counted (usage.iterations). The SDK's errors, most specific first, become reason codes (auth,
+forbidden, billing, spend_limit, rate_limited, overloaded, server, timeout, connection, bad_request, too_large, other). Tests never call the
+API: the SDK sends through a fake PSR-18 client (`tests/Support/FakeClaude`) that answers with recorded, MADE-UP streams, so the real SDK
+builds the request and reads the answer in every test.
+
+**AI3. Read in the background, never in a web worker.** php-fpm stops a request after 150 s and has 10 workers; a 160-line week is about
+11,000 tokens of answer (2-4 minutes). So the upload only keeps the file and makes a job (`ai_read`, `waiting`) and the page waits on its
+own address (`/ui/profit/delivery/read/{id}`, `/ui/profit/expenses/read/{id}`), looking again every 3 seconds by the Refresh header (no
+script); `bin/ai_read.php` (cron, every minute, one run at a time by its lock, about 55 s a run, looking every 2 s) reads the jobs one at a
+time with no time limit of the web's (its own deadline: 600 s a call). Once read, the person's own page takes the answer and runs the place's
+own checks as the person. A job is its person's only (another person: 404); the routes are the places' own permissions (delivery.upload,
+expenses.edit), checked again by the service, and again by the runner when it reads (a job taken away meanwhile: `not_allowed`). One effect
+per form (checklist 10): the same file sent again from the same place by the same person, with the same typed fields, while its reading
+waits, goes or is not shown yet, is that reading (a double click never pays twice; under the person's own lock). Whatever breaks inside a
+read ends its job at once (failed, `error`, the exception's class kept on the job, never its message; staff read "something went wrong in CW
+while it was being read"); a stream that breaks while read is `connection`.
+
+**AI4. A Royal Mail bill: Claude copies, CW's own reader decides.** Claude copies the top block (account, invoice number, date, net, VAT,
+gross, currency), EVERY line (service date, product code, quantity, description, the reference cell as printed with its sales order,
+net, gross, VAT code), its own count of the lines, the VAT summary rows and the "Surcharge included" amount. CW writes the bill out as the
+page reader's text (`RoyalMailBillKind::render`: the shape of the owner's pasted bills, each line on two lines, no tab) and runs
+`RoyalMailBills::check` on it, so EVERY check of a pasted bill applies unchanged (the lines tie to the net and gross to the penny, the VAT
+follows from the codes, an unknown product refuses the bill, the account is the one chosen, the same bill twice ...). The check page is the
+same (a line says Claude read it: "compare a few lines with the PDF before you press Store"); Store is the same; the check's audit row says
+`read_by: claude` and the job. A reading that does not add up is refused and says so ("CW's reading of the PDF does not add up to the bill's
+total: try the bill page's own text or send it to the CW team"), never corrected; the bills busy just now (another Store, the kit's hold):
+the reading is given back to its job for the same page to try again in a minute, never read a second time. Before that, a count of the lines that is not Claude's own
+count refuses the answer (a reading that lost or doubled lines). £ example: the synthetic week of the tests (AiKindsTest), 12 lines, £2,284.45 net: read
+from the PDF it is the SAME bill as its saved page (the same rows and fingerprint: "the same file" if both are uploaded).
+
+**AI5. An expense's invoice fills the form, Save decides.** The add form (and an expense's Change) has "Fill from the file with Claude"
+while reading is on: the form is sent with its file; once read, the form comes back with the boxes Claude read filled over what was typed, and
+a note saying which. Only what holds together is filled: net + VAT = total (a missing one worked out only from the other two when they are
+printed, never a VAT CW works out), in pounds; the VAT choice the figures match (the server's own rule). A supplier only when it is exactly
+one of CW's (name, any case and spacing: CW keeps no VAT number of an expense supplier), else left to staff with the printed name said; a
+shop only when its exact name is printed as the one billed (the owner's rule: never a shop picked for you); a credit note ticked with its
+amounts as printed. Never a confidence number. £ example: an invoice of £70.60 + £14.12 VAT = £84.72 fills 70.60 / 14.12 / 84.72 and
+"Includes 20% VAT" (£84.72 x 10000 / 12000 = £70.60); one whose boxes say £70.60 + £14.12 but whose total says £90.00 fills no amount and
+says "add up to £84.72, not to its total £90.00". The copy Claude read is deleted: the form asks for the file again (or "Save without a file").
+
+**AI6. DPD stays the CSV.** DPD's weekly PDF is 55-61 pages for 2,300-2,600 parcels (page counts read with pdfinfo; the files were never
+opened: they hold delivery addresses and, on page 1, payment details): copying every parcel would be about 150,000 tokens of answer (over
+the 128,000 one answer may hold, about £2.50 a bill and half an hour), and the CSV DPD sends with it is the exact list. A PDF chosen with DPD
+is refused in words ("upload the CSV file DPD sends with each bill"), nothing sent.
+
+**AI7. Settings, all on the Settings screen ("Claude reads uploads"), audited, with history (0082).** `ai.read_uploads` (Off as installed),
+`ai.anthropic_api_key` (a SECRET: never shown back, never logged; the history and the audit keep a fingerprint; a password box holding only
+"(set: hidden)" while set, sent back as it is the key stays; a key typed into a refused form is never drawn back; a key of the wrong form is
+refused: `sk-ant-...`), `ai.model` (claude-opus-5-5), `ai.effort` (low, medium, high, xhigh, max; medium), `ai.monthly_limit_gbp` (30).
+Reading is on only with the switch on AND a key.
+
+**AI8. The month's limit counts real money, rounded up.** Each call's tokens at the model's prices, two settings in pounds per million tokens
+(`ai.price_input_gbp_per_mtok` 3.20, `ai.price_output_gbp_per_mtok` 16.00: Claude Opus 5.5's $4 / $20 at $1 = £0.80; change both with the
+model), in thousandths of a penny on the log row, rounded UP; the UK month's sum in pence rounded up. At the limit no new reading starts (the
+upload as before still works) and a job waiting is not read. £ example: a week's bill of 15,000 tokens in and 13,000 out costs 4,800 + 20,800
+= 25,600 thousandths = 25.6p; 100 of them a month = £25.60.
+
+**AI9. The log of calls, without content (`ai_call`).** When, who, place, kind, the model asked and the one that answered, the file's type
+and size, tokens in and out, the cost, the result (ok / refused / failed) and its reason code, a refusal's category, the API's request id,
+seconds; and later what CW's own checks made of it (passed / refused + the refusal's code: how often Claude's reading of a bill does not add
+up). Never the key, the document, a field of it or Claude's text. Never removed by the app login; its row is written before the request and
+finished once after it (AI16: only the call's outcome and those three columns are written later). Settings > Rules and numbers says "This
+month: N documents read, £x of the £30.00 limit".
+
+**AI10. Privacy: business papers only.** What leaves the server: the document (base64) with CW's fixed instructions and the answer's shape,
+to api.anthropic.com over HTTPS, nothing else of CW (no supplier list, no shop name, no order). The Click & Drop report (customer addresses)
+is never offered to Claude; DPD's PDF is never sent (AI6).
+
+**AI11. Kept only as long as needed.** The file in the spool folder (app.env `ai_spool_dir`, else /var/lib/cw/ai-read, 0700 www-data; the
+file 0600 under a random name) until it is read: deleted right after the call, read or not (a Royal Mail bill's; an invoice's is kept for its
+expense's Save: AI15 supersedes this part for the Expenses places); the answer in CW's form until its person's page
+takes it (once: `taken`); every minute, whatever the switch, the runner's clean-up: a job left `reading` by a run that stopped (failed,
+`stopped`), a job waiting more than an hour (`too_old`), an answer not taken within an hour (`expired`), any file of the folder no job names
+that is older than an hour (a crash; only CW's own 32-hex names are touched), a job row's typed fields a day after it finishes (the row
+stays, emptied: AI19; the log rows stay).
+
+**AI12. Every failure in the staff's words, with what to do next** (`Ui\AiReadWords`): "CW could not read this document: <why>" and, for a
+bill, "Upload the bill's saved page or paste its text, or send the PDF to the CW team"; the key wrong: "a person who manages settings
+changes it in Settings > Rules and numbers"; busy: "try again in a minute"; an iPhone's HEIC photo told apart by its own bytes.
+
+**AI13. CW-1181: a tabbed copy whose bill lines come on two lines is read (`RoyalMailBillPage::joinTabbed`).** Chrome on a Mac breaks each
+row where the reference cell starts (a form in the cell): "date, product, quantity, description" then "reference, net, gross, VAT code". A
+row that starts as a bill line, holds fewer than 7 cells and no amount waits for the rest; the next row that ends with two amounts and a VAT
+code (and is no bill line) completes it; words between are its description's. Anything else (a bill line next, money between, the end)
+leaves the half row as it was: refused whole, as before. The same bill as the one-line copy (rows, totals, fingerprint).
+
+**AI14. The go-live kit (`/root/cw_work/kits/aireader_cw1182/`).** 0082 only (three tables, seven settings OFF); before anything switches, the
+kit proves on the box that composer --no-dev installs anthropic-ai/sdk (the pinned version) and that the box reaches api.anthropic.com over
+HTTPS through the SDK itself (a request with NO key must answer 401: no token spent); the spool folder made (0700 www-data); the cron line
+installed by install_cron.sh --migrate --expect-revision=<tip> --expect-active=<base> (the installer checks, under its own lock, that the
+copy it installs is the one the kit probed: AI18 H9); the feature lands OFF: the owner pastes the key on the Settings screen later and
+switches it on. The release is built ON the live commit: 86c21af (CW-1180, live 25 Nov 20:34), whose last migration is 0081; the plain
+rollback is the kit's aikit-rollback, PIN_RB in its vars.sh (86c21af + 0082 byte for byte; its id changes with each re-pin, as it is a
+child of the tip: 20c620a on the merge 86aebbd). The undo (the owner's word only): the quick stop first (reading off AND the key emptied;
+it needs only the box, the schema and the live release: never the rollback folder, AI18 M8); then, with the writers PAUSED as the installer
+pauses them (AI18 H6, H8): the key emptied and reading off again, the key's row closed to any key (typed a number: the release before
+refuses a key typed into it), every job row and every spool file purged and checked gone, the switch to the plain rollback, its cron, the
+writers back; the app login's
+grants on 0082's tables taken back after it; the call log (ai_call) and 0082's tables stay. A run stopped after the switch resumes from its
+marker (AI18 M9). tests/Integration/Profit/RollbackReleaseTest pins the recipe: the release before's last migration 0081, the rollback's one
+file 0082.
+
+**AI15. The invoice Claude read is the expense's file: kept for its Save, never asked for again (the lead's pick, 25 Nov 2026 ~20:00 UK;
+supersedes AI11 for the Expenses places).** Before, the copy Claude read was deleted once read and the filled form asked for the file again
+(choose it, or tick "Save without a file"): the same PDF chosen twice. Now the file of a reading made from an expense's form (the add form, or
+an expense's Change) stays in the spool after it is read, and the filled form carries the reading (a hidden `ai_file`) with the words "The
+invoice Claude read is kept for this expense: Save attaches it, as if you had chosen it (within an hour)". Save with no file chosen attaches
+it through the same path as a chosen file (`ExpenseFiles::store`: its first bytes and the sniffer agree on a PDF, a JPEG or a PNG, at most 10
+MB, stored under its sha256 in the document store, kind `expense_invoice`), inside the expense's own transaction (`DocumentReader::useFile`):
+only the person who sent it; only from the place it was read for (the add form takes an add form's reading; a Change takes a reading made
+from THAT expense's Change); only while it is kept; its size and sha256 checked again against what was sent (a file changed in the spool is
+never attached); ONCE (its row locked, `ai_read.file_used_at` written; a refused Save, such as "the same invoice?" or a field, rolls it back
+and the page offers it again). Then it is deleted from the spool. A file chosen on the form wins over it. Not saved: deleted an hour after
+the person's page took the reading (or after it finished, not taken), as before; a reading that failed keeps it too (the page says why and
+Save still attaches it), except when its person may no longer use it, it waited too long, or it was gone. A form naming a reading that is
+not kept for it (another person's, used, older than the hour) is refused, nothing saved: "The invoice Claude read is no longer kept for this
+form ...: choose the file again, or tick Save without a file". The form sent again (a lost answer) lands where the first did (its one-effect
+key holds the reading, not the file, which is gone by then). Since the file becomes the expense's, an expense's reading takes only what an
+expense keeps (a PDF, a JPEG or a PNG; a WebP or a GIF is refused before it is read, in words). Royal Mail bills are unchanged: their file is
+deleted right after the reading (CW never keeps bill files). £ example: an invoice of £84.72 read at 2:00 pm, its form saved at 2:20 pm: the
+expense of £84.72 has the PDF the person dropped, and nothing is left in the spool; not saved by 3:00 pm (its page took it at 2:00), the
+copy is deleted at the runner's next minute and a Save at 3:05 asks for the file again.
+
+**AI16. A call is counted at its most BEFORE it is sent, so a reader that dies mid-call still counts (the lead, 25 Nov 2026 ~20:00 UK).**
+Before, a call's log row was written after the answer: a reader killed mid-call (out of memory, a restart) left a call Anthropic may bill
+that the month's limit never saw. Now its row is written first: result `started`, counted at the most it may cost (`max_millipence`, kept:
+`Claude::maxInputTokens` = the request's own words at two characters a token + 2,000 tokens of framing + 10,000 tokens a page (a page's
+text and its picture; the high-resolution models take at most 4,784 visual tokens a page), a PDF's pages counted from its page objects, else
+its page tree's /Count, else 100; a photo one page; plus the kind's max_tokens of output) at the settings' prices; the month (and so the
+limit) counts it while it goes. After the call the row is finished once (`WHERE result = 'started'`): what its answer said it used; no usage
+came back and Claude may have worked (`timeout`, `connection`, an answer CW could not read, `other`): its most; refused before Claude worked
+(the key, the account, its limits, busy, the request): nothing (`AiUsage::charged`). A row left `started` is closed as `crashed` (reason
+`stopped`) at its most: by the next run (the runner's lock held: its job was `reading`, so its reader stopped) or, whatever the lock, an hour
+after it was written (no call lasts that long: 300 seconds, no retry: AI18 M4). The app login may write only the call's outcome
+(model that answered, tokens, cost, result, reason, refusal's category, request id, fallback, seconds) and the check's three columns; who,
+where, when, the model asked, the file and its most are frozen; a row is never removed. £ example: a 5-page Royal Mail bill's most is about
+£1.20 an attempt (54,000 tokens in at £3.20 a million = 17p, 64,000 out at £16.00 = £1.02), reserved twice (the request and the server-side
+fallback's: AI18 M2), about £2.39; while it is read the month counts that; read, it is counted at what it used (about 25.6p); its reader
+killed mid-call, £2.39 stays (crashed). The limit is a hard cap (AI18 M3): a call starts only when the month's spend plus its most stays
+within it.
+
+**AI17. bin/health_alert.php says when the reading is stuck (the lead, 25 Nov 2026 ~20:00 UK).** Two alerts of CW's own, in the same style
+as the others (a line in the log, the words sent once per window, "back to normal" when they clear), only while reading is switched on
+(`ai.read_uploads`; quiet while it is off, whatever is left): `ai_waiting` "Claude reads uploads: N document(s) have waited more than 10
+minutes to be read (the oldest X). The reader runs every minute from cron: tell the CW team." (bin/ai_read.php is not running, or is
+stuck on a call) and `ai_reader_failed` "Claude reads uploads: the reader's last run failed X ago (why). Documents sent to be read wait until a
+run ends well: tell the CW team." Each run records itself on `ai_reader`'s one row (began; ended well; failed with the error's class, never
+its message); a run that began and never ended (its process killed) is found by the next run (it holds the lock, so the last one is not
+running) and recorded as failed ("did not end"). The alert holds from the failure until a run ends well, so a run starting meanwhile never
+makes it flap.
+
+**AI18. The final review's findings fixed (the Codex final review of 86aebbd: NO GO, 9 High, 10 Medium, 1 Low; the lead's decisions, 25 Nov
+2026 ~21:10 UK).** H1: the reader runs as www-data (the spool's owner; the app login, as the web: a job that may not read db.env gets the app
+login only), never root, and sends or deletes only its OWN spool file: a name of 32 hex inside the spool's real folder, a regular file and no
+link (lstat, and the opened file is the one lstat saw), at most 10 MB, of the size and sha256 its job recorded; anything else ends the job
+(`file_gone`) with nothing sent and nothing outside the spool read or deleted. H2: every request goes through `AnthropicOnly`: only
+https://api.anthropic.com:443, and a 3xx is a failure (`redirect`, "the Anthropic API sent CW elsewhere"): the SDK's own redirect loop never
+sees it, so a document is never replayed to another host. H3: an invoice's reading is checked against its whole schema first (every field,
+no other, each of its type, an amount "1234.50", a date a day, the currency three letters; else the whole reading is refused, naming the
+field); the amounts are filled only in GBP, all three read (none worked out), adding up to the penny, none below 0, and not for a credit
+note; else none, and why is said. £ example: a total read as "84.7x" with £70.60 + £14.12 refuses the reading (before, the total was worked
+out as £84.72 and filled); a credit note of £84.72 fills its supplier, number, date and the Credit note tick, and the person types £70.60
+and £14.12. H4: a stream that ends before message_stop is a broken stream (`connection`, counted at its most), never an answer. H5: Save is
+the forms' first submit button (Enter saves); "Fill from the file with Claude" sits after it. H6, H8: the undo's code switch runs with the
+writers paused; the key's row is closed to any key (the lead's decision was to delete the seven ai.* rows; the kit's trial showed that
+breaks the nightly check "a setting with a history keeps its row, nothing is ever deleted" (Q9, K2: 7 violations), so the rows stay and the
+key's row is typed a number instead: its value stays empty and its history untouched (K2 compares a setting's value and provisional), and
+the release before's own parser refuses any key typed into it; the trial proves the refusal); every job row (its context, an answer not
+taken) and spool file purged and checked gone; the call log kept. A later go-live of this release after such an undo types the key's row
+back to text first. H7: a form carrying a kept invoice also carries the
+release before's "choose the file again" marker, so after an undo its Save asks for the file instead of saving without it; a refused Save
+keeps both. H9: the installer's --expect-revision / --expect-active (as PayPal's kit), so the copy installed is the one probed.
+M1: a bill line's reference is written verbatim (a bare sales order "7181703660" keeps its order); a Mac copy that breaks after the reference
+keeps every part of it, and words between such a half and its amounts are refused, never guessed. M2: a PDF's pages are the larger of its
+page objects and its page tree's count; every attempt that may be billed is reserved (the request and the server-side fallback's: x2), and
+the SDK retries nothing (a busy API is said; the person sends again). M3: the month's limit is a HARD cap: a call starts only when the month's
+spend plus its most stays within it (checked by the runner under its lock); the prices are required and above 0 (else reading is off: "a
+model price is not set above 0"). £ example: with £29.00 used of £30, a 5-page bill (most about £2.39) is not sent: "this month's limit was
+reached meanwhile"; an invoice photo (most about 34p) is. M4: a call's whole HTTP transfer is cut at 300 seconds (the client's own timeout,
+no retry), inside the installer's 6-minute drain; the reader starts no reading while the installer's pause markers exist. M5: a reading is
+seen and taken only at its own place's page (a bill's at Delivery bills, an invoice's at Expenses). M6: an answer past its hour is expired
+when it is asked for, never taken. M7: the kit's smoke run of the reader waits out a cron run holding the lock (bounded). M8: the quick stop
+needs only the box, the schema and the live release. M9: an undo stopped after its switch resumes from its marker. M10: the app login writes
+only a job's lifecycle columns (and removes a finished job after a day) and only the reader row's run columns; a job's owner, place, file
+and context are frozen once made. Low: AI14 names the live base 86c21af, its last migration 0081 and the rollback by its pin (PIN_RB).
+
+**AI19. The last round (the Codex re-check of ca8987b; the lead, 25 Nov 2026 ~21:42 UK): the undo is the quick stop; the rest fixed.** The
+owner's standing rule (fix forward, as CW-1180): the undo of this release is the QUICK STOP (reading off, the key emptied: no code change).
+The code goes back ONLY if reading was never used since the go-live (no job row, no call row, and the key's history never held a value),
+checked with the writers paused; otherwise the kit STOPs "fix forward (the quick stop is on)" and puts the writers back. So the undo never
+deletes a job or a file (AI18 H8's purge is gone). The kit records the undo's phase BEFORE it pauses the writers and holds the install lock
+from its first check to its last, so a run that dies anywhere is resumed by running it again (the writers are never left paused). A later
+go-live of this release after such an undo needs no hand step: its own bin/migrate.php, which the installer runs with the writers paused,
+types the key's row back to text (AiSettings::restoreKeyRow), and the kit recognises 0082 already applied. Code: a date read is a day after
+its blanks are trimmed (a date of blanks refuses the reading, so amounts never land beside a date the form held before); Save stores the
+VERIFIED bytes of the invoice Claude read, from a private copy, and the stored file's sha256 must be the job's before the expense commits;
+words before the amounts after a complete reference in a Mac copy are refused; [superseded by AI20: the input is the API's own count] a
+PDF counted at least one page for every 2,000 bytes, the request's own words at a token a byte; ONE named fallback model (claude-opus-4-8,
+the same output limit) instead of the server's default list, so every billable attempt is known (x2); the cap
+compares the month's spend and the call's most to the thousandth of a penny; one wall clock over the whole call (a request after it is never
+sent; the HTTP client's timeout ends the transfer at it; curl replays nothing); a job is seen and taken only when its kind is its place's;
+the app login never removes a job row (no DELETE: a job can never be replaced), a finished job's typed fields emptied in place a day after.
+(That byte rule reserved about £24.30 for the real 694 KB 5-page bill of 23 Nov, so a bill could be sent only while the month's spend was
+at most about £5.70: AI20 replaces it.)
+
+**AI20. The reservation is the API's EXACT count of the input (the lead, 25 Nov 2026 ~22:15 UK: the byte rule of AI19 M2 was wrong).**
+Before each call the reader asks the API's token-counting endpoint (`POST /v1/messages/count_tokens`, the SDK's
+`$client->beta->messages->countTokens()`) for the very request it will send: the same document block, the kind's instructions, the system
+prompt, the model and the output schema with its effort; through the same guard (AnthropicOnly: https://api.anthropic.com:443, no redirect)
+and within the same wall clock of 300 seconds as the call that follows (one clock over both). Counting is free and reads nothing. The
+reservation (the call's row before the request, `max_millipence`) is then: (counted input x the input price + the kind's max_tokens x the
+output price) x 2 (the request and the one named fallback, claude-opus-4-8), rounded up to the thousandth of a penny; the hard cap compares
+the month's spend plus that. A count that fails, times out, is refused elsewhere or answers anything but a whole number: the document is NOT
+sent (the job fails `count_failed`: "Anthropic could not say how large the document is, so it was not sent (nothing was spent): try again
+in a minute"), and nothing is reserved (no call row). A PDF's page objects and page-tree count are kept only as a note in the runner's log
+("input counted N tokens, P page(s) shown"), never as the bound. £ example: a 5-page Royal Mail bill counted at about 54,000 tokens in
+reserves 2 x (54,000 at £3.20 + 64,000 at £16.00 a million) = about £2.40 while it is read (the byte rule reserved about £24); read, it counts
+what it used (about 25p); with the £30 limit a bill is sent while the month's spend is at most about £27.60.

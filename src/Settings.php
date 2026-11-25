@@ -287,6 +287,16 @@ final class Settings
         'live.poll_seconds' => ['min' => 2, 'max' => 10],
         'live.alone_seconds' => ['min' => 5, 'max' => 60],
         'live.gone_seconds' => ['min' => 25, 'max' => 300],
+        // ---- "Claude reads the upload" (0082; docs/decisions.md AI7, AI8): the API key in its own form (pasted from the Anthropic console; empty: off),
+        // the model by its id, the effort as the API names it, the month's limit and the model's two prices in pounds.
+        'ai.anthropic_api_key' => ['pattern' => '/^(sk-ant-[A-Za-z0-9_-]{20,200})?$/D',
+            'pattern_says' => 'an Anthropic API key as the Anthropic console gives it, starting sk-ant- (empty: Claude reads nothing)'],
+        'ai.model' => ['pattern' => '/^claude-[a-z0-9-]{3,60}$/D', 'pattern_says' => 'a Claude model id, like claude-opus-5-5'],
+        'ai.effort' => ['in' => ['low', 'medium', 'high', 'xhigh', 'max']],
+        'ai.monthly_limit_gbp' => ['min' => '0', 'max' => '10000'],
+        // M3 (Codex final of 86aebbd): a price is never 0 or empty (paid readings would count as nothing against the limit)
+        'ai.price_input_gbp_per_mtok' => ['min' => '0.01', 'max' => '1000', 'required' => true],
+        'ai.price_output_gbp_per_mtok' => ['min' => '0.01', 'max' => '1000', 'required' => true],
     ];
 
     /**
@@ -302,19 +312,29 @@ final class Settings
      * Admin\ConfigHistory to the live row and every version alike, so the nightly K checks still compare). A form sent back with the
      * masked value as it was drawn keeps the value (change()).
      */
-    public const SECRET = ['alerts.webhook_url'];
+    public const SECRET = ['alerts.webhook_url', 'ai.anthropic_api_key'];
+    /** Secrets of which nothing at all is shown (0082, AI7: the Anthropic API key): "(set: hidden)" while set. */
+    public const SECRET_WHOLE = ['ai.anthropic_api_key'];
+    /** What a SECRET_WHOLE setting shows while it is set. */
+    public const HIDDEN = '(set: hidden)';
 
     public static function isSecret(string $key): bool
     {
         return in_array($key, self::SECRET, true);
     }
 
-    /** What a secret setting shows: "https://hooks.example.com/…" ('' when not set). */
-    public static function masked(mixed $value): string
+    /**
+     * What a secret setting shows: "https://hooks.example.com/…" ('' when not set); a SECRET_WHOLE one (the API key) shows HIDDEN, never a
+     * character of it.
+     */
+    public static function masked(mixed $value, string $key = ''): string
     {
         $v = (string) ($value ?? '');
         if ($v === '') {
             return '';
+        }
+        if (in_array($key, self::SECRET_WHOLE, true)) {
+            return self::HIDDEN;
         }
         $parts = parse_url($v);
         $host = is_array($parts) && isset($parts['host']) ? (string) $parts['host'] : '';
@@ -412,8 +432,8 @@ final class Settings
         return [
             'key' => $key,
             'type' => (string) $r['value_type'],
-            'value' => self::isSecret($key) && $value !== '' ? self::masked($value) : $value,
-            'display' => self::isSecret($key) && $value !== '' ? self::masked($value) : self::display($value),
+            'value' => self::isSecret($key) && $value !== '' ? self::masked($value, $key) : $value,
+            'display' => self::isSecret($key) && $value !== '' ? self::masked($value, $key) : self::display($value),
             'provisional' => (int) $r['provisional'] === 1,
             'decision' => $r['decision'] === null ? null : (string) $r['decision'],
             'description' => (string) $r['description'],
@@ -644,7 +664,7 @@ final class Settings
             \CW\Admin\ConfigHistory::checkSeen($db, 'setting', $key, $seen);
             $type = (string) $row['value_type'];
             $before = self::decode($type, (string) $row['value_json']);
-            if (self::isSecret($key) && $before !== '' && trim($raw) === self::masked($before)) {
+            if (self::isSecret($key) && $before !== '' && trim($raw) === self::masked($before, $key)) {
                 $raw = (string) $before; // the form as it was drawn (the masked value): the secret stays as it is
             }
             $after = self::parse($type, $raw);

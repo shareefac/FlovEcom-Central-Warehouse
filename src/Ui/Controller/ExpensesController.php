@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace CW\Ui\Controller;
 
+use CW\Ai\AiSettings;
+use CW\Ai\DocumentReader;
+use CW\Ai\ExpenseInvoiceKind;
 use CW\CwException;
 use CW\Expenses\ExpenseAccess;
 use CW\Expenses\ExpenseFiles;
@@ -14,6 +17,7 @@ use CW\Expenses\ExpenseViews;
 use CW\Expenses\RegularCostMath;
 use CW\Files\FileStore;
 use CW\Profit\ProfitViews;
+use CW\Ui\AiReadWords;
 use CW\Ui\Context;
 use CW\Ui\FormOnce;
 use CW\Ui\Html;
@@ -160,28 +164,173 @@ final class ExpensesController
         return $this->form($ctx, 200, null, [], $n === 'added' ? Words::EXPENSES['notice_added'] : null);
     }
 
-    /** POST new: adds the expense; "Save and add another" comes back to an empty form. */
+    /**
+     * POST new: adds the expense; "Save and add another" comes back to an empty form. No file chosen, and the form carries the invoice Claude
+     * read for it (ai_file; AI15): that file is the expense's, attached in the expense's own transaction as if it had been chosen (its person,
+     * once, checked again: DocumentReader::useFile), then deleted from the spool.
+     */
     public function add(Context $ctx): HtmlResponse
     {
         $typed = self::typed($ctx);
+        $kept = null;
         try {
             $file = self::upload($ctx, false);
-            self::fileAgain($ctx, $file);
+            $kept = $file === null ? self::aiFile($ctx) : null;
+            if ($kept === null) {
+                self::fileAgain($ctx, $file);
+            }
             $same = self::same($ctx);
             $another = $ctx->req->field('then') === 'another';
             // One effect per form (FormOnce, I46; the Codex check r3, H1): the same form sent again (a lost answer, a retry), a confirmed second
-            // invoice too, lands where the first did and adds nothing. What it keeps of the form: the fields and the file's fingerprint.
+            // invoice too, lands where the first did and adds nothing. What it keeps of the form: the fields and the file's fingerprint (the
+            // invoice Claude read: its reading, so a form sent again after its file was attached and deleted is still the same form).
             $request = self::fingerprint($typed) + ['same_ok' => $same, 'then' => $another ? 'another' : 'done',
-                'file' => $file === null ? '' : (string) hash_file('sha256', $file['path'])];
-            $r = FormOnce::run($ctx, 'ui.expense.add', $request, static function (\CW\Db $db) use ($ctx, $typed, $file, $same, $another): \CW\OpResult {
-                $x = (new Expenses($db, static fn (): FileStore => $ctx->files()))->add($ctx->caller(), $typed, $file, $same);
+                'file' => $file !== null ? (string) hash_file('sha256', $file['path']) : ($kept !== null ? 'claude:' . $kept : '')];
+            $r = FormOnce::run($ctx, 'ui.expense.add', $request, static function (\CW\Db $db) use ($ctx, $typed, $file, $kept, $same, $another): \CW\OpResult {
+                $use = $file ?? ($kept === null ? null : (new DocumentReader($db))->useFile($ctx->caller(), $kept, 'expense_new', null));
+                try {
+                    $x = (new Expenses($db, static fn (): FileStore => $ctx->files()))->add($ctx->caller(), $typed, $use, $same);
+                    self::storedAsRead($db, $use, $x['file_id']);
+                } finally {
+                    self::dropCopy($use);
+                }
                 return \CW\OpResult::of(303, ['redirect' => $another ? Html::url(self::PATH . '/new', ['notice' => 'added'])
                     : Html::url(self::PATH . '/' . $x['id'], ['notice' => 'added'])]);
             });
         } catch (CwException $e) {
             return self::deniedWrite($e) ? self::denied($ctx, $e) : $this->form($ctx, $e->httpStatus, $e, $typed, null);
         }
+        self::dropUsed($ctx, $kept);
         return FormOnce::redirect($r);
+    }
+
+    /**
+     * POST read: the add form sent with "Fill from the file with Claude" (CW-1182; docs/decisions.md AI5): its file read by Claude in the
+     * background (DocumentReader), what was typed kept with it; the page that waits. Refused (no file, switched off, the limit, the file's
+     * type): the form back as it was typed, with why.
+     */
+    public function read(Context $ctx): HtmlResponse
+    {
+        $typed = self::typed($ctx);
+        try {
+            $id = self::startReading($ctx, 'expense_new', $typed);
+        } catch (CwException $e) {
+            return self::deniedWrite($e) ? self::denied($ctx, $e) : $this->form($ctx, $e->httpStatus, $e, $typed, null);
+        }
+        return HtmlResponse::redirect(self::PATH . '/read/' . $id);
+    }
+
+    /** POST {id}/read: an expense's Change form sent with "Fill from the file with Claude" (AI5): as read(), the expense and its version kept. */
+    public function readChange(Context $ctx): HtmlResponse
+    {
+        $id = $ctx->id();
+        $typed = self::typed($ctx);
+        try {
+            $seen = self::seen($ctx);
+            if ((new ExpenseViews($ctx->db, $ctx->caller()))->expense($id) === null) {
+                return $ctx->error(404, 'not_found', Words::EXPENSES_ERROR['no_such_expense'], [self::PATH, Words::MENU['profit_expenses']]);
+            }
+            $job = self::startReading($ctx, 'expense_change', $typed + ['expense' => $id, 'seen' => $seen]);
+        } catch (CwException $e) {
+            return $this->refused($ctx, $id, $e, $typed, 'change');
+        }
+        return HtmlResponse::redirect(self::PATH . '/read/' . $job);
+    }
+
+    /**
+     * GET read/{id}: the invoice Claude is reading for this person (AI5). While it waits or is read: the waiting page. Read: its answer taken
+     * once and the form filled with it over what was typed (ExpenseInvoiceKind::fill: only what holds together), a note saying which boxes
+     * Claude filled and what is left to staff; the invoice Claude read is kept for the form's Save (AI15: ai_file, never asked for again; an
+     * hour). Failed: the form as typed, with why (the invoice kept even so). Another person's reading: 404.
+     */
+    public function reading(Context $ctx): HtmlResponse
+    {
+        $reader = new DocumentReader($ctx->db);
+        $id = $ctx->id();
+        try {
+            $job = $reader->view($ctx->caller(), $id, DocumentReader::EXPENSE_PLACES);
+        } catch (CwException) {
+            return $ctx->error(404, 'not_found', 'there is no such reading', [self::PATH, Words::MENU['profit_expenses']]);
+        }
+        $c = $job['context'];
+        $expense = is_int($c['expense'] ?? null) ? $c['expense'] : null;
+        $typed = self::typedFrom($c);
+        $back = function (int $status, ?CwException $e, array $typed, array $ai) use ($ctx, $expense, $c): HtmlResponse {
+            if ($expense === null) {
+                return $this->form($ctx, $status, $e, $typed, null, $ai);
+            }
+            return $this->one($ctx, $expense, $status, $e, $typed, null, is_int($c['seen'] ?? null) ? $c['seen'] : null, 'change', $ai);
+        };
+        if (in_array($job['state'], ['waiting', 'reading'], true)) {
+            return DeliveryBillsController::waitPage($ctx, $job, self::PATH . '/read/' . $id, $expense !== null ? self::PATH . '/' . $expense : self::PATH . '/new');
+        }
+        // the file the person sent: kept for the form's Save while it may be (AI15), else Save asks for it again unless "Save without a file" is ticked
+        $file = static fn (): array => $reader->kept($ctx->caller(), $id) ? ['kept' => $id] : ['fileAgain' => true];
+        if ($job['state'] === 'taken') {
+            return $back(409, new CwException('ai_read', Words::AIREAD['taken'], 409), $typed, $file());
+        }
+        if ($job['state'] !== 'done') {
+            return $back(422, new CwException('ai_read', AiReadWords::failure($job['kind'], $job['reason'], $job['detail']), 422, ['field' => 'file']), $typed,
+                $file());
+        }
+        try {
+            $answer = $reader->take($ctx->caller(), $id, DocumentReader::EXPENSE_PLACES);
+        } catch (CwException $e) {
+            return $back($e->httpStatus, new CwException('ai_read', $e->errorCode === 'ai_taken' ? Words::AIREAD['taken'] : $e->getMessage(), $e->httpStatus), $typed,
+                $file());
+        }
+        $views = new ExpenseViews($ctx->db, $ctx->caller());
+        $suppliers = array_values(array_filter($views->suppliers(), static fn (array $s): bool => (bool) $s['is_active']));
+        $f = ExpenseInvoiceKind::fill($answer, array_map(static fn (array $s): array => ['id' => (int) $s['id'], 'name' => (string) $s['name']], $suppliers),
+            array_map(static fn (array $s): array => ['id' => (int) $s['id'], 'name' => (string) $s['name']], $views->shops()),
+            (new \CW\Profit\ProfitSettings($ctx->db))->vatBp(), $typed);
+        $reader->checked($id, true);
+        $fields = array_map(static fn (string $k): string => Words::AIREAD['field_' . $k], $f['filled']);
+        $notes = array_map(static fn (array $n): string => Words::say('AIREAD', $n[0], ...$n[1]), $f['notes']);
+        return $back(200, null, $f['typed'], ['filled' => $fields === [] ? Words::AIREAD['filled_none'] : Words::say('AIREAD', 'filled', implode(', ', $fields)),
+            'notes' => $notes] + $file());
+    }
+
+    /**
+     * A reading started with the form's file (AI5): refused in words when the reader refuses (no file, switched off, the limit, the type).
+     *
+     * @param array<string, mixed> $context
+     */
+    private static function startReading(Context $ctx, string $place, array $context): int
+    {
+        $file = self::upload($ctx, false);
+        try {
+            if ($file === null) {
+                throw new CwException('no_file', 'no file', 400, ['field' => 'file']);
+            }
+            return (new DocumentReader($ctx->db))->start($ctx->caller(), $place, $file['path'], $context);
+        } catch (CwException $e) {
+            $words = AiReadWords::refusal($e);
+            if ($words === null) {
+                throw $e;
+            }
+            throw new CwException('ai_read', $words, $e->httpStatus, ['field' => 'file']);
+        }
+    }
+
+    /**
+     * The form's fields as a reading kept them (DocumentReader's context): each a string or a tick, as typed() gives them.
+     *
+     * @param array<string, mixed> $c
+     * @return array<string, mixed>
+     */
+    private static function typedFrom(array $c): array
+    {
+        $out = [];
+        foreach (['shop', 'supplier', 'supplier_id', 'supplier_was', 'type', 'invoice_date', 'invoice_no', 'net', 'vat', 'total', 'vat_way', 'hand', 'note'] as $k) {
+            $out[$k] = is_string($c[$k] ?? null) ? $c[$k] : '';
+        }
+        foreach (['new_supplier', 'credit', 'anchor'] as $k) {
+            $out[$k] = ($c[$k] ?? false) === true;
+        }
+        $out['vat_way'] = self::vatWay($out['vat_way']);
+        $out['hand'] = self::hand($out['hand']);
+        return $out;
     }
 
     /** GET {id}: one expense. */
@@ -191,18 +340,34 @@ final class ExpensesController
         return $this->one($ctx, $ctx->id(), 200, null, null, in_array($n, self::NOTICES, true) ? Words::EXPENSES['notice_' . $n] : null);
     }
 
-    /** POST {id}/change. */
+    /** POST {id}/change. The invoice Claude read for this expense's Change (ai_file, AI15) is attached as add() attaches it. */
     public function change(Context $ctx): HtmlResponse
     {
         $id = $ctx->id();
         $typed = self::typed($ctx);
+        $kept = null;
         try {
             $file = self::upload($ctx, false);
-            self::fileAgain($ctx, $file);
-            $r = (new Expenses($ctx->db, static fn (): FileStore => $ctx->files()))->change($ctx->caller(), $id, self::seen($ctx), $typed, $file, self::same($ctx));
+            $kept = $file === null ? self::aiFile($ctx) : null;
+            if ($kept === null) {
+                self::fileAgain($ctx, $file);
+            }
+            $seen = self::seen($ctx);
+            $same = self::same($ctx);
+            $r = $ctx->db->transaction(static function (\CW\Db $db) use ($ctx, $id, $seen, $typed, $file, $kept, $same): array {
+                $use = $file ?? ($kept === null ? null : (new DocumentReader($db))->useFile($ctx->caller(), $kept, 'expense_change', $id));
+                try {
+                    $r = (new Expenses($db, static fn (): FileStore => $ctx->files()))->change($ctx->caller(), $id, $seen, $typed, $use, $same);
+                    self::storedAsRead($db, $use, (int) $db->value('SELECT file_id FROM expense WHERE id = ?', [$id]));
+                } finally {
+                    self::dropCopy($use);
+                }
+                return $r;
+            });
         } catch (CwException $e) {
             return $this->refused($ctx, $id, $e, $typed, 'change');
         }
+        self::dropUsed($ctx, $kept);
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['notice' => $r['changed'] ? 'changed' : 'unchanged']));
     }
 
@@ -306,6 +471,7 @@ final class ExpensesController
             'file_too_large', 'too_large' => Words::say('EXPENSES_ERROR', 'file_too_large', intdiv(ExpenseFiles::MAX_BYTES, 1_048_576)),
             'changed_meanwhile' => Words::say('EXPENSES_ERROR', 'changed_meanwhile', (string) ($e->detail['by'] ?? '?')),
             'total_mismatch' => Words::say('EXPENSES_ERROR', 'total_mismatch', ExpenseMoney::gbp((int) ($e->detail['sum'] ?? 0)), ExpenseMoney::gbp((int) ($e->detail['total'] ?? 0))),
+            'ai_file_gone' => Words::AIREAD['file_gone'], // AI15
             default => Words::EXPENSES_ERROR[$e->errorCode] ?? Words::error($e->errorCode, $e->getMessage()),
         };
     }
@@ -407,6 +573,67 @@ final class ExpensesController
     }
 
     /**
+     * High 3 (the re-check of ca8987b): the invoice Claude read is stored as it was read: the stored file's sha256 is the job's, checked before
+     * the expense commits (else nothing is saved). A file the person chose is not this check's (it carries no job's sha256).
+     *
+     * @param array{path: string, name: string, sha256?: string}|null $use
+     */
+    private static function storedAsRead(\CW\Db $db, ?array $use, ?int $fileId): void
+    {
+        if (!isset($use['sha256'])) {
+            return;
+        }
+        $sha = $fileId === null ? null : $db->value('SELECT sha256 FROM stored_file WHERE id = ?', [$fileId]);
+        if (!is_string($sha) || !hash_equals($use['sha256'], $sha)) {
+            throw new CwException('ai_file_gone', 'the invoice stored is not the one Claude read', 422, ['field' => 'file']);
+        }
+    }
+
+    /** The private copy useFile() made of the verified bytes, deleted once stored (or refused). @param array<string, mixed>|null $use */
+    private static function dropCopy(?array $use): void
+    {
+        if (isset($use['sha256']) && is_string($use['path'] ?? null) && is_file($use['path'])) {
+            @unlink($use['path']);
+        }
+    }
+
+    /** The reading whose invoice the form carries for its Save (ai_file, AI15), or null. Whose and whether it is still kept: useFile() decides. */
+    private static function aiFile(Context $ctx): ?int
+    {
+        return UiRequest::id($ctx->req->field('ai_file'));
+    }
+
+    /**
+     * The invoice a Save attached, deleted from the spool once the expense is stored (AI15); a failure here changes nothing for the person (the
+     * runner's clean-up deletes it within a minute).
+     */
+    private static function dropUsed(Context $ctx, ?int $kept): void
+    {
+        if ($kept === null) {
+            return;
+        }
+        try {
+            (new DocumentReader($ctx->db))->dropUsed($kept);
+        } catch (\Throwable) {
+            // the clean-up's turn
+        }
+    }
+
+    /**
+     * What a page sent back says of the invoice Claude read (AI15): the one a reading gives it, else the one a refused Save carried (kept for
+     * the next Save; never when a file was chosen instead, or when it was the file that is no longer kept).
+     *
+     * @param array<string, mixed> $ai
+     */
+    private static function aiFileOf(Context $ctx, ?CwException $error, array $ai): ?int
+    {
+        if (is_int($ai['kept'] ?? null)) {
+            return $ai['kept'];
+        }
+        return $error !== null && $error->errorCode !== 'ai_file_gone' && $ctx->req->file('file') === null ? self::aiFile($ctx) : null;
+    }
+
+    /**
      * The form's one-effect key: the one sent, when the form comes back refused (nothing was kept under it: sent again, corrected, it is the
      * same form), else a new one (I46).
      */
@@ -431,7 +658,7 @@ final class ExpensesController
      *
      * @param array<string, mixed> $typed
      */
-    private function form(Context $ctx, int $status, ?CwException $error, array $typed, ?string $notice): HtmlResponse
+    private function form(Context $ctx, int $status, ?CwException $error, array $typed, ?string $notice, array $ai = []): HtmlResponse
     {
         $views = new ExpenseViews($ctx->db, $ctx->caller());
         $bp = (new \CW\Profit\ProfitSettings($ctx->db))->vatBp();
@@ -449,8 +676,16 @@ final class ExpensesController
             'sameIds' => is_string($error?->detail['confirm'] ?? null) ? $error->detail['confirm'] : '',
             'sameList' => self::sameList($error),
             'maxMb' => intdiv(ExpenseFiles::MAX_BYTES, 1_048_576),
-            'fileAgain' => $error !== null && self::fileChosen($ctx),
+            // the invoice Claude read kept for this Save (AI15), or the file to choose again; never both (H7: the kept one's form carries the
+            // release before's marker too, so that release asks for the file rather than saving without it)
+            'fileAgain' => self::aiFileOf($ctx, $error, $ai) === null && (($error !== null && self::fileChosen($ctx)) || $error?->errorCode === 'ai_file_gone'
+                || ($ai['fileAgain'] ?? false) === true),
+            'aiFile' => self::aiFileOf($ctx, $error, $ai),
             'formKey' => self::formKey($ctx, $error),
+            // Claude reads the invoice (CW-1182, AI5): the button while reading is on, and what a reading filled
+            'aiOn' => AiSettings::read($ctx->db)->on(),
+            'aiFilled' => $ai['filled'] ?? null,
+            'aiNotes' => $ai['notes'] ?? [],
             // The shops' rate read ONCE for the page: the label and the script's sums from the same reading (Codex's final review, L2).
             'vatPct' => RegularCostMath::percent($bp),
             'vatBp' => $bp,
@@ -483,7 +718,8 @@ final class ExpensesController
      * @param string|null $form the form whose sending this page answers (change, delete; null: a plain look), so the page opens that fold and
      *     says its refusal there (as a regular cost's page: Fable's Low a on f044e2f)
      */
-    private function one(Context $ctx, int $id, int $status, ?CwException $error, ?array $typed, ?string $notice, ?int $seen = null, ?string $form = null): HtmlResponse
+    private function one(Context $ctx, int $id, int $status, ?CwException $error, ?array $typed, ?string $notice, ?int $seen = null, ?string $form = null,
+        array $ai = []): HtmlResponse
     {
         $views = new ExpenseViews($ctx->db, $ctx->caller());
         $x = $views->expense($id);
@@ -523,8 +759,15 @@ final class ExpensesController
             'vatBp' => $bp,
             'listHref' => Html::url(self::PATH, ['month' => substr((string) $x['invoice_date'], 0, 7)]),
             // A change refused because someone else changed it shows their figures and still asks for the file chosen (the Codex check r3, M8).
-            'fileAgain' => $error !== null && self::fileChosen($ctx),
+            // the invoice Claude read kept for this Save (AI15), or the file to choose again; never both (H7: the kept one's form carries the
+            // release before's marker too, so that release asks for the file rather than saving without it)
+            'fileAgain' => self::aiFileOf($ctx, $error, $ai) === null && (($error !== null && self::fileChosen($ctx)) || $error?->errorCode === 'ai_file_gone'
+                || ($ai['fileAgain'] ?? false) === true),
+            'aiFile' => self::aiFileOf($ctx, $error, $ai),
             'seen' => $seen ?? (int) $x['version'],
+            'aiOn' => AiSettings::read($ctx->db)->on(),
+            'aiFilled' => $ai['filled'] ?? null,
+            'aiNotes' => $ai['notes'] ?? [],
         ], $status, ['title' => $title, 'notice' => $notice]);
     }
 

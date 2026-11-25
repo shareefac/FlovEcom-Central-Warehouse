@@ -186,6 +186,8 @@ final class AlertDispatch
             'paypal_needs_look' => Words::say('ALERT', 'paypal_needs_look', $store, $n('count'), self::lookReasons($d['looks'] ?? []), (string) ($d['newest'] ?? '')),
             'paypal_not_on_order' => Words::say('ALERT', 'paypal_not_on_order', $store, $n('days'), (string) ($d['limit'] ?? ''), (string) ($d['day'] ?? ''),
                 (string) ($d['pence'] ?? '')),
+            'ai_waiting' => Words::say('ALERT', 'ai_waiting', $n('count'), $n('limit'), self::duration($n('age'))), // CW-1182 (AI17)
+            'ai_reader_failed' => Words::say('ALERT', 'ai_reader_failed', self::duration($n('age')), (string) ($d['error'] ?? '')),
             default => (string) ($p['detail'] ?? $p['kind']),
         };
     }
