@@ -21799,7 +21799,8 @@ move covered_to. What the forward days brought is decided before any old day is 
 what was stored before it is decided at once, the run failed all the same (a catch-up longer than a night goes on night by night: the test
 reads two windows a night and finishes in two). A row last read under other forms whose shop the forms of now might make otherwise (its
 shop's field captured by none or two of the forms then) that is older than the days read again needs a look (`form_unread`), never a shop
-guessed from the forms of then.
+guessed from the forms of then; once a read under the forms of now gives it (a backfill of its day), it is decided again (released), also
+when nothing about it changed.
 
 **PPF45. Followed to the end, held with its parent, conflict first, every chargeback's order guarded (a2, a6, NEW ignored, NEW fully offset;
 HIGH x2 + MEDIUM x2).** A decision follows the refunds and chargebacks of the same order numbers (as resolved now and as stored) until no
