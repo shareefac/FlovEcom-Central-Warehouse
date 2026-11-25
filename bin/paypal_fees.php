@@ -84,7 +84,10 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
         $on = array_filter(PaypalFees::accountShops($cli->db, $account), static fn (array $sh): bool => $sh['id'] !== null
             && PaypalFees::feesFrom($cli->db, $sh['code']) !== null);
         if ($on === []) {
-            $cli->log("{$account}: switched off (no shop of it has profit.paypal_from_<shop> set); nothing read");
+            // switched off (also: switched off again, the quick stop): no PayPal call, but every row counted before is decided again, so its
+            // money leaves the profit days (before_start); the rows stay
+            $n = $fees->locked($account, static fn (): int => $fees->decideAll($caller, $account, null));
+            $cli->log("{$account}: switched off (no shop of it has profit.paypal_from_<shop> set); nothing read; {$n} rows decided again");
             return Cli::OK;
         }
         $config = Config::load();
