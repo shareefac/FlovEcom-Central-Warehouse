@@ -55,6 +55,9 @@ final class SalesViews
         'csv_max' => ['sales.csv_max_rows', 5000], 'scan_max' => ['sales.scan_max_rows', 5000]];
     /** The warehouse a doubtful cancel parks its units in (0001's seeded row; CW\Reservations::cancel). */
     public const VERIFY = 'VERIFY';
+    /** Where a returned or cancelled unit's stock is now (restock(); Words::SALE_RESTOCK_TEXT): CW-1180 added the two written-off ones (NR7). */
+    public const RESTOCK_OUTCOMES = ['returned', 'cancelled', 'cancelled_held', 'verify_open', 'verify_resolved', 'verify_dismissed', 'written_off',
+        'written_off_nocost', 'unlinked', 'unknown'];
     /** The day a week starts on: Monday (the UK's, and ISO 8601's; docs/decisions.md PD6). */
     public const WEEK_START = 'monday this week';
 
@@ -477,9 +480,9 @@ final class SalesViews
             return ['steps' => [], 'capped' => false];
         }
         $rows = $this->db->all(
-            'SELECT l.id, l.unit_id, l.movement_type, l.bucket, l.qty_delta, l.warehouse_id, l.sku_id, l.actor, l.idem_key, l.created_at, '
-            . 'COALESCE(l.effective_at, l.created_at) AS at FROM stock_ledger l WHERE l.channel_id = ? AND l.unit_id IN (' . self::marks($unitIds) . ') '
-            . 'ORDER BY l.id LIMIT ' . ($max + 1),
+            'SELECT l.id, l.unit_id, l.movement_type, l.bucket, l.qty_delta, l.warehouse_id, l.sku_id, l.actor, l.idem_key, l.created_at, l.note, '
+            . 'CAST(l.unit_cost AS CHAR) AS unit_cost, COALESCE(l.effective_at, l.created_at) AS at FROM stock_ledger l WHERE l.channel_id = ? '
+            . 'AND l.unit_id IN (' . self::marks($unitIds) . ') ORDER BY l.id LIMIT ' . ($max + 1),
             [$channelId, ...$unitIds],
         );
         $capped = count($rows) > $max;
@@ -492,10 +495,15 @@ final class SalesViews
             if (!isset($index[$key])) {
                 $index[$key] = count($steps[$unit] ?? []);
                 $steps[$unit][] = ['type' => (string) $r['movement_type'], 'warehouse_id' => (int) $r['warehouse_id'], 'sku_id' => (int) $r['sku_id'],
-                    'actor' => (string) $r['actor'], 'at' => (string) $r['at'], 'last_id' => (int) $r['id'], 'held' => 0, 'allocated' => 0, 'on_hand' => 0];
+                    'actor' => (string) $r['actor'], 'at' => (string) $r['at'], 'last_id' => (int) $r['id'], 'held' => 0, 'allocated' => 0, 'on_hand' => 0,
+                    'note' => $r['note'] === null ? null : (string) $r['note'], 'value' => null];
             }
             $step = &$steps[$unit][$index[$key]];
             $step[(string) $r['bucket']] += (int) $r['qty_delta'];
+            if ($r['unit_cost'] !== null && (string) $r['bucket'] === 'on_hand') {
+                // what a write-off of the unit was worth (CW-1180, NR7): its units at the cost it took, to the penny
+                $step['value'] = \CW\StockOps\CostHints::amount(abs((int) $r['qty_delta']), (string) $r['unit_cost']);
+            }
             $step['last_id'] = max($step['last_id'], (int) $r['id']);
             unset($step);
         }
@@ -809,12 +817,14 @@ final class SalesViews
 
     /**
      * Where the stock of each returned or cancelled unit is now (CW\Reservations' own rules, read back from the ledger): a return put it
-     * back in stock at the unit's warehouse; a cancel of a paid unit gave it back to sale there (restockable) or moved it to VERIFY
-     * for a recount (not restockable: a transfer into VERIFY noted cancel_not_restockable after the unit's last cancel), and the
-     * recount's state; a cancel before payment freed the reservation; a unit not linked at the sale kept no stock.
+     * back in stock at the unit's warehouse; a cancel of a paid unit gave it back to sale there (restockable), wrote it off there (not
+     * restockable under the owner's rule, CW-1180 NR7: a write-off noted cancel_not_restockable after the unit's last cancel, with what it
+     * was worth: `value`, pounds, null when no cost was known) or moved it to VERIFY for a recount (not restockable the way before: a
+     * transfer into VERIFY noted cancel_not_restockable after the unit's last cancel), and the recount's state; a cancel before payment
+     * freed the reservation; a unit not linked at the sale kept no stock.
      *
      * @param list<array<string, mixed>> $units describeUnits rows with channel_id
-     * @return list<array{restock: string, outcome: string, where_id: ?int, recount: ?string}>
+     * @return list<array{restock: string, outcome: string, where_id: ?int, recount: ?string, value: ?string}>
      */
     public function restock(array $units): array
     {
@@ -827,15 +837,23 @@ final class SalesViews
         }
         $lastCancel = [];
         $toVerify = [];
+        $written = [];
         foreach ($byStore as $store => $ids) {
-            foreach ($this->db->all('SELECT l.id, l.unit_id, l.movement_type, l.bucket, l.warehouse_id, l.note FROM stock_ledger l WHERE l.channel_id = ? AND l.unit_id IN ('
-                . self::marks($ids) . ") AND l.movement_type IN ('cancel', 'transfer_in') ORDER BY l.id", [$store, ...$ids]) as $l) {
+            foreach ($this->db->all('SELECT l.id, l.unit_id, l.movement_type, l.bucket, l.warehouse_id, l.note, l.qty_delta, CAST(l.unit_cost AS CHAR) AS unit_cost '
+                . 'FROM stock_ledger l WHERE l.channel_id = ? AND l.unit_id IN (' . self::marks($ids) . ") AND l.movement_type IN ('cancel', 'transfer_in', 'write_off') "
+                . 'ORDER BY l.id', [$store, ...$ids]) as $l) {
                 $key = $store . "\x1f" . $l['unit_id'];
                 if ($l['movement_type'] === 'cancel') {
                     $lastCancel[$key] = ['id' => (int) $l['id'], 'bucket' => (string) $l['bucket']];
-                    unset($toVerify[$key]);
-                } elseif ((int) $l['warehouse_id'] === $verify && $l['note'] === 'cancel_not_restockable' && isset($lastCancel[$key]) && (int) $l['id'] > $lastCancel[$key]['id']) {
+                    unset($toVerify[$key], $written[$key]);
+                } elseif (!isset($lastCancel[$key]) || $l['note'] !== Reservations::NOTE_NOT_RESTOCKABLE) {
+                    continue;
+                } elseif ($l['movement_type'] === 'transfer_in' && (int) $l['warehouse_id'] === $verify) {
                     $toVerify[$key] = true;
+                } elseif ($l['movement_type'] === 'write_off' && (string) $l['bucket'] === 'on_hand' && (int) $l['qty_delta'] < 0) {
+                    // what it was worth when it was written off: its units at the cost the write-off took, to the penny (NR7)
+                    $written[$key] = ['where' => (int) $l['warehouse_id'], 'value' => $l['unit_cost'] === null ? null
+                        : \CW\StockOps\CostHints::amount(-(int) $l['qty_delta'], (string) $l['unit_cost'])];
                 }
             }
         }
@@ -851,17 +869,21 @@ final class SalesViews
             $key = $u['channel_id'] . "\x1f" . $u['unit_id'];
             $wh = (int) $u['warehouse_id'];
             if ($u['sku_id'] === null) {
-                $out[] = ['restock' => 'none', 'outcome' => 'unlinked', 'where_id' => null, 'recount' => null];
+                $out[] = ['restock' => 'none', 'outcome' => 'unlinked', 'where_id' => null, 'recount' => null, 'value' => null];
             } elseif ($u['state'] === 'returned') {
-                $out[] = ['restock' => 'yes', 'outcome' => 'returned', 'where_id' => $wh, 'recount' => null];
+                $out[] = ['restock' => 'yes', 'outcome' => 'returned', 'where_id' => $wh, 'recount' => null, 'value' => null];
+            } elseif (isset($written[$key])) {
+                $value = $written[$key]['value'];
+                $out[] = ['restock' => 'no', 'outcome' => $value === null ? 'written_off_nocost' : 'written_off', 'where_id' => $written[$key]['where'],
+                    'recount' => null, 'value' => $value];
             } elseif (isset($toVerify[$key])) {
                 $status = $recounts['verify:' . $u['channel_id'] . ':' . $u['unit_id']] ?? 'open';
-                $out[] = ['restock' => 'no', 'outcome' => 'verify_' . $status, 'where_id' => $verify, 'recount' => $status];
+                $out[] = ['restock' => 'no', 'outcome' => 'verify_' . $status, 'where_id' => $verify, 'recount' => $status, 'value' => null];
             } elseif (isset($lastCancel[$key])) {
                 $held = $lastCancel[$key]['bucket'] === 'held';
-                $out[] = ['restock' => 'yes', 'outcome' => $held ? 'cancelled_held' : 'cancelled', 'where_id' => $wh, 'recount' => null];
+                $out[] = ['restock' => 'yes', 'outcome' => $held ? 'cancelled_held' : 'cancelled', 'where_id' => $wh, 'recount' => null, 'value' => null];
             } else {
-                $out[] = ['restock' => 'none', 'outcome' => 'unknown', 'where_id' => null, 'recount' => null];
+                $out[] = ['restock' => 'none', 'outcome' => 'unknown', 'where_id' => null, 'recount' => null, 'value' => null];
             }
         }
         return $out;

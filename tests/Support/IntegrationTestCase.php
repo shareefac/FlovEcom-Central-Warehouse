@@ -28,6 +28,15 @@ abstract class IntegrationTestCase extends TestCase
         // The supplier detail switches (0062, SD1) start back at their seeded off, as their history says (the Codex review of 770dde7):
         // the supplier tests switch them on (SupplierTestCase).
         self::supplierNeeds(false);
+        // CW-1180 (0081, NR1): a cancelled paid unit the store marked "don't restock" starts back at the seeded rule, written off at once; the
+        // tests of the way before (VERIFY, D37) set "verify" themselves (notRestockable()).
+        self::notRestockable('write_off');
+    }
+
+    /** CW-1180 (0081, NR1): what a not-restockable cancel of a paid unit does, `write_off` (the seeded rule) or `verify` (D37, the way before). */
+    protected static function notRestockable(string $mode): void
+    {
+        self::$db->exec("UPDATE app_setting SET value_json = JSON_QUOTE(?) WHERE setting_key = 'stock.cancel_not_restockable'", [$mode]);
     }
 
     /** The four "A supplier needs ..." switches (suppliers.need_*, 0062): on, a supplier is usable only with those details. */

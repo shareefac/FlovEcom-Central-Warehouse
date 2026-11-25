@@ -199,6 +199,7 @@ final class CountingTest extends StockTestCase
      */
     public function testACountOverwritingMovementsBookedAfterCountedAtOpensAReview(): void
     {
+        self::notRestockable('verify'); // CW-1180 (NR1): this test is about the way before, a not-restockable cancel parked in VERIFY (D37)
         $site = $this->site();
         $sku = $this->item('strict', 10);
         $this->listing($site, 'V1', $sku);

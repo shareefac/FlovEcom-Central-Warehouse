@@ -56,6 +56,7 @@ final class UnitLifecycleTest extends StockTestCase
 
     public function testCancelNotRestockableParksTheUnitsInVerifyWithARecountAndNoWriteOff(): void
     {
+        self::notRestockable('verify'); // CW-1180 (NR1): this test is about the way before, a not-restockable cancel parked in VERIFY (D37)
         $site = $this->site();
         $sku = $this->item('strict', 5);
         $this->listing($site, 'V1', $sku);
@@ -79,6 +80,7 @@ final class UnitLifecycleTest extends StockTestCase
 
     public function testAHeldUnitCanBeCancelledAndAShippedOneCannot(): void
     {
+        self::notRestockable('verify'); // CW-1180 (NR1): this test is about the way before, a not-restockable cancel parked in VERIFY (D37)
         $site = $this->site();
         $sku = $this->item('strict', 5);
         $this->listing($site, 'V1', $sku);

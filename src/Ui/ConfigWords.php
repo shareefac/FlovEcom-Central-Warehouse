@@ -35,6 +35,8 @@ final class ConfigWords
             foreach ($db->all('SELECT code, label FROM reason_code') as $r) {
                 $names[(string) $r['code']] = (string) $r['label'];
             }
+        } elseif ($type === 'setting' && isset(Words::SETTING_CHOICE[$key])) {
+            $names = Words::SETTING_CHOICE[$key]; // a setting of fixed choices: each value by its words (CW-1180, NR1)
         }
         foreach (ConfigHistory::history($db, $type, $key, $limit) as $v) {
             $out[] = [

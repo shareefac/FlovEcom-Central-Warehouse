@@ -42,6 +42,9 @@ final class SalesScreensTest extends KernelUiTestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // CW-1180 (NR1): the not-restockable cancels here are parked in VERIFY, the way before (their old words stay); the written-off
+        // ones: NoRestockScreensTest.
+        self::notRestockable('verify');
         // The screens read the real clock ("today", "this week", late), so the engine works at the real time here.
         $this->now = Clock::now();
         $this->real = $this->now;

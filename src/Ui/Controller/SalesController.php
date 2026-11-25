@@ -183,7 +183,7 @@ final class SalesController
                         $figures[] = Words::say('RESV', 'h_figure', Words::STOCK[$bucket], ($s[$bucket] > 0 ? '+' : '−') . number_format(abs($s[$bucket])));
                     }
                 }
-                $list[] = ['what' => Words::of('MOVEMENT', $s['type']), 'at' => $s['at'], 'where' => $warehouses[$s['warehouse_id']]['name'] ?? '',
+                $list[] = ['what' => self::stepWords($s), 'at' => $s['at'], 'where' => $warehouses[$s['warehouse_id']]['name'] ?? '',
                     'figures' => implode(' · ', $figures), 'who' => str_starts_with($s['actor'], 'system:') ? Words::SALE_ORDER['s_cw'] : ($who[$s['actor']] ?? $s['actor']),
                     'href' => Html::url('/ui/stock/movements', ['q' => $codes[$s['sku_id']] ?? (string) $s['sku_id'], 'figure' => 'all', 'before' => $s['last_id'] + 1])];
             }
@@ -216,6 +216,23 @@ final class SalesController
             'more_units' => $units['next'] === null ? null : Html::url($here, ['unit' => $units['next']]),
             'first_units' => $after === null ? null : $here,
         ], 200, ['title' => $title]);
+    }
+
+    /**
+     * What one of a unit's steps was, in words: its movement's name, or for the write-off of a not-restockable cancel and its take-back
+     * (CW-1180, NR7) what happened, with what the write-off was worth.
+     *
+     * @param array{type: string, note: ?string, value: ?string} $s SalesViews::steps step
+     */
+    private static function stepWords(array $s): string
+    {
+        if ($s['type'] === 'write_off' && $s['note'] === \CW\Reservations::NOTE_NOT_RESTOCKABLE) {
+            return $s['value'] === null ? Words::SALE_ORDER['step_written_off_nocost'] : sprintf(Words::SALE_ORDER['step_written_off'], Html::money($s['value']));
+        }
+        if ($s['type'] === 'write_off' && $s['note'] === \CW\Reservations::NOTE_WRITE_OFF_BACK) {
+            return Words::SALE_ORDER['step_write_off_back'];
+        }
+        return Words::of('MOVEMENT', $s['type']);
     }
 
     /**

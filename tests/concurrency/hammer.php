@@ -15,7 +15,7 @@ declare(strict_types=1);
  *      "10 x" listing) placed at once: no deadlock error surfaces, each order is all-or-nothing,
  *      held = the exact sum of the accepted orders; then half are paid and half abandoned at once.
  *   3  20 processes send the SAME Idempotency-Key at the same instant, for every operation type
- *      (reserve, commit, ship, unship, return, goods_in, release, cancel x2, uncancel x2), plus the same order
+ *      (reserve, commit, ship, unship, return, goods_in, release, cancel x4: restockable, to VERIFY, written off (CW-1180), restockable again; uncancel x3), plus the same order
  *      under 20 different keys and one key with two different bodies: exactly one effect each;
  *      and 20 copies of a ship before its commit: all 409 not_committed, nothing stored, no
  *      deadlock (this round found decisions.md H1).
@@ -27,7 +27,8 @@ declare(strict_types=1);
  *   5  the per-item value sequence (C0, I3) under cross-warehouse races for --seconds: staff
  *      movements of 1-4 items at MAIN and VERIFY in random line order (goods-in with a cost,
  *      write-offs, adjustments), MAIN -> VERIFY transfers, reserve -> commit -> ship, commit ->
- *      cancel to VERIFY (half of them un-cancelled back out of VERIFY) and VERIFY counts. An observer polls the seqs every 100 ms (one statement:
+ *      cancel not restockable, parked in VERIFY or written off as the setting is that moment (trader 0 switches it, CW-1180; half of them
+ *      un-cancelled back), and VERIFY and MAIN counts. An observer polls the seqs every 100 ms (one statement:
  *      no item ever shows a gap) and checks CW\Invariants on a consistent snapshot every ~2 s; at
  *      the end every item is numbered 1..N and replaying its on_hand rows in seq order gives every
  *      row's balance_after and the item's total on_hand.
@@ -478,6 +479,12 @@ final class Fx
             : ['on_hand' => (int) $r['on_hand'], 'allocated' => (int) $r['allocated'], 'held' => (int) $r['held']];
     }
 
+    /** CW-1180 (NR1): what a not-restockable cancel of a paid unit does: write_off (the seeded rule) or verify (D37, the way before). */
+    public static function notRestockable(Db $db, string $mode): void
+    {
+        $db->exec("UPDATE app_setting SET value_json = JSON_QUOTE(?) WHERE setting_key = 'stock.cancel_not_restockable'", [$mode]);
+    }
+
     public static function must(OpResult $r): OpResult
     {
         if (!$r->ok()) {
@@ -913,13 +920,24 @@ function scenario3(Report $rep): void
                 Fx::must($r->commit($ch, 'i3', [line('A', 'i3a', 'i3b')], 'reserved', 'prep-commit-i3'));
             }],
         ['cancel to VERIFY', 'k-cancel-i4', static fn (int $w, Reservations $r, Movements $m): OpResult => $r->cancel($ch, 'i4', ['i4a', 'i4b'], false, 'k-cancel-i4'), 6, [55, 0, 0],
-            static function (Reservations $r) use ($ch): void {
+            static function (Reservations $r, Db $db) use ($ch): void {
+                Fx::notRestockable($db, 'verify'); // the way before (D37); CW-1180's write-off: the rounds below
                 Fx::must($r->reserve($ch, 'i4', [line('A', 'i4a', 'i4b')], 'prep-reserve-i4'));
                 Fx::must($r->commit($ch, 'i4', [line('A', 'i4a', 'i4b')], 'reserved', 'prep-commit-i4'));
             }],
         // D46: the two cancels above taken back
         ['uncancel restockable', 'k-uncancel-i3', static fn (int $w, Reservations $r, Movements $m): OpResult => $r->uncancel($ch, 'i3', ['i3a', 'i3b'], 'k-uncancel-i3'), 2, [55, 2, 0]],
         ['uncancel from VERIFY', 'k-uncancel-i4', static fn (int $w, Reservations $r, Movements $m): OpResult => $r->uncancel($ch, 'i4', ['i4a', 'i4b'], 'k-uncancel-i4'), 6, [57, 4, 0]],
+        // CW-1180 (NR2, NR4): a not-restockable cancel written off at once (2 cancel + 2 write_off rows), taken back (2 write_off + 2 uncancel),
+        // then cancelled restockable so the rounds after these see the figures they always saw
+        ['cancel written off', 'k-cancel-i8', static fn (int $w, Reservations $r, Movements $m): OpResult => $r->cancel($ch, 'i8', ['i8a', 'i8b'], false, 'k-cancel-i8'), 4, [55, 4, 0],
+            static function (Reservations $r, Db $db) use ($ch): void {
+                Fx::notRestockable($db, 'write_off');
+                Fx::must($r->reserve($ch, 'i8', [line('A', 'i8a', 'i8b')], 'prep-reserve-i8'));
+                Fx::must($r->commit($ch, 'i8', [line('A', 'i8a', 'i8b')], 'reserved', 'prep-commit-i8'));
+            }],
+        ['uncancel from write-off', 'k-uncancel-i8', static fn (int $w, Reservations $r, Movements $m): OpResult => $r->uncancel($ch, 'i8', ['i8a', 'i8b'], 'k-uncancel-i8'), 4, [57, 6, 0]],
+        ['cancel restockable i8', 'k-cancel2-i8', static fn (int $w, Reservations $r, Movements $m): OpResult => $r->cancel($ch, 'i8', ['i8a', 'i8b'], true, 'k-cancel2-i8'), 2, [57, 4, 0]],
     ];
 
     foreach ($rounds as $round) {
@@ -927,7 +945,7 @@ function scenario3(Report $rep): void
         $prep = $round[5] ?? null;
         if ($prep !== null) {
             Pool::withDb(static function (Db $db) use ($prep): void {
-                $prep(new Reservations($db));
+                $prep(new Reservations($db), $db);
             });
         }
         $pool = Pool::run($N, static function (int $w, Db $db) use ($call): array {
@@ -954,6 +972,7 @@ function scenario3(Report $rep): void
                 'verify' => Fx::bal($db, $sku, 'VERIFY')['on_hand'],
                 'reviews' => (int) $db->value("SELECT COUNT(*) FROM count_review WHERE source = 'verify_recount'"),
                 'open_reviews' => (int) $db->value("SELECT COUNT(*) FROM count_review WHERE source = 'verify_recount' AND status = 'open'"),
+                'write_offs' => (int) $db->value("SELECT COUNT(*) FROM stock_ledger WHERE idem_key = ? AND movement_type = 'write_off'", [$key]),
             ];
         });
         $bal = array_values($db['bal']);
@@ -967,6 +986,11 @@ function scenario3(Report $rep): void
         }
         if ($name === 'uncancel from VERIFY') {
             $ok = $ok && $db['verify'] === 0 && $db['reviews'] === 2 && $db['open_reviews'] === 0;
+        }
+        if (in_array($name, ['cancel written off', 'uncancel from write-off'], true)) {
+            // CW-1180: one write-off row per unit, nothing to VERIFY, no recount
+            $ok = $ok && $db['write_offs'] === 2 && $db['verify'] === 0 && $db['reviews'] === 2;
+            $extra = ", write-offs {$db['write_offs']}, VERIFY on_hand {$db['verify']}, recount tasks {$db['reviews']}";
         }
         $rep->check($S, "{$name}: one effect", $ok,
             '1 fresh 2xx, ' . ($N - 1) . " identical replays, {$ledgerRows} ledger rows, bal " . implode('/', $expBal),
@@ -1665,6 +1689,15 @@ final class ValueTrader
 
     public function step(): void
     {
+        if ($this->w === 0) {
+            // CW-1180 (NR1): trader 0 switches stock.cancel_not_restockable back and forth (the Settings page may change it at any moment),
+            // so not-restockable cancels race the switch: each is written off or parked, and each uncancel follows its own last cancel.
+            $this->db->exec("UPDATE app_setting SET value_json = JSON_QUOTE(IF(JSON_UNQUOTE(value_json) = 'write_off', 'verify', 'write_off')) "
+                . "WHERE setting_key = 'stock.cancel_not_restockable'");
+            $this->counts['setting switched'] = ($this->counts['setting switched'] ?? 0) + 1;
+            usleep(150_000);
+            return;
+        }
         $roll = mt_rand(1, 100);
         match (true) {
             $roll <= 30 => $this->staffMove(),
@@ -1754,8 +1787,12 @@ final class ValueTrader
         }
         $r = $this->call('cancel.to_verify', fn (): OpResult => $this->res->cancel($this->ch, $ref, $units, false, $ref . '-x'), ['200 *']);
         foreach ($r?->body['units'] ?? [] as $u) {
-            if (($u['result'] ?? '') !== 'cancelled_to_verify') {
-                $this->bad("cancel {$ref} unit {$u['unit_id']}: " . ($u['result'] ?? '?'));
+            // parked in VERIFY (the way before) or written off at once (CW-1180), as the setting was when the cancel read it; a write-off
+            // answers "cancelled" with the outcome "written_off" beside it (NR10)
+            $answer = ($u['result'] ?? '?') . (isset($u['outcome']) ? '/' . $u['outcome'] : '');
+            $this->counts["unit {$answer}"] = ($this->counts["unit {$answer}"] ?? 0) + 1;
+            if (!in_array($answer, ['cancelled_to_verify', 'cancelled/written_off'], true)) {
+                $this->bad("cancel {$ref} unit {$u['unit_id']}: {$answer}");
             }
         }
         if ($r === null || mt_rand(0, 1) === 0) {
@@ -1765,9 +1802,9 @@ final class ValueTrader
         // a VERIFY count, write-off or transfer by another trader meanwhile sends them to review instead.
         $u = $this->call('uncancel.from_verify', fn (): OpResult => $this->res->uncancel($this->ch, $ref, $units, $ref . '-u'), ['200 *']);
         foreach ($u?->body['units'] ?? [] as $x) {
-            $result = (string) ($x['result'] ?? '?');
+            $result = (string) ($x['result'] ?? '?') . (isset($x['outcome']) ? '/' . $x['outcome'] : '');
             $this->counts["unit {$result}"] = ($this->counts["unit {$result}"] ?? 0) + 1;
-            if (!in_array($result, ['uncancelled_from_verify', 'uncancelled_after_verify'], true)) {
+            if (!in_array($result, ['uncancelled_from_verify', 'uncancelled_after_verify', 'uncancelled/write_off_taken_back', 'uncancelled_after_verify/after_write_off'], true)) {
                 $this->bad("uncancel {$ref} unit {$x['unit_id']}: {$result}");
             }
         }
@@ -1777,11 +1814,13 @@ final class ValueTrader
     {
         $skus = array_values($this->variants);
         $sku = $skus[mt_rand(0, count($skus) - 1)];
-        $now = (int) $this->db->value("SELECT b.on_hand FROM stock_balance b JOIN warehouse w ON w.id = b.warehouse_id WHERE w.code = 'VERIFY' AND b.sku_id = ?", [$sku]);
+        // VERIFY mostly; MAIN now and then (CW-1180, NR5: an uncancel of a unit written off before a count there is reviewed, not put back)
+        $wh = mt_rand(1, 4) === 1 ? 'MAIN' : 'VERIFY';
+        $now = (int) $this->db->value('SELECT b.on_hand FROM stock_balance b JOIN warehouse w ON w.id = b.warehouse_id WHERE w.code = ? AND b.sku_id = ?', [$wh, $sku]);
         $qty = max(0, $now + mt_rand(-3, 3));
         $key = $this->key('count');
         $at = Clock::iso(Clock::db(Clock::now()->modify('-1 second')));
-        $this->call('count.verify', fn (): OpResult => $this->moves->record($this->staff, ['type' => 'count', 'warehouse' => 'VERIFY', 'counted_at' => $at,
+        $this->call('count.' . strtolower($wh), fn (): OpResult => $this->moves->record($this->staff, ['type' => 'count', 'warehouse' => $wh, 'counted_at' => $at,
             'lines' => [['sku_id' => $sku, 'qty' => $qty]]], $key), ['200 recorded']);
     }
 
@@ -1917,7 +1956,9 @@ function scenario5(Report $rep, int $workers, int $seconds, int $seed): void
     $rep->info($S, 'deadlocks retried inside CW', (string) $pool['deadlocks_retried']);
     // uncancelled_after_verify needs a VERIFY count, write-off or transfer to land between a cancel and its uncancel: timing, not required
     $need = ['move.goods_in 200', 'move.write_off 200', 'move.adjustment 200', 'transfer_out 200', 'transfer_in 200', 'ship 200', 'cancel.to_verify 200',
-        'count.verify 200', 'uncancel.from_verify 200', 'unit uncancelled_from_verify'];
+        'count.verify 200', 'uncancel.from_verify 200', 'unit uncancelled_from_verify',
+        // CW-1180: both kinds of not-restockable cancel (the setting switched under the traders), the write-off taken back, a MAIN count
+        'unit cancelled_to_verify', 'unit cancelled/written_off', 'unit uncancelled/write_off_taken_back', 'count.main 200', 'setting switched'];
     $has = static fn (string $prefix): int => array_sum(array_filter($counts, static fn (string $k): bool => str_starts_with($k, $prefix), ARRAY_FILTER_USE_KEY));
     $missing = array_values(array_filter($need, static fn (string $p): bool => $has($p) === 0));
     $rep->check($S, 'every path happened', $missing === [], 'each >= 1', $missing === [] ? 'yes' : 'MISSING ' . implode(', ', $missing));

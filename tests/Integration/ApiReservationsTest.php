@@ -141,6 +141,7 @@ final class ApiReservationsTest extends ApiTestCase
 
     public function testCancelRestockableOrNot(): void
     {
+        self::notRestockable('verify'); // CW-1180 (NR1): this test is about the way before, a not-restockable cancel parked in VERIFY (D37)
         [$site, $key] = $this->apiSite();
         $sku = $this->item('strict', 5);
         $this->listing($site, 'V1', $sku);

@@ -31,11 +31,14 @@ final class RollbackReleaseTest extends IntegrationTestCase
     public const BEFORE_LAST = '0079_expenses.sql';
     /**
      * The migration files the rollback release takes from this release (README of build/A, "Undo"; CW-1155: RR20; the delivery bills: DL22).
-     * PayPal's fees (CW-1172, docs/decisions.md PPF20): the release before is 04dbab6 (the expense total's typing, CW-1176, live 25 Nov 13:31;
-     * 27dea71, f044e2f and 0e3db2a before it), whose last is 0079; the plain rollback source is 04dbab6's code with 0080 added, byte for byte (no
-     * undo release is built: CW is fixed forward).
+     * PayPal's fees (CW-1172, docs/decisions.md PPF20): the release before is 86c21af (CW-1180, don't restock = written off at once, live 25 Nov
+     * 20:34 with 0081; 04dbab6, 27dea71, f044e2f and 0e3db2a before it), whose migrations stop at 0079 and add 0081 (BEFORE_ALSO); the plain
+     * rollback source is 86c21af's code with 0080 added, byte for byte (no undo release is built: CW is fixed forward). 0080 sorts before
+     * 0081: the migrator applies what is pending whatever its order (Migrator::pending).
      */
     public const ROLLBACK_FILES = ['0080_paypal_fees.sql'];
+    /** The release before's migrations after BEFORE_LAST (a live release that went first with a later number: CW-1180's 0081). */
+    public const BEFORE_ALSO = ['0081_cancel_not_restockable.sql'];
 
     private ?string $dir = null;
     private ?string $rollback = null;
@@ -54,7 +57,7 @@ final class RollbackReleaseTest extends IntegrationTestCase
     {
         $files = array_map('basename', glob(dirname(__DIR__, 3) . '/migrations/*.sql') ?: []);
         sort($files, SORT_STRING);
-        $after = array_values(array_filter($files, static fn (string $f): bool => strcmp($f, self::BEFORE_LAST) > 0));
+        $after = array_values(array_filter($files, static fn (string $f): bool => strcmp($f, self::BEFORE_LAST) > 0 && !in_array($f, self::BEFORE_ALSO, true)));
         self::assertSame(self::ROLLBACK_FILES, $after, 'a migration added to this release is added to the rollback release (README "Undo") too');
     }
 
@@ -70,7 +73,7 @@ final class RollbackReleaseTest extends IntegrationTestCase
         $this->rollback = sys_get_temp_dir() . '/cw_rollback_' . bin2hex(random_bytes(4));
         mkdir($this->rollback, 0700);
         foreach ($files as $f) {
-            if (strcmp($f, self::BEFORE_LAST) <= 0) {
+            if (strcmp($f, self::BEFORE_LAST) <= 0 || in_array($f, self::BEFORE_ALSO, true)) {
                 copy("{$this->dir}/{$f}", "{$this->rollback}/{$f}");
             }
         }

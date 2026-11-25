@@ -112,7 +112,9 @@ final class StockController
                     'sku_id' => (int) $r['sku_id'], 'code' => (string) ($r['code'] ?? ''), 'name' => (string) $r['name'], 'warehouse' => (string) $r['warehouse'],
                     'bucket' => (string) $r['bucket'], 'delta' => (int) $r['qty_delta'], 'after' => (int) $r['balance_after'], 'type' => (string) $r['movement_type'],
                     'ref' => $r['order_ref'] ?? $r['doc_ref'], 'who' => $who[(string) $r['actor']] ?? (string) $r['actor'],
-                    'note' => $note !== null && (preg_match('/^#\d+$/D', $note) === 1 || $r['doc_type'] !== null) ? null : $note, 'at' => (string) $r['at'],
+                    // a system note in words (CW-1180, NR7: "Cancelled by the store, not restockable"); another as it is
+                    'note' => $note !== null && (preg_match('/^#\d+$/D', $note) === 1 || $r['doc_type'] !== null) ? null : (Words::LEDGER_NOTE[(string) $note] ?? $note),
+                    'at' => (string) $r['at'],
                     // A row booked by a stock record (pack A1): the record's kind, its reason, who it was given to, and its page.
                     'record' => self::record($r),
                     // The board's groups are days in UK time (design v4), each row's time beside its product.

@@ -52,6 +52,7 @@ final class ValueSequenceTest extends StockTestCase
 
     public function testEveryPathThatMovesOnHandGetsOneSeqPerRowAndNoOtherPathDoes(): void
     {
+        self::notRestockable('verify'); // CW-1180 (NR1): this test is about the way before, a not-restockable cancel parked in VERIFY (D37)
         $site = $this->site();
         $this->grant($site, 'goods_in', 'supplier_return', 'erp_sale');
         $sku = $this->item('strict', 0);
