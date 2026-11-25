@@ -188,7 +188,7 @@ final class PaypalFeesR1Test extends StockTestCase
             PaypalTx::row('2A0000000000000E2', 'T1201', '2026-11-08T12:00:00Z', '-20.00', null, null, 'S', ['paypal_reference_id' => '2A0000000000000E1']),
             PaypalTx::row('2A0000000000000E3', 'T0106', '2026-11-08T12:05:00Z', '-14.00', null, null, 'S', ['paypal_reference_id' => '2A0000000000000E2']),
             // a refund whose invoice says another shop's number than its sale: a look
-            PaypalTx::refund('2A0000000000000E4', '2026-11-09T12:00:00Z', '-5.00', '0.10', '1312001') + ['paypal_reference_id' => '2A0000000000000E1'],
+            ['paypal_reference_id' => '2A0000000000000E1'] + PaypalTx::refund('2A0000000000000E4', '2026-11-09T12:00:00Z', '-5.00', '0.10', '1312001'),
         ];
         $http = new FakePaypalHttp($rows);
         self::readPp($http);
@@ -199,7 +199,7 @@ final class PaypalFeesR1Test extends StockTestCase
         self::assertSame(['look', 'ref_conflict'], [self::row('2A0000000000000E4')['count_state'], self::row('2A0000000000000E4')['look_reason']]);
         self::assertSame(['2026-11-06|fee_cost' => 70, '2026-11-08|fee_cost' => 3400], self::days($this->ef));
         // a refund read before its sale (its window first): on Vape and Go's line for now; the sale read later takes it to its own order
-        $refund = PaypalTx::refund('2A0000000000000F2', '2026-11-12T12:00:00Z', '-5.00', '0.10', null) + ['paypal_reference_id' => '2A0000000000000F1'];
+        $refund = ['paypal_reference_id' => '2A0000000000000F1'] + PaypalTx::refund('2A0000000000000F2', '2026-11-12T12:00:00Z', '-5.00', '0.10', null);
         $http->set([...$rows, $refund]);
         self::readPp($http, '2026-11-12', '2026-11-12');
         self::assertSame(['shop', 'no_number'], [self::row('2A0000000000000F2')['alloc_dest'], self::row('2A0000000000000F2')['match_state']]);
@@ -320,5 +320,21 @@ final class PaypalFeesR1Test extends StockTestCase
         self::readPp($http);
         $r = (new ExpenseViews(self::$db))->realProfit('2026-11-01', '2026-11-30', $this->vpg, false)[0];
         self::assertSame([210, 90], [$r['fees'], $r['fees_other']]);
+    }
+
+    public function testElectrofagCountsFromItsFirstDayOnly(): void
+    {
+        // its first fee day (1 Dec on production: the kit sets it; here 20 Nov, as CW takes no order paid in the future): the day before out,
+        // the day itself in, by the UK day
+        $this->shops();
+        $this->setting('profit.paypal_from_electrofag', '"2026-11-20"');
+        self::order($this->ef, '2003', '5600', '2026-11-19T23:00:00Z');
+        self::order($this->ef, '2004', '5601', '2026-11-20T00:10:00Z');
+        $http = new FakePaypalHttp([PaypalTx::sale('2A0000000000000N1', '2026-11-19T23:59:00Z', '10.00', '-0.30', '5600'),
+            PaypalTx::sale('2A0000000000000N2', '2026-11-20T00:15:00Z', '10.00', '-0.40', '5601')]);
+        self::readPp($http, '2026-11-19', '2026-11-20');
+        self::assertSame(['before_start', 'counts'], [self::row('2A0000000000000N1')['count_state'], self::row('2A0000000000000N2')['count_state']],
+            'the day before Electrofag\'s first fee day out, the day itself counted');
+        self::assertSame(['2026-11-20|fee_cost' => 40], self::days($this->ef));
     }
 }

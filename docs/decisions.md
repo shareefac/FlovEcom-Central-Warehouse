@@ -21592,3 +21592,66 @@ it.
 (b) Hayati Vapes' PayPal money (Oct 108.71 of sales' fees) is kept as facts only; it becomes counted if Hayati Vapes ever is a CW shop.
 (c) A chargeback the shop ALSO refunds in its admin would count twice (the refund in the sales, the chargeback here): never seen in the real
 rows; to watch. (d) No screen lists the PayPal rows (bin/paypal_fees.php --status does); a "PayPal" page under Profit is a later step.
+
+### Fix round 1: the Codex review of dd93337 (`runs/codex_25nov/paypal_r1_final.md`: 7 HIGH, 13 MEDIUM, 2 LOW) and the lead's decisions 1-8 (25 Nov 2026), each shown failing first on dd93337 (`runs/paypal_r1_red.log`: 14 of 14 red) and then green (PPF23-PPF33)
+
+**PPF23. A chargeback's money counts only beyond what CW already holds as a refund on that order (the lead's decision 1; Codex HIGH).** For
+each order, its chargebacks in time order use up its refunds in CW (sale_order.line_refund_inc + order_refund_inc + delivery_refund_inc, inc
+VAT: the money a customer was given back), each at most its own money taken back; that part is `refund_offset_pence` and is not counted again.
+The PayPal chargeback fee and dispute fees always count; a chargeback reversal (money back) counts whole. Every chargeback on the order is
+decided in the same write (its siblings join the chunk), and decided again when the order's refunds in CW change (`refund_seen_pence`: the
+nightly rematch compares). Example: £30 taken back, £10 refunded in the shop's admin: £20 + the £14 fee count; the rest refunded later: only
+the £14 fee.
+
+**PPF24. Refunds, chargebacks and fees follow PayPal's reference to their sale first (the lead's decision 3; Codex HIGH).** The row a
+refund, chargeback or fee refers to (paypal_reference_id: its sale; a chargeback fee's chargeback, then its sale, three steps at most) gives
+its shop and order number when that row has a shop; else its invoice, then its custom field (`matched_by`). A reference and an invoice that
+disagree (another shop or number): needs a look (`ref_conflict`), never guessed. A row whose referred row is read later (another window) is
+decided again then (the nightly rematch, and the run decides twice: a sale read now and the refund that refers to it).
+
+**PPF25. A shop's form edited never moves money to another shop (the lead's decision 2; Codex HIGH).** A row that had a shop keeps it unless
+the new settings positively match another shop: matching no shop now = needs a look (`form_lost`, its shop and number kept, never the main
+shop's line); two shops' forms = needs a look (`form_overlap`). Only a row that never had a shop and matches none (no or an unrecognised
+invoice) goes on the main shop's "not on an order" line.
+
+**PPF26. Every decision keeps the forms it was made by (Codex MEDIUM).** `decided_sig` (the account's shops and forms) on each row, written by
+every decision, --decide too; a row decided by other forms than now is decided again (replaces the run-level fingerprint).
+
+**PPF27. A renumbered or doubled order is matched again (Codex MEDIUM).** The nightly rematch looks up every row on an order (its
+`match_order_ref`, kept also when nothing counts) with its shop and number: another order, none, or two now: decided again; an ambiguous row
+when the count of its orders changed.
+
+**PPF28. Switching off needs no PayPal read; the pages show what the days hold (Codex MEDIUM x2).** bin/paypal_fees.php makes the local
+decisions first (no PayPal call) on every run, so a shop switched off, forms changed or orders that reached CW are decided even when the key or
+PayPal fails. Profit > Real profit's payment fees are the profit days' fee figures of the days asked for, always (the same figures as the order
+pages and the rebuild: a month plus the next = the two months; a sale fee follows its order to its paid day); `fees_from` only says whether a
+shop's fees are read. Under "− Payment fees" a line "of which: PayPal money on no order" shows fee_other (the lead's decision 8; Codex LOW).
+
+**PPF29. The key names its merchant, every page must be that merchant's (the lead's decision 4; Codex HIGH + MEDIUM x2).** The key file
+holds a 6th field `merchant_id` (PayPal's account number of the merchant); every page whose `account_number` is not it is refused
+(`paypal_wrong_account`, nothing stored). A key file readable by its group must be root:www-data (or root:root); the checks are made on the
+opened file's descriptor (fstat: the same inode as the path). The kit: production's key must be PayPal's live host; its shop is checked
+before the file is replaced; the key goes over `ssh -T` (no terminal, nothing echoed).
+
+**PPF30. A long outage is read back; the alert waits for it (the lead's decision 5; Codex HIGH).** The nightly reads from the earlier of the
+re-read days and the day before the last day read without a gap (coveredUntil: the ok runs' from_day..to_day joined from the first fee day),
+never before the first fee day. The "not read" alert stays until the reads have no gap up to yesterday.
+
+**PPF31. PayPal's pages, refresh time and deadline (Codex MEDIUM x3).** A row twice in one window (its id and code: PayPal's pages moved) reads
+the whole window again, 3 times, then refuses it. last_refreshed_datetime is read strictly into CW's UTC time (else none) and never logged as
+PayPal wrote it; PayPal's data not refreshed for 26 hours is an alert (`paypal_stale`). The job has an overall deadline (nightly 240 s, a
+backfill 20 min): no request starts after it and none lasts beyond it; the cron line adds `timeout 300` (the installer drains for 6 minutes).
+
+**PPF32. The "not on an order" alarm is per shop, its setting in pence (Codex MEDIUM).** One alert per shop (its own line); the setting takes
+pounds with at most two decimals (Settings rule `pence`). A due row is timed from `due_since` (when it became due), not its last change
+(PP4; Codex LOW).
+
+**PPF33. Only order numbers are kept of the invoice and custom fields (the lead's decision 7; Codex MEDIUM).** Kept as written only when the
+text is an order number in the form of one of the account's shops; anything else (a phone number, free text) is never stored, only that
+there was one (`dropped`).
+
+Also (the kit; Codex HIGH x2, MEDIUM x2): a backfill asked by hand that finds the job's lock held is BUSY (exit 4), never a skipped success;
+the kit's gate is bound to ITS run (the id its own line prints, RUN=<id> ok: an ok backfill of the account from the pinned first day to the
+day asked) and reconciles every shop's PayPal allocations, worked out on their own, against its profit days day by day; `golive.sh apply`
+checks the exact start again (or, after a stopped apply of the same tip, only the states its own install leaves); the switch-on step sets
+Electrofag's first fee day too (2026-12-01, its first real-profit day; tested: the day before out, the day itself in).

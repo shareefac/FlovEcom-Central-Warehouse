@@ -171,6 +171,7 @@ final class AlertDispatch
             'paypal_not_read' => ($d['hours'] ?? null) === null ? Words::say('ALERT', 'paypal_never_read', $store, (string) ($d['from'] ?? ''))
                 : Words::say('ALERT', 'paypal_not_read', $store, $n('hours')),
             'paypal_failed' => Words::say('ALERT', 'paypal_failed', $store, (string) ($d['error'] ?? '')),
+            'paypal_stale' => Words::say('ALERT', 'paypal_stale', $store, (string) ($d['to'] ?? '')),
             'paypal_needs_look' => Words::say('ALERT', 'paypal_needs_look', $store, $n('count'), (string) ($d['newest'] ?? '')),
             'paypal_not_on_order' => Words::say('ALERT', 'paypal_not_on_order', $store, $n('days'), (string) ($d['limit'] ?? ''), (string) ($d['day'] ?? ''),
                 (string) ($d['pence'] ?? '')),

@@ -37,8 +37,15 @@ final class PaypalApi
     /** @var \Closure(int): void */
     private readonly \Closure $sleep;
 
-    /** @param (\Closure(int): void)|null $sleep waits this many seconds (tests: no wait) */
-    public function __construct(private readonly PaypalKey $key, private readonly PaypalHttp $http, ?\Closure $sleep = null)
+    /** How many times a window is read again when a row comes twice in it (PayPal's pages moved while read), before it is refused. */
+    public const READS = 3;
+
+    /**
+     * @param (\Closure(int): void)|null $sleep waits this many seconds (tests: no wait)
+     * @param float|null $deadline microtime(true) after which no request is started and none lasts beyond (the job's overall deadline: below the
+     *   installer's 6-minute drain, fix round 1)
+     */
+    public function __construct(private readonly PaypalKey $key, private readonly PaypalHttp $http, ?\Closure $sleep = null, private readonly ?float $deadline = null)
     {
         $this->sleep = $sleep ?? static function (int $s): void {
             sleep($s);
@@ -62,6 +69,32 @@ final class PaypalApi
      * @return array{rows: list<mixed>, pages: int, refreshed: ?string}
      */
     public function window(\DateTimeImmutable $from, \DateTimeImmutable $to): array
+    {
+        // a row twice in one window (by its id and event code) means PayPal's pages moved while they were read (a row of one page again on the
+        // next, another one missed): the whole window is read again, READS times, then refused (fix round 1)
+        for ($read = 1; ; $read++) {
+            $w = $this->readWindow($from, $to);
+            $keys = [];
+            $twice = false;
+            foreach ($w['rows'] as $ti) {
+                $k = is_array($ti) ? (($ti['transaction_id'] ?? '') . '|' . ($ti['transaction_event_code'] ?? '')) : '';
+                if (isset($keys[$k])) {
+                    $twice = true;
+                    break;
+                }
+                $keys[$k] = true;
+            }
+            if (!$twice) {
+                return $w;
+            }
+            if ($read >= self::READS) {
+                throw new CwException('paypal_moved', "PayPal gave a row twice in one window {$read} times (its pages moved while read): nothing of it was stored; the next run reads it again", 502);
+            }
+        }
+    }
+
+    /** @return array{rows: list<mixed>, pages: int, refreshed: ?string} one read of every page of a window */
+    private function readWindow(\DateTimeImmutable $from, \DateTimeImmutable $to): array
     {
         if ($to < $from || $to->getTimestamp() - $from->getTimestamp() > self::MAX_WINDOW_DAYS * 86400) {
             throw new CwException('paypal_bad_window', 'a PayPal window is at most ' . self::MAX_WINDOW_DAYS . ' days', 422);
@@ -92,9 +125,11 @@ final class PaypalApi
             } elseif ($j['total_pages'] !== $pages || $j['total_items'] !== $total) {
                 throw new CwException('paypal_moved', "PayPal's count of this window changed while it was read (page {$page}): nothing of it was stored; the next run reads it again", 502);
             }
-            if (isset($j['last_refreshed_datetime']) && is_string($j['last_refreshed_datetime'])) {
-                $refreshed = $j['last_refreshed_datetime'];
+            // the merchant whose rows these are: the key's own, or nothing of the window is taken (the lead's decision 4, fix round 1)
+            if (!isset($j['account_number']) || !is_string($j['account_number']) || $j['account_number'] !== $this->key->merchantId) {
+                throw new CwException('paypal_wrong_account', "PayPal's page {$page} is not of the key's merchant (its merchant_id): nothing of this window was stored", 502);
             }
+            $refreshed = self::time($j['last_refreshed_datetime'] ?? null) ?? $refreshed;
             foreach ($j['transaction_details'] as $d) {
                 if (!is_array($d) || !array_key_exists('transaction_info', $d)) {
                     throw new CwException('paypal_bad_answer', "PayPal's answer to page {$page} has a row without transaction_info: nothing of this window was stored", 502);
@@ -158,10 +193,15 @@ final class PaypalApi
         $last = 'no answer';
         for ($try = 1; $try <= self::TRIES; $try++) {
             if ($try > 1) {
-                ($this->sleep)(2 ** ($try - 1));
+                ($this->sleep)(min(2 ** ($try - 1), max(0, (int) floor($this->left()))));
+            }
+            // the job's deadline: no request started past it, none allowed to last beyond it
+            $left = $this->left();
+            if ($left < 1) {
+                throw new CwException('paypal_deadline', "the run's time ran out before {$what}: nothing of this window was stored; the next run reads it again", 504);
             }
             try {
-                $r = $this->http->request($method, $this->key->apiBase . $pathAndQuery, $headers, $body, self::TIMEOUT_SEC);
+                $r = $this->http->request($method, $this->key->apiBase . $pathAndQuery, $headers, $body, (int) min(self::TIMEOUT_SEC, floor($left)));
             } catch (PaypalHttpFailed $e) {
                 $last = $e->getMessage();
                 continue;
@@ -176,6 +216,22 @@ final class PaypalApi
             return $r;
         }
         throw new CwException('paypal_unreachable', "PayPal did not answer {$what} after " . self::TRIES . " tries ({$last}): nothing of this window was stored", 502);
+    }
+
+    /** Seconds left before the deadline (none: a lot). */
+    private function left(): float
+    {
+        return $this->deadline === null ? 1e9 : $this->deadline - microtime(true);
+    }
+
+    /** PayPal's time (last_refreshed_datetime) as CW's UTC database time, or null when it is not one (never passed on as PayPal wrote it). */
+    public static function time(mixed $t): ?string
+    {
+        if (!is_string($t) || preg_match('/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(Z|[+-]\d{2}:?\d{2})$/D', $t, $m) !== 1
+            || !checkdate((int) $m[2], (int) $m[3], (int) $m[1]) || (int) $m[4] > 23 || (int) $m[5] > 59 || (int) $m[6] > 59) {
+            return null;
+        }
+        return (new \DateTimeImmutable($t))->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s.000000');
     }
 
     /** @return array<string, mixed> */

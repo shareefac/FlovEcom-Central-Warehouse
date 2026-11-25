@@ -364,7 +364,7 @@ final class ExpenseViews
      * has no buying price or waits for it (EX35). $withExpenses false (a person without expenses.view): the expense reads are not made at all
      * and their lines are null (EX22, EX48).
      *
-     * @return list<array{shop_id: int, shop: string, code: string, started: bool, from: ?string, counted_from: ?string, goods: ?int, cost: ?int, delivery: ?int, delivery_cost: ?int, fees: ?int, fees_from: ?string, expenses: ?int, expenses_count: int, regular: ?int, real: ?int, incomplete: bool, no_cost: int}>
+     * @return list<array{shop_id: int, shop: string, code: string, started: bool, from: ?string, counted_from: ?string, goods: ?int, cost: ?int, delivery: ?int, delivery_cost: ?int, fees: ?int, fees_other: ?int, fees_from: ?string, expenses: ?int, expenses_count: int, regular: ?int, real: ?int, incomplete: bool, no_cost: int}>
      */
     public function realProfit(string $from, string $to, ?int $shop, bool $withExpenses = true): array
     {
@@ -382,7 +382,7 @@ final class ExpenseViews
                 $a = $start !== null && $start > $from ? $start : $from;
                 $row = ['shop_id' => $s['id'], 'shop' => $s['name'], 'code' => $s['code'], 'started' => $start !== null && $a <= $to, 'from' => $start,
                     'counted_from' => $start !== null && $start > $from && $start <= $to ? $start : null, 'goods' => null, 'cost' => null, 'delivery' => null,
-                    'delivery_cost' => null, 'fees' => null, 'fees_from' => null, 'expenses' => null, 'expenses_count' => 0, 'regular' => null, 'real' => null, 'incomplete' => false,
+                    'delivery_cost' => null, 'fees' => null, 'fees_other' => null, 'fees_from' => null, 'expenses' => null, 'expenses_count' => 0, 'regular' => null, 'real' => null, 'incomplete' => false,
                     'no_cost' => 0];
                 if (!$row['started']) {
                     $out[] = $row;
@@ -390,12 +390,13 @@ final class ExpenseViews
                 }
                 $f = $views->totals($a, $to, $s['id']);
                 $deliveryCost = (int) $f['delivery_cost'] + (int) $f['delivery_other'];
-                // PayPal's fees (0080, docs/decisions.md PPF17) for a shop switched on: what the profit days hold of them from its first fee day
-                // (on its orders and not on one; before that day nothing is counted at all), else 0 as before
+                // PayPal's fees (0080, docs/decisions.md PPF17): what the profit days hold of them on these days, as every other line (the same
+                // figures the order pages and the rebuild hold, so a month plus the next is the two months: fix round 1); the shop's first fee
+                // day only says whether its fees are read (fees_from: the note) and the "not on an order" part is its own line under them
                 $feesFrom = \CW\Profit\PaypalFees::feesFrom($this->db, $s['code']);
-                $fees = $feesFrom !== null && $feesFrom <= $to ? (int) $f['fee_cost'] + (int) $f['fee_other'] : 0;
+                $fees = (int) $f['fee_cost'] + (int) $f['fee_other'];
                 $row = ['goods' => (int) $f['goods'], 'cost' => (int) $f['cost'], 'delivery' => (int) $f['delivery'], 'delivery_cost' => $deliveryCost, 'fees' => $fees,
-                    'fees_from' => $feesFrom !== null && $feesFrom <= $to ? $feesFrom : null,
+                    'fees_other' => (int) $f['fee_other'], 'fees_from' => $feesFrom !== null && $feesFrom <= $to ? $feesFrom : null,
                     // Not complete while ANY unit counted has no buying price or waits for it (the margin pages' 0.5% rule is for a margin; a real
                     // profit is an amount: the Codex check r3, H5).
                     'incomplete' => (int) $f['no_cost'] + (int) $f['pending'] > 0, 'no_cost' => (int) $f['no_cost'] + (int) $f['pending']] + $row;

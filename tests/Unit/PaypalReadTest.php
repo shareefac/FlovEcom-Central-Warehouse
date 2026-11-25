@@ -22,7 +22,7 @@ use PHPUnit\Framework\TestCase;
 final class PaypalReadTest extends TestCase
 {
     private const KEY = ['client_id' => 'AclientIDmadeUp0123456789', 'client_secret' => 'EsecretMadeUp0123456789xyz', 'api_base' => 'https://api-m.paypal.com',
-        'shop' => 'vapeandgo', 'account' => 'vapeandgo'];
+        'shop' => 'vapeandgo', 'account' => 'vapeandgo', 'merchant_id' => 'TESTACCOUNT'];
 
     /** @var list<string> */
     private array $files = [];
@@ -169,7 +169,7 @@ final class PaypalReadTest extends TestCase
         $api = new PaypalApi(PaypalKey::fromArray(self::KEY, 'vapeandgo'), $http, static function (int $s): void {
         });
         $w = $api->window(new \DateTimeImmutable('2026-11-21T00:00:00Z'), new \DateTimeImmutable('2026-11-23T23:59:59Z'));
-        self::assertSame([1203, 3, '2026-11-25T02:00:00Z'], [count($w['rows']), $w['pages'], $w['refreshed']]);
+        self::assertSame([1203, 3, '2026-11-25 02:00:00.000000'], [count($w['rows']), $w['pages'], $w['refreshed']], 'PayPal\'s refresh time as CW\'s UTC time');
         self::assertSame(['/v1/oauth2/token', '/v1/reporting/transactions', '/v1/reporting/transactions', '/v1/reporting/transactions'], array_column($http->calls, 'path'));
         self::assertSame(['transaction_info', '500', '3', '2026-11-21T00:00:00+00:00', '2026-11-23T23:59:59+00:00'], [$http->calls[3]['query']['fields'],
             $http->calls[3]['query']['page_size'], $http->calls[3]['query']['page'], $http->calls[3]['query']['start_date'], $http->calls[3]['query']['end_date']]);
@@ -205,7 +205,7 @@ final class PaypalReadTest extends TestCase
             'key refused' => [static fn (int $n, string $p): ?array => $p === '/v1/oauth2/token' ? ['status' => 401, 'body' => '{}'] : null, 'paypal_token'],
             'not JSON' => [static fn (int $n, string $p): ?array => $p === '/v1/reporting/transactions' ? ['status' => 200, 'body' => '<html>'] : null, 'paypal_bad_answer'],
             'count moved' => [static fn (int $n, string $p): ?array => $p === '/v1/reporting/transactions' ? ['status' => 200, 'body' => json_encode(['transaction_details' => [],
-                'total_items' => 1, 'total_pages' => 1])] : null, 'paypal_moved'],
+                'total_items' => 1, 'total_pages' => 1, 'account_number' => 'TESTACCOUNT'])] : null, 'paypal_moved'],
             'too many pages' => [static fn (int $n, string $p): ?array => $p === '/v1/reporting/transactions' ? ['status' => 200, 'body' => json_encode(['transaction_details' => [],
                 'total_items' => 60000, 'total_pages' => 120])] : null, 'paypal_too_many'],
         ];

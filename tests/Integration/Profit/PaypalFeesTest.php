@@ -29,7 +29,7 @@ use CW\Tests\Support\StockTestCase;
 final class PaypalFeesTest extends StockTestCase
 {
     private const KEY = ['client_id' => 'AclientIDmadeUp0123456789', 'client_secret' => 'EsecretMadeUp0123456789xyz', 'api_base' => 'https://api-m.paypal.com',
-        'shop' => 'vapeandgo', 'account' => 'vapeandgo'];
+        'shop' => 'vapeandgo', 'account' => 'vapeandgo', 'merchant_id' => 'TESTACCOUNT'];
     private const PP_NOW = '2026-11-25 05:20:00';
 
     private int $ef = 0;
@@ -316,7 +316,7 @@ final class PaypalFeesTest extends StockTestCase
         // not switched on: 0 and not said
         $this->setting('profit.paypal_from_vapeandgo', '""');
         $real = (new ExpenseViews(self::$db))->realProfit('2026-11-01', '2026-11-30', $ch, false);
-        self::assertSame([0, null], [$real[0]['fees'], $real[0]['fees_from']]);
+        self::assertSame([5870, null], [$real[0]['fees'], $real[0]['fees_from']], 'what the days hold until the next decisions take it off (fix round 1)');
         self::assertSame([], $kinds(), 'a shop not switched on is not watched');
         // a person never writes PayPal's rows; a key refused is a failed run the alert says
         try {
@@ -353,12 +353,13 @@ final class PaypalFeesTest extends StockTestCase
         self::assertSame('outside', $rows['1A0000000000000D2|T0006']['count_state'], 'Hayati Vapes still never counted');
         self::assertDaysRebuild($ch);
         self::assertDaysRebuild($this->ef);
-        // the account's shops changed (Electrofag taken off the list): every row decided again once; Electrofag's numbers are unrecognised now
-        // and go on the main shop's line (a setting fault the "not on an order" alarm shows), and back when it is put back
+        // the account's shops changed (Electrofag taken off the list): every row decided again once; Electrofag's rows had a shop, so they need a
+        // look now, never Vape and Go's line (fix round 1, the lead's decision 2), and are back on Electrofag when it is put back
         $this->setting('profit.paypal_shops_vapeandgo', '"vapeandgo,hayati"');
         self::fees()->run(self::system(), self::api($http), '2026-11-20', '2026-11-24', 'nightly');
         self::assertSame([], self::days($this->ef));
-        self::assertSame(90 + 70 + 90, self::days($ch)['2026-11-05|fee_other'] + self::days($ch)['2026-11-06|fee_other']);
+        self::assertSame($vpg, self::days($ch), 'nothing moved to Vape and Go');
+        self::assertSame(['look', 'form_lost'], [self::rows()['1A0000000000000L1|T0006']['count_state'], self::rows()['1A0000000000000L1|T0006']['look_reason']]);
         $this->setting('profit.paypal_shops_vapeandgo', '"vapeandgo,electrofag,hayati"');
         self::fees()->run(self::system(), self::api($http), '2026-11-20', '2026-11-24', 'nightly');
         self::assertSame(['2026-11-06|fee_cost' => 70, '2026-11-06|fee_other' => 90], self::days($this->ef));

@@ -113,7 +113,7 @@ final class PaypalReplayTest extends StockTestCase
                 $chunks[] = $s;
             });
         $key = PaypalKey::fromArray(['client_id' => 'AclientIDmadeUp0123456789', 'client_secret' => 'EsecretMadeUp0123456789xyz', 'api_base' => 'https://api-m.paypal.com',
-            'shop' => 'vapeandgo', 'account' => 'vapeandgo'], 'vapeandgo');
+            'shop' => 'vapeandgo', 'account' => 'vapeandgo', 'merchant_id' => 'TESTACCOUNT'], 'vapeandgo');
         $http = new FakePaypalHttp($rows);
         $http->byUpdated = true; // as PayPal served them: a September hold's release (T1111) in the window of its release
         $mem = memory_get_peak_usage(true);

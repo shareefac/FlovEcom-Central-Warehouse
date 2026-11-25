@@ -63,7 +63,7 @@ final class Settings
         // 0080 (docs/decisions.md PPF13): how many days back the nightly PayPal read goes (PayPal's window is 31 days at most), and the "not on an
         // order" alarm in pounds a day (the first fee days are plain dates: empty = not switched on)
         'profit.paypal_reread_days' => ['min' => 1, 'max' => 31],
-        'profit.paypal_not_on_order_alarm' => ['min' => '0', 'max' => '100000'],
+        'profit.paypal_not_on_order_alarm' => ['min' => '0', 'max' => '100000', 'pence' => true],
         // 0080 (PPF21): the shops the PayPal account takes payments for (the main shop first), and how each shop's order number looks in a PayPal
         // invoice (a pattern with ONE (part): the number; PaypalFees checks it compiles, else the run is refused and the alert says so)
         'profit.paypal_shops_vapeandgo' => ['pattern' => '/^[a-z][a-z0-9_]{0,31}(,[a-z][a-z0-9_]{0,31})*$/D',
@@ -543,6 +543,9 @@ final class Settings
         }
         if (($rule['percent'] ?? false) === true && \CW\Profit\ProfitMath::vatBp((string) $value) === null) {
             throw $bad('must be a percent from 0 to 100 with at most two decimals, like 20 or 17.5');
+        }
+        if (($rule['pence'] ?? false) === true && preg_match('/^[0-9]{1,9}(\.[0-9]{1,2})?$/D', (string) $value) !== 1) {
+            throw $bad('must be pounds with at most two decimals, like 50 or 12.50'); // 0080, fix round 1: never a value the reader would not take
         }
         if (isset($rule['sales_from'])) {
             // A day from the first one CW holds that shop's sales of (profit_day, by its index (channel_id, day)) to 2099-12-31; no sales yet: none.

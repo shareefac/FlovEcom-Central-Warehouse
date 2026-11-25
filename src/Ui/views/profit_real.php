@@ -12,6 +12,7 @@ $lines = [
     ['real_delivery_charged', 'delivery', 'delivery'],
     ['real_delivery', 'delivery_cost', 'delivery'],
     ['real_fees', 'fees', null], // PayPal's (0080, PPF17) for a shop switched on; 0 for the others (the note says which)
+    ['real_fees_other', 'fees_other', null], // of which on no CW order (fix round 1, the lead's decision 8): a part of the line above, not taken off again
     ['real_expenses', 'expenses', 'expenses'],
     ['real_regular', 'regular', 'regular'],
     ['real_profit', 'real', null],
@@ -52,7 +53,7 @@ $feesOn = array_values(array_filter($shops, static fn (array $s): bool => $s['st
   </thead>
   <tbody>
 <?php foreach ($lines as [$key, $field, $link]): ?>
-    <tr<?php if ($key === 'real_profit'): ?> class="rp-total"<?php elseif ($key === 'real_fees' && $feesOn === []): ?> class="off"<?php endif; ?>>
+    <tr<?php if ($key === 'real_profit'): ?> class="rp-total"<?php elseif (($key === 'real_fees' || $key === 'real_fees_other') && $feesOn === []): ?> class="off"<?php elseif ($key === 'real_fees_other'): ?> class="muted"<?php endif; ?>>
       <th scope="row"><?= $word('PROFIT', $key) ?></th>
 <?php foreach ($shops as $s): ?>
 <?php if (!$s['started']): ?>

@@ -10929,6 +10929,7 @@ final class Words
         'real_delivery_charged' => '+ Delivery charged',
         'real_delivery' => '− Delivery (the carriers\' bills)',
         'real_fees' => '− Payment fees',
+        'real_fees_other' => 'of which: PayPal money on no order',
         'real_fees_not_built' => 'Payment fees are not built yet for the other shops: they show 0. A Global Payments invoice you add as an expense is in the expenses line.',
         // 0080 (docs/decisions.md PPF17): a shop whose PayPal fees are read
         'real_fees_paypal' => '%s\'s payment fees are PayPal\'s, read from PayPal every night, from %s: each sale\'s fee on its order, a refund\'s fee back, a '
@@ -13634,6 +13635,7 @@ final class Words
         'paypal_never_read' => '%s: PayPal has never been read, so its payment fees are missing from its profit (they count from %s). Tell the CW team.',
         'paypal_not_read' => '%s: PayPal has not been read for %s hours, so its payment fees are not up to date. Tell the CW team.',
         'paypal_failed' => '%s: the last PayPal read failed (%s). The next night reads it again; tell the CW team if this stays.',
+        'paypal_stale' => '%s: PayPal says its data is complete only up to %s, so the payment fees are not up to date. Tell the CW team if this stays.',
         'paypal_needs_look' => '%s: %s PayPal rows CW does not understand (the newest %s). They are not counted until the CW team looks at them.',
         'paypal_not_on_order' => '%s: %s day(s) with more than %s of PayPal money on no order in CW (the newest %s: %s). Tell the CW team if this is not expected.',
         'landing_orders' => 'Website bug: an order on %1$s for the landing page %2$s (option %3$s, order %4$s). %5$s such orders are open: '

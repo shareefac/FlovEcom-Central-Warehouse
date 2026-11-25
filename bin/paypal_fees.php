@@ -74,9 +74,17 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
             fwrite(STDOUT, implode("\n", $out) . "\n");
             return Cli::OK;
         }
+        // the job's lock (one run of this job at a time): the nightly finding it held is skipped (exit 0); a backfill or --decide asked for by
+        // hand is BUSY (exit 4: nothing done, run it again; fix round 1: a go-live gate never takes a skipped run for done)
+        if (!$cli->tryLock()) {
+            $cli->log('another run of this job holds its lock: nothing done' . (isset($opts['from']) || isset($opts['decide']) ? '; run it again' : ''));
+            return isset($opts['from']) || isset($opts['decide']) ? Cli::BUSY : Cli::OK;
+        }
+        // the overall deadline (below the installer's 6-minute drain for the nightly; fix round 1)
+        $deadline = microtime(true) + (isset($opts['from']) ? 1200 : 240);
         if (isset($opts['decide'])) {
             // no PayPal call (no key needed): the rows a stopped run left due, decided under the account's lock
-            $n = $fees->locked($account, static fn (): int => $fees->decideAll($caller, $account, null));
+            $n = $fees->locked($account, static fn (): int => $fees->decideAll($caller, $account, null, $deadline));
             $cli->log("{$account}: {$n} PayPal rows decided again");
             return Cli::OK;
         }
@@ -86,9 +94,17 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
         if ($on === []) {
             // switched off (also: switched off again, the quick stop): no PayPal call, but every row counted before is decided again, so its
             // money leaves the profit days (before_start); the rows stay
-            $n = $fees->locked($account, static fn (): int => $fees->decideAll($caller, $account, null));
+            $n = $fees->locked($account, static fn (): int => $fees->decideAll($caller, $account, null, $deadline));
             $cli->log("{$account}: switched off (no shop of it has profit.paypal_from_<shop> set); nothing read; {$n} rows decided again");
             return Cli::OK;
+        }
+        // the local decisions first, with no PayPal call (a shop switched off, forms changed, orders that reached CW): made even when the key or
+        // PayPal fails below (fix round 1)
+        try {
+            $local = $fees->locked($account, static fn (): int => $fees->decideAll($caller, $account, null, $deadline));
+        } catch (CwException $e) {
+            $cli->error("{$account}: the local decisions could not be made now ({$e->getMessage()}); PayPal is read all the same");
+            $local = 0;
         }
         $config = Config::load();
         try {
@@ -112,16 +128,16 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
         if ($to > $today) {
             $to = $today;
         }
-        $api = new PaypalApi($key, new CurlPaypalHttp());
+        $api = new PaypalApi($key, new CurlPaypalHttp(), null, $deadline);
         $t = microtime(true);
         try {
-            $r = $fees->run($caller, $api, $from, $to, $kind);
+            $r = $fees->run($caller, $api, $from, $to, $kind, $deadline);
         } catch (CwException $e) {
             $cli->error("{$account} {$kind} {$from}..{$to}: " . $e->getMessage());
             return $e->errorCode === 'paypal_bad_days' ? Cli::USAGE : Cli::PROBLEM;
         }
-        $cli->log(sprintf('%s %s %s..%s: run %d, %d windows, %d pages, %d rows (%d new, %d changed), %d decided, PayPal complete to %s, %.1f s (%s)', $account, $kind,
-            $from, $to, $r['run'], $r['windows'], $r['pages'], $r['read'], $r['new'], $r['changed'], $r['allocated'], $r['refreshed'] ?? '-', microtime(true) - $t,
+        $cli->log(sprintf('%s %s %s..%s: RUN=%d ok, %d windows, %d pages, %d rows (%d new, %d changed), %d decided (+%d before reading), PayPal complete to %s, %.1f s (%s)',
+            $account, $kind, $from, $to, $r['run'], $r['windows'], $r['pages'], $r['read'], $r['new'], $r['changed'], $r['allocated'], $local, $r['refreshed'] ?? '-', microtime(true) - $t,
             implode(', ', array_map(static fn (string $k, float $v): string => "{$k} {$v} s", array_keys($r['seconds']), array_values($r['seconds'])))));
         return Cli::OK;
-    }, true, true));
+    }, false, true));

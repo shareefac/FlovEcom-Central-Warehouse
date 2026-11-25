@@ -10,7 +10,8 @@ use CW\CwException;
  * A PayPal account's REST app key, read from its key file on the CW server (docs/decisions.md PPF11; the owner, 24 Nov 2026: CW uses the
  * shop's existing key). The file's path is app.env's `paypal_key_file_<account>` (or CW_PAYPAL_KEY_FILE_<ACCOUNT>); it is a JSON object of
  * exactly client_id, client_secret, api_base, shop (the account's main shop: PaypalFees::run refuses a key whose shop is not the account's
- * main shop) and account, owned by root, readable by its owner and group only and written by nobody
+ * main shop), account and merchant_id (PayPal's account number of the merchant: every page PayPal gives must name it, PaypalApi; the
+ * lead's decision 4, fix round 1), owned by root, readable by its owner and group only and written by nobody
  * else (root:www-data 0640 as the go-live kit places it; 0600, 0440 and 0400 pass too). It is never in git, never printed, never logged: a
  * refusal names what is wrong with the file, never what it holds. CW calls only POST /v1/oauth2/token and GET /v1/reporting/transactions
  * with it (PaypalApi::PATHS).
@@ -19,7 +20,9 @@ final class PaypalKey
 {
     /** PayPal's REST hosts (live and sandbox): any other api_base is refused. */
     public const HOSTS = ['https://api-m.paypal.com', 'https://api.paypal.com', 'https://api-m.sandbox.paypal.com', 'https://api.sandbox.paypal.com'];
-    public const FIELDS = ['client_id', 'client_secret', 'api_base', 'shop', 'account'];
+    public const FIELDS = ['client_id', 'client_secret', 'api_base', 'shop', 'account', 'merchant_id'];
+    /** The group a group-readable key file may have (the go-live kit: root:www-data 0640); root's own group passes too. */
+    public const GROUPS = ['www-data', 'root'];
     public const MAX_BYTES = 4096;
 
     private function __construct(
@@ -28,6 +31,7 @@ final class PaypalKey
         public readonly string $apiBase,
         public readonly string $shop,
         public readonly string $account,
+        public readonly string $merchantId,
     ) {
     }
 
@@ -56,16 +60,36 @@ final class PaypalKey
         if (($st['mode'] & 0170000) !== 0100000) {
             throw $no('is not a plain file (a link or a folder is refused)');
         }
-        if ((int) $st['uid'] !== 0) {
-            throw $no('is not owned by root');
+        // the checks are made on the file actually opened (fstat of its descriptor, the same inode as the path's: no swap in between)
+        $h = @fopen($path, 'rb');
+        if ($h === false) {
+            throw $no('cannot be read');
         }
-        if (($st['mode'] & 0137) !== 0) {
-            throw $no(sprintf('has mode %04o: others may not read it, only its owner may write it, nobody may run it (0640)', $st['mode'] & 07777));
+        try {
+            $fs = fstat($h);
+            if ($fs === false || (int) $fs['ino'] !== (int) $st['ino'] || (int) $fs['dev'] !== (int) $st['dev'] || ($fs['mode'] & 0170000) !== 0100000) {
+                throw $no('changed while it was opened');
+            }
+            if ((int) $fs['uid'] !== 0) {
+                throw $no('is not owned by root');
+            }
+            if (($fs['mode'] & 0137) !== 0) {
+                throw $no(sprintf('has mode %04o: others may not read it, only its owner may write it, nobody may run it (0640)', $fs['mode'] & 07777));
+            }
+            if (($fs['mode'] & 0040) !== 0) {
+                $g = function_exists('posix_getgrgid') ? posix_getgrgid((int) $fs['gid']) : false;
+                $name = is_array($g) ? (string) $g['name'] : (string) $fs['gid'];
+                if ((int) $fs['gid'] !== 0 && !in_array($name, self::GROUPS, true)) {
+                    throw $no("is readable by its group {$name}: only www-data (or root) may be its group (0640 root:www-data)");
+                }
+            }
+            if ((int) $fs['size'] > self::MAX_BYTES) {
+                throw $no('is too large to be a key file');
+            }
+            $raw = stream_get_contents($h, self::MAX_BYTES + 1);
+        } finally {
+            fclose($h);
         }
-        if ((int) $st['size'] > self::MAX_BYTES) {
-            throw $no('is too large to be a key file');
-        }
-        $raw = @file_get_contents($path);
         if (!is_string($raw)) {
             throw $no('cannot be read');
         }
@@ -110,7 +134,16 @@ final class PaypalKey
         if ($j['account'] !== $account) {
             throw $no('is for another account');
         }
-        return new self($j['client_id'], $j['client_secret'], $j['api_base'], $j['shop'], $j['account']);
+        if (preg_match('/^[A-Z0-9]{8,20}$/D', $j['merchant_id']) !== 1) {
+            throw $no('names a merchant_id that is not PayPal\'s account number form');
+        }
+        return new self($j['client_id'], $j['client_secret'], $j['api_base'], $j['shop'], $j['account'], $j['merchant_id']);
+    }
+
+    /** Whether the key is for PayPal's live host (production must use one: the go-live kit checks it). */
+    public function live(): bool
+    {
+        return in_array($this->apiBase, ['https://api-m.paypal.com', 'https://api.paypal.com'], true);
     }
 
     /** The Basic credentials of the token call (never printed). */
@@ -122,6 +155,6 @@ final class PaypalKey
     /** @return array<string, string> what a dump of this object shows: never the secret */
     public function __debugInfo(): array
     {
-        return ['shop' => $this->shop, 'account' => $this->account, 'api_base' => $this->apiBase];
+        return ['shop' => $this->shop, 'account' => $this->account, 'api_base' => $this->apiBase, 'merchant_id' => $this->merchantId];
     }
 }

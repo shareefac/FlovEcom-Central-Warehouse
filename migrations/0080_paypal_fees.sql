@@ -50,7 +50,6 @@ CREATE TABLE IF NOT EXISTS paypal_run (
   rows_changed   INT UNSIGNED      NOT NULL DEFAULT 0,
   allocated      INT UNSIGNED      NOT NULL DEFAULT 0 COMMENT 'rows whose allocation was decided (new, or moved)',
   refreshed_to   DATETIME(6)       NULL COMMENT 'PayPal''s last_refreshed_datetime of the last window read (UTC): its data is complete up to it',
-  forms_sig      CHAR(16)          NULL COMMENT 'the account''s shops and forms it decided by (a change of them re-decides every row once: PPF21)',
   error          VARCHAR(255)      NULL COMMENT 'why it failed, in CW''s own words (never PayPal''s text, never the key)',
   actor          VARCHAR(64)       NOT NULL,
   started_at     DATETIME(6)       NOT NULL,
@@ -90,8 +89,13 @@ CREATE TABLE IF NOT EXISTS paypal_txn (
   cost_pence      BIGINT            NOT NULL DEFAULT 0 COMMENT 'what it costs the shop (PPF4): sale and refund: the fee; chargeback and fee: the money and the fee; money back below 0',
   count_state     ENUM('counts','pending','not_counted','before_start','outside','look') NOT NULL
                   COMMENT 'counts; pending (status P, read again); not_counted (ignored kind, denied); before_start (before its shop''s first fee day, or its shop not switched on); outside (a shop CW does not hold: Hayati Vapes; kept, never counted); look (needs a look: never counted)',
-  look_reason     VARCHAR(32)       NULL COMMENT 'look: why (unknown_code, currency, fee_on_ignored, sign, status)',
+  look_reason     VARCHAR(32)       NULL COMMENT 'look: why (unknown_code, currency, fee_on_ignored, sign, status, form_lost, form_overlap, ref_conflict)',
   match_state     ENUM('order','no_order','ambiguous','no_number') NULL COMMENT 'counts: on a CW order, a number no CW order has (yet), a number of two or more, or no number',
+  matched_by      ENUM('reference','invoice','custom','none') NULL COMMENT 'how its shop and number were found: PayPal''s reference to its sale first, then its invoice, then its custom field (PPF24)',
+  match_order_ref VARCHAR(64)       NULL COMMENT 'order: the order of its shop with its number (also when nothing of it counts: a chargeback all refunded)',
+  refund_offset_pence BIGINT        NOT NULL DEFAULT 0 COMMENT 'a chargeback on an order: the money taken back CW already holds as the order''s refund, not counted again (PPF23)',
+  refund_seen_pence BIGINT          NULL COMMENT 'a chargeback on an order: the order''s refunds (inc VAT) its decision was made with (another later: decided again)',
+  decided_sig     CHAR(16)          NULL COMMENT 'the account''s shops and forms its decision was made by (another now: decided again, PPF26)',
   candidates      TINYINT UNSIGNED  NOT NULL DEFAULT 0 COMMENT 'ambiguous: how many orders have its number',
   shop_channel    SMALLINT UNSIGNED NULL COMMENT 'counts, pending, before_start: the CW shop it belongs to (its form''s, else the account''s main shop; PPF21)',
   alloc_dest      ENUM('order','shop') NULL COMMENT 'where its cost counts: on an order, on the shop''s "not on an order" line; NULL: nowhere',
@@ -100,6 +104,7 @@ CREATE TABLE IF NOT EXISTS paypal_txn (
   alloc_day       DATE              NULL COMMENT 'the day it counts on; NULL on an order: the order''s paid day (a sale''s fee)',
   alloc_pence     BIGINT            NOT NULL DEFAULT 0 COMMENT 'what counts there (= cost_pence once decided)',
   due             TINYINT(1)        NOT NULL DEFAULT 1 COMMENT '1: read or changed, where it counts not decided yet (the run decides it; PPF9)',
+  due_since       DATETIME(6)       NULL COMMENT 'due: since when (PP4 times a due row from it)',
   version         INT UNSIGNED      NOT NULL DEFAULT 1 COMMENT 'its latest paypal_txn_history version',
   first_run       BIGINT UNSIGNED   NOT NULL,
   last_run        BIGINT UNSIGNED   NOT NULL COMMENT 'the last run that read it',
@@ -118,6 +123,8 @@ CREATE TABLE IF NOT EXISTS paypal_txn (
   KEY ix_paypal_txn_shop_channel (shop_channel),
   KEY ix_paypal_txn_first_run (first_run),
   KEY ix_paypal_txn_last_run (last_run),
+  KEY ix_paypal_txn_sig (account, decided_sig),
+  KEY ix_paypal_txn_kind (account, kind, matched_by),
   CONSTRAINT fk_paypal_txn_channel FOREIGN KEY (channel_id) REFERENCES channel (id),
   CONSTRAINT fk_paypal_txn_alloc_channel FOREIGN KEY (alloc_channel) REFERENCES channel (id),
   CONSTRAINT fk_paypal_txn_shop_channel FOREIGN KEY (shop_channel) REFERENCES channel (id),
@@ -137,7 +144,9 @@ CREATE TABLE IF NOT EXISTS paypal_txn (
     OR (alloc_dest = 'shop' AND alloc_channel IS NOT NULL AND alloc_order_ref IS NULL AND alloc_day IS NOT NULL)),
   CONSTRAINT ck_paypal_txn_state CHECK ((count_state = 'look') = (look_reason IS NOT NULL) AND (count_state = 'counts' OR match_state IS NULL)
     AND (match_state = 'ambiguous') = (candidates >= 2) AND due IN (0, 1) AND version >= 1
-    AND (count_state IN ('counts', 'pending', 'before_start') OR shop_channel IS NULL) AND (alloc_channel IS NULL OR alloc_channel = shop_channel))
+    AND (count_state IN ('counts', 'pending', 'before_start') OR shop_channel IS NULL) AND (alloc_channel IS NULL OR alloc_channel = shop_channel)
+    AND (match_state = 'order') = (match_order_ref IS NOT NULL) AND (alloc_order_ref IS NULL OR alloc_order_ref = match_order_ref)
+    AND refund_offset_pence >= 0 AND (refund_offset_pence = 0 OR kind = 'chargeback') AND (due = 1 OR due_since IS NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='a PayPal transaction read from the API (docs/decisions.md PPF1-PPF9): nothing personal; changed in place with history, never deleted';
 
