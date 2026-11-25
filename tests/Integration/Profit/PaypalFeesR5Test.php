@@ -263,6 +263,10 @@ final class PaypalFeesR5Test extends StockTestCase
         $http->set([$c30, $d20, $d30]);
         self::readPp($http, '2026-11-01', '2026-11-07');
         self::assertSame(['look', 'pp_conflict', 2], self::of('5D00000000000C02', ['count_state', 'look_reason', 'pp_conflict']));
+        // the next answer gives both again, the other one first: still two contents in one answer (never a contradiction between reads)
+        $http->set([$c30, $d30, $d20]);
+        self::readPp($http, '2026-11-01', '2026-11-07');
+        self::assertSame(['look', 'pp_conflict', 2], self::of('5D00000000000C02', ['count_state', 'look_reason', 'pp_conflict']));
         $http->set([$c30, $d30]);
         self::readPp($http, '2026-11-01', '2026-11-07');
         self::assertSame(['counts', '1002', 3000, 0], self::of('5D00000000000C02', ['count_state', 'alloc_order_ref', 'alloc_pence', 'pp_conflict']));
