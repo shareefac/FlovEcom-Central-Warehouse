@@ -243,6 +243,8 @@ final class AiKindsTest extends TestCase
         foreach ([[AiAnswers::invoice(['total' => '84.7x']), 'the total'], [AiAnswers::invoice(['net' => '1,234.56']), 'the net'],
             [AiAnswers::invoice(['vat' => 'fourteen']), 'the VAT'], [AiAnswers::invoice(['total' => 84.72]), 'the total'],
             [AiAnswers::invoice(['invoice_date' => '2026-13-01']), 'the invoice date'], [AiAnswers::invoice(['currency' => 'pounds']), 'the currency'],
+            // the re-check of ca8987b: a date of blanks is no date (never read as "not printed", so the amounts never land beside the form's own date)
+            [AiAnswers::invoice(['invoice_date' => '   ']), 'the invoice date'], [AiAnswers::invoice(['invoice_date' => "2026-11-20\n1"]), 'the invoice date'],
             [AiAnswers::invoice(['invoice_number' => str_repeat('9', 65)]), 'the invoice number'], [AiAnswers::invoice(['supplier_name' => str_repeat('S', 101)]), 'the supplier'],
             [AiAnswers::invoice(['billed_to' => 7]), 'the name billed'], [$without, 'the total (missing)'], [AiAnswers::invoice(['tip' => 'x']), 'a field CW did not ask for'],
             [AiAnswers::invoice(['readable' => 'yes']), 'readable'], [AiAnswers::invoice(['not_readable_reason' => 'not_an_invoice']), 'the reason not readable'],
@@ -254,6 +256,7 @@ final class AiKindsTest extends TestCase
                 self::assertSame(['ai_bad_answer', $words], [$e->errorCode, $e->getMessage()]);
             }
         }
+        self::assertSame('2026-11-20', $k->shape(AiAnswers::invoice(['invoice_date' => ' 2026-11-20 ']))['invoice_date'], 'a day, its blanks trimmed');
         // not an invoice: refused with Claude's reason (a code), nothing filled
         try {
             $k->shape(AiAnswers::invoice(['readable' => false, 'not_readable_reason' => 'not_an_invoice']));

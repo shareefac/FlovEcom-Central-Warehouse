@@ -400,11 +400,13 @@ final class DocumentReaderTest extends IntegrationTestCase
         sort($want);
         self::assertSame($want, $left, 'the files of the job too old and of the answer expired gone, and the stray one; the young one, what is not CW\'s and the '
             . 'stopped invoice (kept an hour for its Save) stay');
-        // a day later the job rows go, the last files with them; the log stays
+        // a day later the job rows are emptied of what the page had typed (M10, the re-check of ca8987b: the app login removes no row), the last
+        // files go; the log stays
         $now = $now->modify('+25 hours');
         self::assertSame(3, $r->sweep(true)['rows']);
         self::assertSame(['README'], $this->spooled());
-        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM ai_read'));
+        self::assertSame([3, 0, 0], [(int) self::$db->value('SELECT COUNT(*) FROM ai_read'), (int) self::$db->value('SELECT COUNT(*) FROM ai_read WHERE JSON_LENGTH(context) > 0 '
+            . 'OR answer IS NOT NULL'), $r->sweep(true)['rows']], 'kept, empty; emptied once');
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM ai_call'));
     }
 
@@ -448,6 +450,12 @@ final class DocumentReaderTest extends IntegrationTestCase
         self::assertNull(self::$db->value('SELECT file_used_at FROM ai_read WHERE id = ?', [$id]), 'a refused Save uses nothing');
         $file = $use($job, $id, 'expense_new', null);
         self::assertSame(hash_file('sha256', $pdf), hash_file('sha256', $file['path']), 'the file as it was sent');
+        // High 3 (the re-check of ca8987b): Save stores the VERIFIED bytes: a private copy (0600, outside the spool), whatever the spool holds after
+        self::assertStringStartsNotWith($this->spool, $file['path']);
+        self::assertSame(['0600', hash_file('sha256', $pdf)], [substr(sprintf('%o', fileperms($file['path'])), -4), $file['sha256']]);
+        file_put_contents($this->spool . '/' . (string) self::$db->value('SELECT spool_name FROM ai_read WHERE id = ?', [$id]), "%PDF-1.4\n% swapped after the check\n");
+        self::assertSame(hash_file('sha256', $pdf), hash_file('sha256', $file['path']), 'the copy is what was checked');
+        unlink($file['path']);
         self::assertSame('ai_file_gone', self::refused(fn () => $use($job, $id, 'expense_new', null))->errorCode, 'attached once');
         self::assertFalse($r->kept($job, $id));
         $r->dropUsed($id);
@@ -580,6 +588,43 @@ final class DocumentReaderTest extends IntegrationTestCase
         $now = $now->modify('+61 minutes');
         self::assertSame('ai_taken', self::refused(fn () => $r->take($both, $inv, $expenses))->errorCode);
         self::assertSame(['expired', null], [$r->view($both, $inv, $expenses)['state'], self::$db->value('SELECT answer FROM ai_read WHERE id = ?', [$inv])]);
+    }
+
+    /** M5 (the re-check of ca8987b): a job whose kind is not its place's (a bill's reading recorded at an Expenses place) is never shown or taken. */
+    public function testAJobOfAnotherKindThanItsPlaceIsNeverShown(): void
+    {
+        $both = self::person('expenses');
+        $id = self::$db->insert("INSERT INTO ai_read (staff_user_id, place, kind, context, media_type, file_bytes, file_sha256, state, answer, created_at, finished_at) "
+            . "VALUES (?, 'expense_new', 'royal_mail_bill', '{}', 'application/pdf', 9, ?, 'done', '{}', NOW(6), NOW(6))", [$both->staffUserId, str_repeat('0', 64)]);
+        $r = AiFixtures::reader(self::$db, $this->spool, new FakeClaude());
+        self::assertSame('not_found', self::refused(fn () => $r->view($both, $id, DocumentReader::EXPENSE_PLACES))->errorCode);
+        self::assertSame('not_found', self::refused(fn () => $r->take($both, $id, DocumentReader::EXPENSE_PLACES))->errorCode);
+        self::assertSame('done', self::$db->value('SELECT state FROM ai_read WHERE id = ?', [$id]), 'not consumed');
+    }
+
+    /**
+     * M3 (the re-check of ca8987b): the cap compares the month's spend and the call's most to the thousandth of a penny: exactly at the limit
+     * a call starts, a thousandth over it does not.
+     */
+    public function testTheCapIsExactToTheThousandthOfAPenny(): void
+    {
+        $job = self::person('expenses');
+        AiFixtures::on(self::$db);
+        $f = new FakeClaude();
+        $r = AiFixtures::reader(self::$db, $this->spool, $f);
+        $png = AiFixtures::png($this->files);
+        $most = DocumentReader::most(new ExpenseInvoiceKind(), (string) file_get_contents($png), 'image/png', '3.20', '16.00');
+        $spent = static fn (int $mp) => self::$db->exec("INSERT INTO ai_call (read_id, created_at, staff_user_id, place, kind, model, media_type, file_bytes, "
+            . "cost_millipence, max_millipence, result, reason) VALUES (NULL, NOW(6), ?, 'expense_new', 'expense_invoice', 'm', 'image/png', 1, ?, ?, 'ok', 'ok')",
+            [$job->staffUserId, $mp, $mp]);
+        $spent(3_000_000 - $most + 1);
+        $id = $r->start($job, 'expense_new', $png, ['n' => 1]);
+        self::assertSame(['id' => $id, 'state' => 'failed', 'reason' => 'limit'], $r->runNext(), 'a thousandth of a penny over: not sent');
+        self::$db->exec('UPDATE ai_call SET cost_millipence = cost_millipence - 1, max_millipence = max_millipence - 1');
+        $f->push(FakeClaude::answer(AiAnswers::invoice(), 100, 10));
+        $id = $r->start($job, 'expense_new', $png, ['n' => 2]);
+        self::assertSame('done', $r->runNext()['state'] ?? null, 'exactly at the limit with its most: sent');
+        self::assertCount(1, $f->sent);
     }
 
     public function testTheMonthIsTheUkMonth(): void

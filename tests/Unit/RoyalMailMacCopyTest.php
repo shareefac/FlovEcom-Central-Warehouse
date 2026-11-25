@@ -59,11 +59,16 @@ final class RoyalMailMacCopyTest extends TestCase
             array_map(static fn (array $r): array => [$r['ref_kind'], $r['ref_no'], $r['sales_order']], $mac['rows']));
         $text = RmBill::macText($lines, ['break_after_ref' => [0]], 0);
         self::assertStringContainsString("CLICK AND DROP M42\n(HV)\nGBP 10.00", $text);
-        try {
-            RoyalMailBillPage::parse($text, RmBill::PRODUCTS);
-            self::fail('refused');
-        } catch (CwException $e) {
-            self::assertSame('bad_file', $e->errorCode);
+        // the re-check of ca8987b: words in the amounts' own row, before the amounts, after a complete reference ("(HV)" made M42 none)
+        $prefixed = RmBill::macText($lines, ['break_after_ref' => [0], 'amount_prefix' => [0 => '(HV)']]);
+        self::assertStringContainsString("CLICK AND DROP M42\n(HV)\tGBP 10.00", $prefixed);
+        foreach ([$text, $prefixed] as $t) {
+            try {
+                RoyalMailBillPage::parse($t, RmBill::PRODUCTS);
+                self::fail('refused');
+            } catch (CwException $e) {
+                self::assertSame('bad_file', $e->errorCode);
+            }
         }
     }
 

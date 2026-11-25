@@ -185,8 +185,9 @@ final class RmBill
             if (in_array($i, $over['break_after_ref'] ?? [], true)) {
                 // M1 (Codex final of 86aebbd): the copy breaks AFTER the reference cell: "date, product, quantity, description, reference" then
                 // "net, gross, VAT code"
+                $prefix = isset($over['amount_prefix'][$i]) ? [(string) $over['amount_prefix'][$i]] : [];
                 $out .= implode("\t", ["{$d}:{$m}:{$y}", $l['product'], number_format($l['qty'], 3, '.', ''), 'A DESCRIPTION OF THE PRODUCT', ...$ref]) . "\n"
-                    . ($long ? "(HV)\n" : '') . implode("\t", $money) . "\n";
+                    . ($long ? "(HV)\n" : '') . implode("\t", [...$prefix, ...$money]) . "\n";
                 continue;
             }
             $out .= implode("\t", ["{$d}:{$m}:{$y}", $l['product'], number_format($l['qty'], 3, '.', ''), $long ? 'ROYAL MAIL TRACKED 48' : 'A DESCRIPTION OF THE PRODUCT'])

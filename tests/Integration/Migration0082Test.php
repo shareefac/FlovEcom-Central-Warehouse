@@ -48,8 +48,9 @@ final class Migration0082Test extends IntegrationTestCase
             'checked', 'check_code', 'checked_at'], array_keys(Grants::desiredColumns('ai_call')), 'only the call\'s outcome and what CW\'s checks made of it are written later');
         // M10 (Codex final of 86aebbd): a job's who, where, file (size, sha256) and context are frozen once it is made; only its lifecycle is
         // written (and the job removed a day after it finishes); the reader's row: only what the runner writes, never removed
-        self::assertSame(['Select', 'Insert', 'Delete'], Grants::desired('ai_read'), 'the jobs: removed a day after they finish');
-        self::assertSame(['state', 'reason', 'detail', 'answer', 'started_at', 'finished_at', 'taken_at', 'spool_name', 'file_used_at'],
+        // the re-check of ca8987b: no DELETE (a job can never be replaced); a day after it finishes its typed fields are emptied in place
+        self::assertSame(['Select', 'Insert'], Grants::desired('ai_read'), 'the jobs: never removed by the app login');
+        self::assertSame(['context', 'state', 'reason', 'detail', 'answer', 'started_at', 'finished_at', 'taken_at', 'spool_name', 'file_used_at'],
             array_keys(Grants::desiredColumns('ai_read')));
         self::assertSame(['Select', 'Insert'], Grants::desired('ai_reader'), 'the reader\'s own row of its runs, never removed');
         self::assertSame(['started_at', 'ended_at', 'ok_at', 'failed_at', 'error'], array_keys(Grants::desiredColumns('ai_reader')));
@@ -120,6 +121,13 @@ final class Migration0082Test extends IntegrationTestCase
         self::assertSame(2, (int) $db->value('SELECT COUNT(*) FROM ai_read'), 'the two rows the CHECKs let in');
         self::assertSame(3, (int) $db->value('SELECT COUNT(*) FROM ai_call'));
         self::assertSame(1, (int) $db->value('SELECT COUNT(*) FROM ai_reader'));
+        // High 2 (the re-check of ca8987b): an undo types the key's row a number (the release before takes no key into it); the release's own
+        // bin/migrate.php, which the installer runs with the writers paused, types it back to text, its value and history untouched
+        $db->exec("UPDATE app_setting SET value_type = 'int', description = 'undone' WHERE setting_key = 'ai.anthropic_api_key'");
+        self::assertTrue(\CW\Ai\AiSettings::restoreKeyRow($db));
+        self::assertSame(['string', '""'], array_values($db->one("SELECT value_type, CAST(value_json AS CHAR) AS v FROM app_setting WHERE setting_key = 'ai.anthropic_api_key'") ?? []));
+        self::assertStringContainsString('Anthropic API key', (string) $db->value("SELECT description FROM app_setting WHERE setting_key = 'ai.anthropic_api_key'"));
+        self::assertFalse(\CW\Ai\AiSettings::restoreKeyRow($db), 'once');
     }
 
     private static function err(callable $fn): int

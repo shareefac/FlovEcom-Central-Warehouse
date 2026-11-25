@@ -43,6 +43,8 @@ final class AiDeployTest extends TestCase
         }
         $install = (string) file_get_contents(self::ROOT . '/deploy/production/install_cron.sh');
         self::assertStringNotContainsString('ai_read.php', $install, 'never run as an installer\'s smoke check (it reads documents)');
+        // High 2 (the re-check of ca8987b): the release's own migrate step (run by the installer with the writers paused) types the key's row back
+        self::assertStringContainsString('AiSettings::restoreKeyRow($db)', (string) file_get_contents(self::ROOT . '/bin/migrate.php'));
         // H9 (Codex final of 86aebbd): the go-live kit names the commit it checked; the installer checks it again under its own lock (as PayPal's)
         foreach (['--expect-revision=*) expect_rev=', '--expect-active=*) expect_active=', 'not the expected $expect_rev (a push replaced it)'] as $part) {
             self::assertStringContainsString($part, $install);

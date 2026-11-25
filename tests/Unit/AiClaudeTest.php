@@ -47,7 +47,10 @@ final class AiClaudeTest extends TestCase
         self::assertSame('Bearer ' . self::KEY, $req['headers']['authorization'] ?? null, 'the key from the setting, as the SDK sends it');
         self::assertStringContainsString(Claude::FALLBACK_BETA, $req['headers']['anthropic-beta'] ?? '');
         $b = $req['body'];
-        self::assertSame(['claude-opus-5-5', 8000, true, 'default'], [$b['model'], $b['max_tokens'], $b['stream'], $b['fallbacks']]);
+        // M2 (the re-check of ca8987b): ONE named fallback model, with the same output limit: every billable attempt is known (x2)
+        self::assertSame(['claude-opus-5-5', 8000, true, [['model' => Claude::FALLBACK_MODEL, 'max_tokens' => 8000]]],
+            [$b['model'], $b['max_tokens'], $b['stream'], $b['fallbacks']]);
+        self::assertSame('claude-opus-4-8', Claude::FALLBACK_MODEL);
         self::assertArrayNotHasKey('thinking', $b, 'thinking is always on for claude-opus-5-5: nothing sent');
         self::assertArrayNotHasKey('temperature', $b);
         self::assertSame('medium', $b['output_config']['effort']);
@@ -151,15 +154,18 @@ final class AiClaudeTest extends TestCase
         self::assertSame(12, Claude::pages("%PDF-1.5\n1 0 obj << /Type/Pages /Count 12 >> endobj\n%%EOF\n"), 'no page objects to read: the page tree\'s count');
         // M2 (Codex final of 86aebbd): the larger of the two, never fewer than either (one page object visible, the other 19 packed away)
         self::assertSame(20, Claude::pages("%PDF-1.5\n1 0 obj << /Type /Pages /Count 20 >> endobj\n2 0 obj << /Type /Page >> endobj\n%%EOF\n"));
-        self::assertSame(Claude::PAGES_UNKNOWN, Claude::pages("%PDF-1.5\n(compressed object streams)\n%%EOF\n"), 'nothing to count: 100');
-        self::assertSame(100, Claude::PAGES_UNKNOWN);
+        // M2 (the re-check of ca8987b): never fewer than one page for every 2,000 bytes of the file (a PDF's pages packed in compressed streams)
+        self::assertSame(1, Claude::pages("%PDF-1.5\n(compressed object streams)\n%%EOF\n"), 'a tiny file: one page');
+        self::assertSame(50, Claude::pages("%PDF-1.5\n1 0 obj << /Type /Pages /Count 1 >> endobj\n2 0 obj << /Type /Page >> endobj\n" . str_repeat('x', 99_900)),
+            'a 100,000-byte PDF showing one page: 50 pages');
+        self::assertSame(2_000, Claude::BYTES_PER_PAGE);
         $bill = new RoyalMailBillKind();
         $words = strlen(Claude::SYSTEM) + strlen($bill->instructions()) + strlen((string) json_encode($bill->schema()));
         $in = Claude::maxInputTokens($bill, $five, 'application/pdf');
-        self::assertSame(intdiv($words + 1, 2) + Claude::FRAME_TOKENS + 5 * Claude::PAGE_TOKENS, $in);
+        self::assertSame($words + Claude::FRAME_TOKENS + 5 * Claude::PAGE_TOKENS, $in, 'the request\'s own words at a token a byte (a token is never under a byte)');
         self::assertSame([10_000, 2_000], [Claude::PAGE_TOKENS, Claude::FRAME_TOKENS]);
         $invoice = new ExpenseInvoiceKind();
-        self::assertSame(intdiv(strlen(Claude::SYSTEM) + strlen($invoice->instructions()) + strlen((string) json_encode($invoice->schema())) + 1, 2)
+        self::assertSame(strlen(Claude::SYSTEM) + strlen($invoice->instructions()) + strlen((string) json_encode($invoice->schema()))
             + Claude::FRAME_TOKENS + Claude::PAGE_TOKENS, Claude::maxInputTokens($invoice, 'not read', 'image/png'), 'a photo: one page');
         // £ example (docs/decisions.md AI16): a 5-page bill's most = its ~54,000 tokens in at £3.20 + 64,000 out at £16.00 a million = about £1.20
         // an attempt; M2: every attempt that may be billed is reserved: the request and the server-side fallback's (no SDK retry: 0)
@@ -208,9 +214,23 @@ final class AiClaudeTest extends TestCase
         $f = (new FakeClaude())->push($busy(), $busy());
         $r = (new Claude(self::KEY, 'claude-opus-5-5', 'medium', $f))->read($k, 'x', 'image/jpeg');
         self::assertSame(['overloaded', 1], [$r['reason'], count($f->sent)]);
-        // M4: the HTTP client's limits: the whole transfer within the deadline (300 s: below the installer's 6-minute drain), no redirect
-        $o = array_intersect_key(Claude::guzzleOptions(), array_flip(['timeout', 'connect_timeout', 'read_timeout', 'allow_redirects', 'http_errors']));
+        // M4: the HTTP client's limits: the whole transfer within the deadline (300 s: below the installer's 6-minute drain), no redirect, and
+        // no replay of the request by curl below the SDK (the re-check of ca8987b: '_curl_retries' at its last)
+        $o = array_intersect_key(Claude::guzzleOptions(), array_flip(['timeout', 'connect_timeout', 'read_timeout', 'allow_redirects', 'http_errors', '_curl_retries']));
         ksort($o);
-        self::assertSame(['allow_redirects' => false, 'connect_timeout' => 15, 'http_errors' => false, 'read_timeout' => 120, 'timeout' => 300], $o);
+        self::assertSame(['_curl_retries' => 2, 'allow_redirects' => false, 'connect_timeout' => 15, 'http_errors' => false, 'read_timeout' => 120, 'timeout' => 300], $o);
+        // ONE wall clock over the whole call: a request after its deadline is never sent
+        $f = (new FakeClaude())->push(FakeClaude::answer(AiAnswers::invoice(), 10, 10));
+        $t = 0.0;
+        $late = new \CW\Ai\AnthropicOnly($f, 300.0, static function () use (&$t): float {
+            return $t;
+        });
+        $t = 301.0;
+        try {
+            $late->sendRequest(new Request('POST', 'https://api.anthropic.com/v1/messages'));
+            self::fail('past its deadline: never sent');
+        } catch (\Psr\Http\Client\ClientExceptionInterface) {
+            self::assertSame([], $f->sent);
+        }
     }
 }
