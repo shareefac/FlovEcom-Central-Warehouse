@@ -21447,4 +21447,7 @@ new style is scoped to form.expense-form and form.regular-form (tests/Integratio
 on an expense's or a regular cost's page a refusal is said once, in the fold of the form it refused, above that form and as wide as it (one
 about the whole page, someone else's change meanwhile, stays at the top); two cells a row only where the browser has subgrid (elsewhere one a
 row, so a wrapped label never sets a row's boxes apart); the drawing's 300 px drop place with "Drop the PDF or photo here" over the box (the
-words let drops and clicks through; left-aligned with the box's button, since a browser keeps a file box's contents at its start).
+words let drops and clicks through; left-aligned with the box's button, since a browser keeps a file box's contents at its start). The
+final review (Codex astra): a refusal in a fold takes the focus when the page opens (tabindex -1, autofocus), so a phone shows it below the
+facts; an incomplete form (bad_form) is either form's, so it is said at the top; the buttons of a row are one height when a name wraps; the drop
+words wrap and keep two lines of room (2.8em) above the box's button at any text size.

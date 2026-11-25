@@ -10,9 +10,11 @@ $net = \CW\Expenses\ExpenseMoney::pence((string) $t['net']);
 $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
 $deleted = $x['deleted_at'] !== null;
 // A refusal is said in the fold of the form it refused, just above that form and as wide as it (EX64; Codex r1 L1): Delete's own two
-// (the box not ticked, no reason) in Delete, the rest in Change; one about the whole page (someone else changed it meanwhile), or one with
-// no fold to show it in, at the top.
-$errorIn = $error === null || !$canEdit || $errorCode === 'changed_meanwhile' ? null : (in_array($errorCode, ['not_sure', 'bad_reason'], true) ? 'delete' : 'change');
+// (the box not ticked, no reason) in Delete, the rest in Change; one about the whole page (someone else changed it meanwhile), one either
+// form can get (an incomplete form, bad_form: Codex final L1), or one with no fold to show it in, at the top. In a fold it takes the focus
+// when the page opens (tabindex -1: by script only, never in the Tab order), so a phone shows it below the facts (Codex final M1).
+$errorIn = $error === null || !$canEdit || in_array($errorCode, ['changed_meanwhile', 'bad_form'], true) ? null
+    : (in_array($errorCode, ['not_sure', 'bad_reason'], true) ? 'delete' : 'change');
 ?>
 <?= $head(\CW\Ui\Words::say('EXPENSES', 'one_title', (string) $x['supplier'], (string) $x['invoice_no'] !== '' ? (string) $x['invoice_no'] : \CW\Ui\Html::day((string) $x['invoice_date'])),
     intro: 'profit_expense', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_expenses'], [$vatPct]), back: [$listHref, $X['back']]) ?>
@@ -51,7 +53,7 @@ $errorIn = $error === null || !$canEdit || $errorCode === 'changed_meanwhile' ? 
 <details class="fold expense-change" id="change"<?php if ($error !== null && $errorCode !== 'not_sure' && $errorCode !== 'bad_reason'): ?> open<?php endif; ?>>
   <summary><?= $word('EXPENSES', 'change_title') ?></summary>
 <?php if ($errorIn === 'change'): ?>
-  <p class="error" role="alert" data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
+  <p class="error" role="alert" tabindex="-1" autofocus data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
 <?= $partial('same_list', ['items' => $sameList, 'group' => 'EXPENSES']) ?>
 <?php endif; ?>
   <form class="record expense-form" method="post" enctype="multipart/form-data" action="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/change') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
@@ -98,7 +100,7 @@ $errorIn = $error === null || !$canEdit || $errorCode === 'changed_meanwhile' ? 
 <details class="fold expense-delete" id="delete"<?php if (in_array($errorCode, ['not_sure', 'bad_reason'], true)): ?> open<?php endif; ?>>
   <summary><?= $word('EXPENSES', 'delete_title') ?></summary>
 <?php if ($errorIn === 'delete'): ?>
-  <p class="error" role="alert" data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
+  <p class="error" role="alert" tabindex="-1" autofocus data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
 <?= $partial('same_list', ['items' => $sameList, 'group' => 'EXPENSES']) ?>
 <?php endif; ?>
   <form class="record" method="post" action="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/delete') ?>">

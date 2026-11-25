@@ -10,7 +10,8 @@ $t = $typed;
 $deleted = $r['deleted_at'] !== null;
 $showAmount = $r['until_day'] === null || (string) $r['until_day'] > (string) $r['from_day'];
 // A refusal is said in the fold of the form it refused, just above that form and as wide as it (EX64; Codex r1 L1); one about the whole
-// line (someone else changed it meanwhile: no form named), or one with no fold to show it in, at the top.
+// line (someone else changed it meanwhile: no form named), or one with no fold to show it in, at the top. In a fold it takes the focus when
+// the page opens (tabindex -1: by script only, never in the Tab order), so a phone shows it below the facts (Codex final M1).
 $errorIn = $error === null || !$canEdit ? null : match ($form) { 'change', 'delete' => $form, 'amount' => $showAmount ? 'amount' : null, default => null };
 ?>
 <?= $head((string) $r['name'], intro: 'profit_regular_one', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_regular'], [$vatPct]), back: ['/ui/profit/regular', $R['back']]) ?>
@@ -64,7 +65,7 @@ $errorIn = $error === null || !$canEdit ? null : match ($form) { 'change', 'dele
 <details class="fold regular-amount" id="amount"<?php if ($form === 'amount'): ?> open<?php endif; ?>>
   <summary><?= $word('REGULAR', 'new_amount_title') ?></summary>
 <?php if ($errorIn === 'amount'): ?>
-  <p class="error" role="alert"><?= $e($error) ?></p>
+  <p class="error" role="alert" tabindex="-1" autofocus><?= $e($error) ?></p>
 <?= $partial('same_list', ['items' => $sameList, 'group' => 'REGULAR']) ?>
 <?php endif; ?>
   <form class="record" method="post" action="<?= $u('/ui/profit/regular/' . (int) $r['id'] . '/amount') ?>">
@@ -86,7 +87,7 @@ $errorIn = $error === null || !$canEdit ? null : match ($form) { 'change', 'dele
 <details class="fold regular-change" id="change"<?php if ($form === 'change'): ?> open<?php endif; ?>>
   <summary><?= $word('REGULAR', 'details_title') ?></summary>
 <?php if ($errorIn === 'change'): ?>
-  <p class="error" role="alert"><?= $e($error) ?></p>
+  <p class="error" role="alert" tabindex="-1" autofocus><?= $e($error) ?></p>
 <?= $partial('same_list', ['items' => $sameList, 'group' => 'REGULAR']) ?>
 <?php endif; ?>
   <form class="record regular-form" method="post" action="<?= $u('/ui/profit/regular/' . (int) $r['id'] . '/change') ?>">
@@ -136,7 +137,7 @@ $errorIn = $error === null || !$canEdit ? null : match ($form) { 'change', 'dele
 <details class="fold regular-delete" id="delete"<?php if ($form === 'delete'): ?> open<?php endif; ?>>
   <summary><?= $word('REGULAR', 'delete_title') ?></summary>
 <?php if ($errorIn === 'delete'): ?>
-  <p class="error" role="alert"><?= $e($error) ?></p>
+  <p class="error" role="alert" tabindex="-1" autofocus><?= $e($error) ?></p>
 <?= $partial('same_list', ['items' => $sameList, 'group' => 'REGULAR']) ?>
 <?php endif; ?>
   <form class="record" method="post" action="<?= $u('/ui/profit/regular/' . (int) $r['id'] . '/delete') ?>">
