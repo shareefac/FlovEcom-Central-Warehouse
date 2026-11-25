@@ -12,6 +12,8 @@ use CW\Db;
  * thousandths of a penny on its log row (ai_call.cost_millipence; a call of a one-page invoice is about 3p, so pennies alone would round most
  * of it away), rounded UP (never under-counted); the month is the UK month (Europe/London), its sum in pence rounded up. The limit (setting
  * ai.monthly_limit_gbp) is reached when the month's sum is at it or above: no new reading starts that month (uploading as before still works).
+ * A call's row is written before the request at the most it may cost (AI16: Claude::maxInputTokens and the kind's max_tokens), so the month
+ * counts a call while it goes, and a call whose reader died (crashed) at that most; its answer's usage replaces it (charged()).
  *
  * £ example: a 5-page Royal Mail bill of 160 lines read with 15,000 tokens in and 13,000 out at £3.20 / £16.00 per million costs
  * 15,000 x 3.20 / 10 + 13,000 x 16.00 / 10 = 4,800 + 20,800 = 25,600 thousandths of a penny = 25.6p; 100 such bills a month = £25.60, under £30.
@@ -28,6 +30,24 @@ final class AiUsage
         $tenth = bcdiv($sum, '10', 6);
         $whole = bcadd($tenth, '0', 0);
         return (int) (bccomp($tenth, $whole, 6) > 0 ? bcadd($whole, '1', 0) : $whole);
+    }
+
+    /** The reasons a call ends with that leave what it used unknown (no usage came back: the stream broke, timed out, or could not be read). */
+    public const UNKNOWN_USE = ['timeout', 'connection', 'bad_answer', 'other'];
+
+    /**
+     * What a finished call is counted at (AI16): what its answer said it used; no usage, and the call may have worked (UNKNOWN_USE): its most;
+     * refused before Claude worked (the key, the account, its limits, busy, the request): nothing.
+     *
+     * £ example: a 5-page bill's most is about £1.20; read, it is counted at what it used (about 25.6p); its stream broken after 8 minutes
+     * (connection), at £1.20; its key refused (auth), at nothing.
+     */
+    public static function charged(string $reason, int $in, int $out, string $priceIn, string $priceOut, int $most): int
+    {
+        if ($in > 0 || $out > 0) {
+            return self::millipence($in, $out, $priceIn, $priceOut);
+        }
+        return in_array($reason, self::UNKNOWN_USE, true) ? max(0, $most) : 0;
     }
 
     /** Thousandths of a penny as pence, rounded up. */

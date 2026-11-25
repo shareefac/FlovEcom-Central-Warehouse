@@ -1,22 +1,27 @@
 -- 0082_ai_reader.sql — "Claude reads the upload", phase 1 (tracker CW-1182; the owner, CW chat 25 Nov 2026 ~17:25 UK: "you should focus on the
--- claude api connected on all upload places as soon as posssible"; docs/decisions.md AI1-AI14). Staff send a PDF or a photo where they upload
+-- claude api connected on all upload places as soon as posssible"; docs/decisions.md AI1-AI17). Staff send a PDF or a photo where they upload
 -- today (Profit > Delivery bills: a Royal Mail bill; Profit > Expenses: an invoice); CW sends it to the Claude API and fills the same check
 -- page or form; CW's own checks still decide and a person always stores.
 --
 --  * ai_read: one row per document being read (a job): who, where, the kind, what the page needs back (context), the file's type, size and
---    sha256, its name in the spool folder while it is kept (NULL once deleted: right after it is read, and never more than an hour), the
+--    sha256, its name in the spool folder while it is kept (NULL once deleted: a Royal Mail bill's right after it is read; an invoice's when
+--    its expense's Save attaches it, AI15, or an hour after its page took the reading), when Save attached it (file_used_at: once), the
 --    state (waiting, reading, done, failed, taken, expired), why it failed (a code and the field it names, never what a field holds), the
 --    answer in CW's form until its person's page takes it (and never more than an hour). Rows go a day after they finish (the runner).
---  * ai_call: the log of every call to the API, WITHOUT content: when, who, place, kind, the model asked and the one that answered, the
---    file's type and size, the tokens in and out, the cost in thousandths of a penny, the result (ok / refused / failed) and its reason code,
---    the refusal's category, the API's request id, seconds; and what CW's own checks made of it when its person took it (checked). Kept.
+--  * ai_call: the log of every call to the API, WITHOUT content, its row written BEFORE the request (AI16: result `started`, counted at the
+--    most the call may cost, max_millipence) and finished once after it: when, who, place, kind, the model asked and the one that answered,
+--    the file's type and size, the tokens in and out, the cost in thousandths of a penny, the result (ok / refused / failed; crashed: the
+--    reader stopped mid-call, counted at its most) and its reason code, the refusal's category, the API's request id, seconds; and what CW's
+--    own checks made of it when its person took it (checked). Kept.
+--  * ai_reader: ONE row, the reader's runs (AI17): when the newest began and ended, the last that ended well, the last that failed and why
+--    (an error's class, or "did not end"), for bin/health_alert.php.
 --  * 7 settings with their version 1 (baseline) in config_change (the Settings page, "Claude reads uploads"): ai.read_uploads (false: OFF
 --    until a person switches it on), ai.anthropic_api_key ("": a SECRET, never shown back; the owner pastes it on the screen), ai.model
 --    ("claude-opus-5-5"), ai.effort ("medium"), ai.monthly_limit_gbp ("30"), ai.price_input_gbp_per_mtok ("3.20") and
 --    ai.price_output_gbp_per_mtok ("16.00") (the model's price list, $4 / $20 per million tokens, at $1 = £0.80).
 --
--- HOW IT IS APPLIED: two new tables and nine rows; no existing table changes, no row changed, nothing deleted. A second run adds nothing (the
--- same tables, the same keys, the baselines once). It does not need 0080 (PayPal fees) or 0081 (CW-1180): the files touch nothing of each other
+-- HOW IT IS APPLIED: three new tables and fourteen rows; no existing table changes, no row changed, nothing deleted. A second run adds nothing
+-- (the same tables, the same keys, the baselines once). It does not need 0080 (PayPal fees) or 0081 (CW-1180): the files touch nothing of each other
 -- and may be applied in any order (bin/migrate.php applies whatever is pending, in name order).
 
 CREATE TABLE IF NOT EXISTS ai_read (
@@ -29,6 +34,7 @@ CREATE TABLE IF NOT EXISTS ai_read (
   file_bytes    INT UNSIGNED      NOT NULL,
   file_sha256   CHAR(64)          NOT NULL,
   spool_name    CHAR(32)          NULL COMMENT 'the file in the spool folder while it is kept; NULL: deleted',
+  file_used_at  DATETIME(6)       NULL COMMENT 'when its expense''s Save attached the invoice Claude read (AI15: once)',
   state         ENUM('waiting','reading','done','failed','taken','expired') NOT NULL DEFAULT 'waiting',
   reason        VARCHAR(32)       NULL COMMENT 'ok, or why it failed (a code)',
   detail        VARCHAR(255)      NULL COMMENT 'the field a refusal names (never what it holds)',
@@ -44,7 +50,7 @@ CREATE TABLE IF NOT EXISTS ai_read (
   CONSTRAINT fk_ai_read_staff FOREIGN KEY (staff_user_id) REFERENCES staff_user (id),
   CONSTRAINT ck_ai_read_row CHECK (file_bytes > 0 AND CHAR_LENGTH(file_sha256) = 64 AND (state <> 'done' OR answer IS NOT NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='documents being read by Claude for a person (CW-1182, docs/decisions.md AI3): the file and the answer kept only until used';
+  COMMENT='documents being read by Claude for a person (CW-1182, docs/decisions.md AI3, AI15): the file and the answer kept only until used';
 
 CREATE TABLE IF NOT EXISTS ai_call (
   id               BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
@@ -59,8 +65,9 @@ CREATE TABLE IF NOT EXISTS ai_call (
   file_bytes       INT UNSIGNED      NOT NULL,
   input_tokens     INT UNSIGNED      NOT NULL DEFAULT 0,
   output_tokens    INT UNSIGNED      NOT NULL DEFAULT 0,
-  cost_millipence  INT UNSIGNED      NOT NULL DEFAULT 0 COMMENT 'thousandths of a penny, at the settings'' prices, rounded up',
-  result           ENUM('ok','refused','failed') NOT NULL,
+  cost_millipence  INT UNSIGNED      NOT NULL DEFAULT 0 COMMENT 'thousandths of a penny, at the settings'' prices, rounded up (while started, and when not known: its most)',
+  max_millipence   INT UNSIGNED      NOT NULL DEFAULT 0 COMMENT 'the most the call may cost, counted before it was sent (AI16)',
+  result           ENUM('started','ok','refused','failed','crashed') NOT NULL,
   reason           VARCHAR(32)       NOT NULL,
   refusal_category VARCHAR(32)       NULL,
   request_id       VARCHAR(64)       NULL COMMENT 'the API''s id of the request or message (for Anthropic''s support)',
@@ -75,7 +82,19 @@ CREATE TABLE IF NOT EXISTS ai_call (
   CONSTRAINT fk_ai_call_staff FOREIGN KEY (staff_user_id) REFERENCES staff_user (id),
   CONSTRAINT ck_ai_call_row CHECK (fallback IN (0, 1) AND seconds >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='every call to the Claude API, without content (CW-1182, docs/decisions.md AI9): never changed except what CW''s checks made of it';
+  COMMENT='every call to the Claude API, without content (CW-1182, docs/decisions.md AI9, AI16): written before the request, finished once';
+
+CREATE TABLE IF NOT EXISTS ai_reader (
+  id         TINYINT UNSIGNED  NOT NULL,
+  started_at DATETIME(6)       NULL COMMENT 'when the newest run began',
+  ended_at   DATETIME(6)       NULL COMMENT 'when it ended (NULL while it runs, or when it stopped without ending)',
+  ok_at      DATETIME(6)       NULL COMMENT 'when a run last ended well',
+  failed_at  DATETIME(6)       NULL COMMENT 'when a run last failed (an error, or found by the next run not to have ended)',
+  error      VARCHAR(255)      NULL COMMENT 'that failure: the error''s class, or did not end (never a message)',
+  PRIMARY KEY (id),
+  CONSTRAINT ck_ai_reader_one CHECK (id = 1)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='the runs of bin/ai_read.php, one row (CW-1182, docs/decisions.md AI17): what bin/health_alert.php reads';
 
 INSERT INTO app_setting (setting_key, value_type, value_json, provisional, decision, description) VALUES
  ('ai.read_uploads','bool','false',1,'AI7','Claude reads a PDF or a photo sent where staff upload (a Royal Mail bill, an expense''s invoice) and fills the same check page; off until switched on'),

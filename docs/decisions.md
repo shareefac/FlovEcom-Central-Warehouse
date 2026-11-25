@@ -21488,7 +21488,7 @@ never one typed by hand; which boxes it filled goes with the form in the hidden 
 (Codex's final of 332aba7). A comma is read only as a thousands mark of three figures, so "8,4" says "not an
 amount" at once (a total is seldom typed with thousands commas). The server refuses both on save, as before.
 
-## Claude reads the upload, phase 1 (CW-1182) and the Mac copy of a Royal Mail bill (CW-1181) (branch `ai-reader`, 25 Nov 2026; AI1-AI14; migration 0082)
+## Claude reads the upload, phase 1 (CW-1182) and the Mac copy of a Royal Mail bill (CW-1181) (branch `ai-reader`, 25 Nov 2026; AI1-AI17; migration 0082)
 
 The owner (CW chat, 25 Nov 2026 ~17:25 UK), after the Royal Mail bill of 23 Nov could not be pasted: "whatever we doing is wrong. wrong way to
 add an invoice you should focus on the claude api connected on all upload places as soon as posssible"; then "I'll create one" (an Anthropic
@@ -21571,18 +21571,20 @@ upload as before still works) and a job waiting is not read. £ example: a week'
 **AI9. The log of calls, without content (`ai_call`).** When, who, place, kind, the model asked and the one that answered, the file's type
 and size, tokens in and out, the cost, the result (ok / refused / failed) and its reason code, a refusal's category, the API's request id,
 seconds; and later what CW's own checks made of it (passed / refused + the refusal's code: how often Claude's reading of a bill does not add
-up). Never the key, the document, a field of it or Claude's text. Append-only for the app login except those three columns. Settings > Rules
-and numbers says "This month: N documents read, £x of the £30.00 limit".
+up). Never the key, the document, a field of it or Claude's text. Never removed by the app login; its row is written before the request and
+finished once after it (AI16: only the call's outcome and those three columns are written later). Settings > Rules and numbers says "This
+month: N documents read, £x of the £30.00 limit".
 
 **AI10. Privacy: business papers only.** What leaves the server: the document (base64) with CW's fixed instructions and the answer's shape,
 to api.anthropic.com over HTTPS, nothing else of CW (no supplier list, no shop name, no order). The Click & Drop report (customer addresses)
 is never offered to Claude; DPD's PDF is never sent (AI6).
 
 **AI11. Kept only as long as needed.** The file in the spool folder (app.env `ai_spool_dir`, else /var/lib/cw/ai-read, 0700 www-data; the
-file 0600 under a random name) until it is read: deleted right after the call, read or not; the answer in CW's form until its person's page
+file 0600 under a random name) until it is read: deleted right after the call, read or not (a Royal Mail bill's; an invoice's is kept for its
+expense's Save: AI15 supersedes this part for the Expenses places); the answer in CW's form until its person's page
 takes it (once: `taken`); every minute, whatever the switch, the runner's clean-up: a job left `reading` by a run that stopped (failed,
-`stopped`), a job waiting more than an hour (`too_old`), an answer not taken within an hour (`expired`), any file of the folder older than an
-hour (a crash; only CW's own 32-hex names are touched), job rows a day after they finish (their log rows stay).
+`stopped`), a job waiting more than an hour (`too_old`), an answer not taken within an hour (`expired`), any file of the folder no job names
+that is older than an hour (a crash; only CW's own 32-hex names are touched), job rows a day after they finish (their log rows stay).
 
 **AI12. Every failure in the staff's words, with what to do next** (`Ui\AiReadWords`): "CW could not read this document: <why>" and, for a
 bill, "Upload the bill's saved page or paste its text, or send the PDF to the CW team"; the key wrong: "a person who manages settings
@@ -21594,7 +21596,7 @@ row that starts as a bill line, holds fewer than 7 cells and no amount waits for
 code (and is no bill line) completes it; words between are its description's. Anything else (a bill line next, money between, the end)
 leaves the half row as it was: refused whole, as before. The same bill as the one-line copy (rows, totals, fingerprint).
 
-**AI14. The go-live kit (`/root/cw_work/kits/aireader_cw1182/`).** 0082 only (two tables, seven settings OFF); before anything switches, the
+**AI14. The go-live kit (`/root/cw_work/kits/aireader_cw1182/`).** 0082 only (three tables, seven settings OFF); before anything switches, the
 kit proves on the box that composer --no-dev installs anthropic-ai/sdk (the pinned version) and that the box reaches api.anthropic.com over
 HTTPS through the SDK itself (a request with NO key must answer 401: no token spent); the spool folder made (0700 www-data); the cron line
 installed by install_cron.sh; the feature lands OFF: the owner pastes the key on the Settings screen later and switches it on. The undo
@@ -21602,3 +21604,52 @@ installed by install_cron.sh; the feature lands OFF: the owner pastes the key on
 then the switch only with no reading open and an empty spool, under the install lock, to the plain rollback (04dbab6 + 0082 byte for byte);
 the app login's grants on 0082's tables taken back after it; 0082's tables and rows stay. tests/Integration/Profit/RollbackReleaseTest pins
 the recipe: the release before's last migration 0079, the rollback's one file 0082.
+
+**AI15. The invoice Claude read is the expense's file: kept for its Save, never asked for again (the lead's pick, 25 Nov 2026 ~20:00 UK;
+supersedes AI11 for the Expenses places).** Before, the copy Claude read was deleted once read and the filled form asked for the file again
+(choose it, or tick "Save without a file"): the same PDF chosen twice. Now the file of a reading made from an expense's form (the add form, or
+an expense's Change) stays in the spool after it is read, and the filled form carries the reading (a hidden `ai_file`) with the words "The
+invoice Claude read is kept for this expense: Save attaches it, as if you had chosen it (within an hour)". Save with no file chosen attaches
+it through the same path as a chosen file (`ExpenseFiles::store`: its first bytes and the sniffer agree on a PDF, a JPEG or a PNG, at most 10
+MB, stored under its sha256 in the document store, kind `expense_invoice`), inside the expense's own transaction (`DocumentReader::useFile`):
+only the person who sent it; only from the place it was read for (the add form takes an add form's reading; a Change takes a reading made
+from THAT expense's Change); only while it is kept; its size and sha256 checked again against what was sent (a file changed in the spool is
+never attached); ONCE (its row locked, `ai_read.file_used_at` written; a refused Save, such as "the same invoice?" or a field, rolls it back
+and the page offers it again). Then it is deleted from the spool. A file chosen on the form wins over it. Not saved: deleted an hour after
+the person's page took the reading (or after it finished, not taken), as before; a reading that failed keeps it too (the page says why and
+Save still attaches it), except when its person may no longer use it, it waited too long, or it was gone. A form naming a reading that is
+not kept for it (another person's, used, older than the hour) is refused, nothing saved: "The invoice Claude read is no longer kept for this
+form ...: choose the file again, or tick Save without a file". The form sent again (a lost answer) lands where the first did (its one-effect
+key holds the reading, not the file, which is gone by then). Since the file becomes the expense's, an expense's reading takes only what an
+expense keeps (a PDF, a JPEG or a PNG; a WebP or a GIF is refused before it is read, in words). Royal Mail bills are unchanged: their file is
+deleted right after the reading (CW never keeps bill files). £ example: an invoice of £84.72 read at 2:00 pm, its form saved at 2:20 pm: the
+expense of £84.72 has the PDF the person dropped, and nothing is left in the spool; not saved by 3:00 pm (its page took it at 2:00), the
+copy is deleted at the runner's next minute and a Save at 3:05 asks for the file again.
+
+**AI16. A call is counted at its most BEFORE it is sent, so a reader that dies mid-call still counts (the lead, 25 Nov 2026 ~20:00 UK).**
+Before, a call's log row was written after the answer: a reader killed mid-call (out of memory, a restart) left a call Anthropic may bill
+that the month's limit never saw. Now its row is written first: result `started`, counted at the most it may cost (`max_millipence`, kept:
+`Claude::maxInputTokens` = the request's own words at two characters a token + 2,000 tokens of framing + 10,000 tokens a page (a page's
+text and its picture; the high-resolution models take at most 4,784 visual tokens a page), a PDF's pages counted from its page objects, else
+its page tree's /Count, else 100; a photo one page; plus the kind's max_tokens of output) at the settings' prices; the month (and so the
+limit) counts it while it goes. After the call the row is finished once (`WHERE result = 'started'`): what its answer said it used; no usage
+came back and Claude may have worked (`timeout`, `connection`, an answer CW could not read, `other`): its most; refused before Claude worked
+(the key, the account, its limits, busy, the request): nothing (`AiUsage::charged`). A row left `started` is closed as `crashed` (reason
+`stopped`) at its most: by the next run (the runner's lock held: its job was `reading`, so its reader stopped) or, whatever the lock, an hour
+after it was written (no call lasts that long: 10 minutes with at most two retries). The app login may write only the call's outcome
+(model that answered, tokens, cost, result, reason, refusal's category, request id, fallback, seconds) and the check's three columns; who,
+where, when, the model asked, the file and its most are frozen; a row is never removed. £ example: a 5-page Royal Mail bill's most is about
+£1.20 (54,000 tokens in at £3.20 a million = 17p, 64,000 out at £16.00 = £1.02); while it is read the month counts £1.20; read, it is
+counted at what it used (about 25.6p); its reader killed mid-call, £1.20 stays (crashed). With £29.50 used of £30 the bill starts (the limit
+is reached at or above it); while it is read the month counts £30.70 and a new reading is refused; read, the month is £29.76 and readings
+start again; crashed, it stays £30.70 (no reading until the next month or a higher limit).
+
+**AI17. bin/health_alert.php says when the reading is stuck (the lead, 25 Nov 2026 ~20:00 UK).** Two alerts of CW's own, in the same style
+as the others (a line in the log, the words sent once per window, "back to normal" when they clear), only while reading is switched on
+(`ai.read_uploads`; quiet while it is off, whatever is left): `ai_waiting` "Claude reads uploads: N document(s) have waited more than 10
+minutes to be read (the oldest X). The reader (bin/ai_read.php) runs every minute: tell the CW team." (the reader is not running, or is
+stuck on a call) and `ai_reader_failed` "Claude reads uploads: the reader's last run failed X ago (why). Documents sent to be read wait until a
+run ends well: tell the CW team." Each run records itself on `ai_reader`'s one row (began; ended well; failed with the error's class, never
+its message); a run that began and never ended (its process killed) is found by the next run (it holds the lock, so the last one is not
+running) and recorded as failed ("did not end"). The alert holds from the failure until a run ends well, so a run starting meanwhile never
+makes it flap.

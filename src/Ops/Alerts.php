@@ -35,6 +35,9 @@ use CW\Settings;
  *     rm_days_waiting    a day of a live bill covered by no report, waiting more than 14 days (counted from the day; DL86 1: the only wait)
  *     rm_billed_more     a day or Special Delivery manifest billed more than its labels by more than the setting (DL86 7)
  *     rm_check_failed    an account whose checks could not be read (each account on its own: the Codex check r10 #15)
+ *   "Claude reads uploads", only while it is switched on (CW-1182, docs/decisions.md AI17; DocumentReader::health):
+ *     ai_waiting         a document waiting more than 10 minutes to be read (the reader, bin/ai_read.php, is not running or is stuck)
+ *     ai_reader_failed   the reader's last run failed (an error, or it never ended), until a run ends well
  *
  * Read only. The probe is injectable (tests).
  */
@@ -86,6 +89,10 @@ final class Alerts
         // Royal Mail delivery cost (DL84 8, DL86): a week with no Click & Drop report by Tuesday 12:00, a bill's days waiting more than 14 days, billed
         // more than the labels above the setting, an account not checked
         foreach (\CW\Profit\RoyalMailBills::health($this->db, Clock::now()) as $p) {
+            $out[] = $p + ['channel' => null, 'channel_id' => null, 'name' => null, 'mode' => null];
+        }
+        // Claude reads the upload (AI17): a document waiting too long, the reader's last run failed; quiet while reading is switched off
+        foreach (\CW\Ai\DocumentReader::health($this->db, Clock::now()) as $p) {
             $out[] = $p + ['channel' => null, 'channel_id' => null, 'name' => null, 'mode' => null];
         }
         return $out;

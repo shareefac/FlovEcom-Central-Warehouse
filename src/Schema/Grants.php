@@ -154,9 +154,13 @@ final class Grants
             'deleted_actor', 'deleted_reason'],
         'expense_supplier' => ['name', 'is_active', 'version'],
         'expense_type' => ['name', 'is_active', 'sort_order', 'version'],
-        // 0082 (docs/decisions.md AI9): a call to the Claude API is logged once and never changed or removed; only what CW's own checks made of
-        // the reading is written later, when its person takes it. (ai_read, the jobs, keeps FULL rights: the runner removes a job a day after.)
-        'ai_call' => ['checked', 'check_code', 'checked_at'],
+        // 0082 (docs/decisions.md AI9, AI16): a call to the Claude API is logged, never removed; its row is written BEFORE the request (started,
+        // at the most it may cost) and finished once after it (its outcome: the model that answered, the tokens, the cost, the result and why,
+        // the request's id, seconds); who, where, when, the model asked, the file and that most are frozen. What CW's own checks made of the
+        // reading is written later, when its person takes it. (ai_read, the jobs, and ai_reader, the runs' one row, keep FULL rights: the
+        // runner removes a job a day after.)
+        'ai_call' => ['served_model', 'input_tokens', 'output_tokens', 'cost_millipence', 'result', 'reason', 'refusal_category', 'request_id', 'fallback', 'seconds',
+            'checked', 'check_code', 'checked_at'],
     ];
     /**
      * Tables the app login may INSERT into naming only the listed columns (column-level INSERT instead of a table-level one; the

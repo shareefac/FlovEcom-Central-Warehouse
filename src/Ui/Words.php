@@ -11439,7 +11439,7 @@ final class Words
     ];
 
     /** Profit > Delivery bills (0077, docs/decisions.md DL23). */
-    /** "Claude reads the upload" (CW-1182; docs/decisions.md AI1-AI14): the waiting page, why a reading failed, the filled form's notes. */
+    /** "Claude reads the upload" (CW-1182; docs/decisions.md AI1-AI17): the waiting page, why a reading failed, the filled form's notes. */
     public const AIREAD = [
         'wait_title' => 'Claude is reading the document',
         'wait_text' => 'Claude is reading %s. A one-page invoice takes about half a minute; a bill of several pages 1 to 3 minutes. This page looks again by '
@@ -11484,6 +11484,8 @@ final class Words
         'limit' => 'Claude\'s reading has reached this month\'s limit (%s of %s): upload as before, or a person who manages settings raises the limit.',
         'heic' => 'This photo is in HEIC, an iPhone\'s own format, which Claude cannot read: send it as JPEG (on the iPhone: Settings > Camera > Formats > Most Compatible).',
         'type' => 'Claude reads a PDF or a photo (JPEG, PNG, WebP or GIF) only.',
+        // AI15: the file Claude reads for an expense becomes the expense's own file, so it is one an expense keeps
+        'type_expense' => 'An expense keeps a PDF, a JPEG or a PNG: save the photo as one of those (or as a PDF) and send it again.',
         'spool' => 'CW cannot keep the document to read it on this server: tell the CW team.',
         'too_large' => 'The file is larger than %s MB.',
         'rm_needs_page' => 'Upload the bill\'s saved page or paste its text.',
@@ -11506,7 +11508,11 @@ final class Words
         'fill_not_gbp' => 'The invoice is in %s: type the amounts in pounds yourself.',
         'fill_amounts_missing' => 'Claude could not read all of the amount without VAT, the VAT and the total: type them from the invoice.',
         'fill_amounts_disagree' => 'The invoice\'s amount without VAT and VAT add up to %s, not to its total %s: type the amounts from the invoice.',
-        'file_again' => 'Choose the invoice\'s file again to keep it with the expense (the copy Claude read is deleted once read).',
+        // AI15: the invoice Claude read is kept for this form's Save (an hour), attached as if it had been chosen
+        'file_kept' => 'The invoice Claude read is kept for this expense: Save attaches it, as if you had chosen it (within an hour). To keep another file '
+            . 'instead, choose it here.',
+        'file_gone' => 'The invoice Claude read is no longer kept for this form (it is kept for an hour, for the person who sent it, and attached once): '
+            . 'choose the file again, or tick "Save without a file". Nothing was saved.',
         'month' => 'This month: %s documents read, £%s of the £%s limit.',
     ];
 
@@ -13713,6 +13719,10 @@ final class Words
         'rm_days_waiting' => 'Royal Mail %s: %s day(s) of its bills have waited more than %s days for a Click & Drop report (the oldest %s). Upload the "Manifested Orders" report for those days on Profit › Delivery bills.', // DL84, DL86 1
         'rm_billed_more' => 'Royal Mail %s: %s day(s) or Special Delivery manifest(s) billed more than their labels by more than %s%% (the oldest %s). See "Needs a look" on the bill\'s page (Profit › Delivery bills).', // DL86 7
         'rm_check_failed' => 'Royal Mail %s: CW could not check its bills just now (%s). It checks again at the next run; tell the CW team if this stays.', // DL86 (the Codex check r10 #15)
+        // CW-1182 (AI17): Claude reads uploads - how many documents wait, the limit in minutes, how long the oldest has waited; how long ago the reader's last run failed, why
+        'ai_waiting' => 'Claude reads uploads: %s document(s) have waited more than %s minutes to be read (the oldest %s). The reader (bin/ai_read.php) runs '
+            . 'every minute: tell the CW team.',
+        'ai_reader_failed' => 'Claude reads uploads: the reader\'s last run failed %s ago (%s). Documents sent to be read wait until a run ends well: tell the CW team.',
         'landing_orders' => 'Website bug: an order on %1$s for the landing page %2$s (option %3$s, order %4$s). %5$s such orders are open: '
             . 'Approvals › From the stores › Website bugs.',
         'cleared' => 'Back to normal: %s',

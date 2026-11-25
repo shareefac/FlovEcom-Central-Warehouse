@@ -49,6 +49,7 @@ final class AiReadWords
                 '£' . number_format(((int) ($e->detail['limit'] ?? 0)) / 100, 2)),
             'ai_heic' => Words::AIREAD['heic'],
             'ai_type' => Words::AIREAD['type'],
+            'ai_type_expense' => Words::AIREAD['type_expense'], // AI15: an expense keeps a PDF, a JPEG or a PNG
             'ai_spool' => Words::AIREAD['spool'],
             'too_large' => Words::say('AIREAD', 'too_large', (string) intdiv(\CW\Ai\DocumentReader::MAX_BYTES, 1_048_576)),
             'no_file' => Words::AIREAD['read_no_file'],

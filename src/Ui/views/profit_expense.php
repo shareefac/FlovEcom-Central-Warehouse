@@ -81,8 +81,11 @@ $errorIn = $error === null || !$canEdit || $errorCode === 'changed_meanwhile' ||
       <fieldset class="expense-file">
         <legend><?= $word('EXPENSES', 'file_title') ?></legend>
 <?php if ($fileAgain): ?>
-        <p class="note" role="status"><?= $word(($aiFilled ?? null) !== null ? 'AIREAD' : 'EXPENSES', 'file_again') ?></p>
+        <p class="note" role="status"><?= $word('EXPENSES', 'file_again') ?></p>
         <input type="hidden" name="file_again" value="1">
+<?php elseif (($aiFile ?? null) !== null): ?>
+        <p class="note" role="status"><?= $word('AIREAD', 'file_kept') ?></p>
+        <input type="hidden" name="ai_file" value="<?= $e((string) $aiFile) ?>">
 <?php endif; ?>
         <div class="field">
           <label for="ex-file"><?= $word('EXPENSES', 'change_file') ?></label>

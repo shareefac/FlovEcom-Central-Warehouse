@@ -64,6 +64,14 @@ final class Claude
     /** The few words the system prompt says (the kind's own instructions come after the document). */
     public const SYSTEM = 'You copy what a business document prints into a fixed JSON form for a warehouse\'s accounts. Copy exactly what is printed. '
         . 'Never work a figure out, never correct one, never guess: when something cannot be read with certainty, say the document is not readable.';
+    /**
+     * The most a call may cost, counted before it is sent (docs/decisions.md AI16): a page's tokens (its text and its picture: at most 4,784
+     * visual tokens on the high-resolution models, so 10,000 is above both), the request's own framing, and the pages counted for a PDF whose
+     * pages CW cannot count (its page objects packed in compressed streams).
+     */
+    public const PAGE_TOKENS = 10_000;
+    public const FRAME_TOKENS = 2_000;
+    public const PAGES_UNKNOWN = 100;
     /** The reason codes of a result (ai_call.reason): ok, then every way a call fails. */
     public const REASONS = ['ok', 'refusal', 'max_tokens', 'bad_answer', 'auth', 'forbidden', 'billing', 'spend_limit', 'rate_limited', 'overloaded', 'server',
         'timeout', 'connection', 'bad_request', 'too_large', 'other'];
@@ -85,6 +93,37 @@ final class Claude
         ?\Closure $now = null,
     ) {
         $this->now = $now ?? static fn (): float => hrtime(true) / 1e9;
+    }
+
+    /**
+     * A PDF's pages: its page objects (/Type /Page, never the page tree's /Pages), else the largest /Count of its page tree, else PAGES_UNKNOWN
+     * (packed in compressed streams: nothing to count). Never fewer than one.
+     */
+    public static function pages(string $pdf): int
+    {
+        $n = preg_match_all('#/Type\s*/Page(?![A-Za-z])#', $pdf);
+        if (is_int($n) && $n > 0) {
+            return $n;
+        }
+        if (preg_match_all('#/Count\s+(\d{1,6})#', $pdf, $m) > 0) {
+            $count = max(array_map('intval', $m[1]));
+            if ($count > 0) {
+                return $count;
+            }
+        }
+        return self::PAGES_UNKNOWN;
+    }
+
+    /**
+     * The most input tokens a call may take (AI16): the request's own words (the system prompt, the kind's instructions and its schema) at two
+     * characters a token (a token is three to four), FRAME_TOKENS, and PAGE_TOKENS for each page (a photo is one page). Its output is at most
+     * the kind's max_tokens.
+     */
+    public static function maxInputTokens(Kind $kind, string $bytes, string $mediaType): int
+    {
+        $words = strlen(self::SYSTEM) + strlen($kind->instructions()) + strlen((string) json_encode($kind->schema()));
+        $pages = $mediaType === 'application/pdf' ? self::pages($bytes) : 1;
+        return intdiv($words + 1, 2) + self::FRAME_TOKENS + $pages * self::PAGE_TOKENS;
     }
 
     /**
