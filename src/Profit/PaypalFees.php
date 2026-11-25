@@ -490,10 +490,13 @@ final class PaypalFees
                 $ids[] = (int) $r['id'];
             }
         }
-        // a row last read under other forms whose shop the forms of now might make otherwise, beyond the days read again: a look (form_unread, a7)
+        // a row last read under other forms whose shop the forms of now might make otherwise, beyond the days read again: a look (form_unread, a7);
+        // one that needed that look and has been read under the forms of now since (a backfill of its days): decided again
         $horizon = (new \DateTimeImmutable($this->today()))->modify('-' . self::PENDING_DAYS . ' days')->format('Y-m-d');
         array_push($ids, ...array_map('intval', $this->db->column("SELECT id FROM paypal_txn WHERE account = ? AND due = 0 AND day < ? AND (read_sig IS NULL OR read_sig <> ?) "
             . "AND count_state <> 'look' AND " . self::DOUBTFUL, [$account, $horizon, $sig])));
+        array_push($ids, ...array_map('intval', $this->db->column("SELECT id FROM paypal_txn WHERE account = ? AND due = 0 AND look_reason = 'form_unread' AND read_sig = ?",
+            [$account, $sig])));
         $this->rematchParts['decided'] = round(microtime(true) - $t0, 3);
         $t0 = microtime(true);
         foreach ($this->db->all('SELECT DISTINCT t.shop_channel, c.code FROM paypal_txn t JOIN channel c ON c.id = t.shop_channel WHERE t.account = ?', [$account]) as $r) {

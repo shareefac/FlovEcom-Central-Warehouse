@@ -442,6 +442,20 @@ final class PaypalFeesR3Test extends StockTestCase
         self::decideAll('2026-12-10 05:20:00');
         self::assertSame(['look', 'form_unread', null], [self::row('3H00000000000E03')['count_state'], self::row('3H00000000000E03')['look_reason'],
             self::row('3H00000000000E03')['alloc_dest']]);
+        // read again under the forms of now (a backfill of its day): no longer in doubt, decided again (Electrofag's order)
+        self::readPp($http, '2026-11-06', '2026-11-06', '2026-12-10 05:20:00');
+        self::assertSame(['counts', '2001'], [self::row('3H00000000000E03')['count_state'], self::row('3H00000000000E03')['alloc_order_ref']]);
+        // a row no form takes, read before a form changed and not read again since: a look past the days read again; read again with the same
+        // capture under the forms of now (nothing about it changes): released all the same, the main shop's "not on an order" line
+        $z = PaypalTx::row('3H00000000000Z01', 'T0006', '2026-11-06T09:50:00Z', '9.00', '-0.30', null, 'S', ['invoice_id' => 'ZZ-0001']);
+        $http->set([$z]);
+        self::readPp($http, '2026-11-06', '2026-11-06');
+        $this->setting('profit.paypal_form_hayati', '"^faaeeb-([0-9]{1,7})$"');
+        self::decideAll('2026-12-10 05:20:00');
+        self::assertSame(['look', 'form_unread'], [self::row('3H00000000000Z01')['count_state'], self::row('3H00000000000Z01')['look_reason']]);
+        self::readPp($http, '2026-11-06', '2026-11-06', '2026-12-10 05:20:00');
+        self::assertSame(['counts', 'shop', 'no_number'], [self::row('3H00000000000Z01')['count_state'], self::row('3H00000000000Z01')['alloc_dest'],
+            self::row('3H00000000000Z01')['match_state']]);
     }
 
     // ---- the newest version's captures win; a positive overlap is held -----------------------------------------------------------------
