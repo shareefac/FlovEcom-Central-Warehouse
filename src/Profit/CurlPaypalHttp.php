@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace CW\Profit;
 
 /**
- * PaypalHttp over curl (docs/decisions.md PF10): HTTPS only, the certificate checked, no redirect followed, a connect timeout of 15 s and the
+ * PaypalHttp over curl (docs/decisions.md PPF10): HTTPS only, the certificate checked, no redirect followed, a connect timeout of 15 s and the
  * whole request within $timeoutSec. Nothing is logged; a failure is said by curl's error number, never the request.
  */
 final class CurlPaypalHttp implements PaypalHttp

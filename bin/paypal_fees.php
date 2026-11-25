@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * PayPal's payment fees in CW's profit (CW-1172; docs/decisions.md PF1-PF21; CW\Profit\PaypalFees). Reads PayPal's Transaction Search with
+ * PayPal's payment fees in CW's profit (CW-1172; docs/decisions.md PPF1-PPF22; CW\Profit\PaypalFees). Reads PayPal's Transaction Search with
  * the account's key (its key file: app.env paypal_key_file_<account>; never printed), stores every transaction, puts each on its shop by its
  * invoice's order-number form (profit.paypal_shops_<account>, profit.paypal_form_<shop>) and counts its money on its order or on its shop's
  * "not on an order" line in the profit days.
@@ -74,24 +74,26 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
             fwrite(STDOUT, implode("\n", $out) . "\n");
             return Cli::OK;
         }
+        if (isset($opts['decide'])) {
+            // no PayPal call (no key needed): the rows a stopped run left due, decided under the account's lock
+            $n = $fees->locked($account, static fn (): int => $fees->decideAll($caller, $account, null));
+            $cli->log("{$account}: {$n} PayPal rows decided again");
+            return Cli::OK;
+        }
+        // no shop of the account switched on: nothing to read (exit 0, as a job switched off; before the go-live and on staging)
+        $on = array_filter(PaypalFees::accountShops($cli->db, $account), static fn (array $sh): bool => $sh['id'] !== null
+            && PaypalFees::feesFrom($cli->db, $sh['code']) !== null);
+        if ($on === []) {
+            $cli->log("{$account}: switched off (no shop of it has profit.paypal_from_<shop> set); nothing read");
+            return Cli::OK;
+        }
         $config = Config::load();
         try {
             $key = PaypalKey::load($config->get(PaypalKey::configKey($account)), $account);
         } catch (CwException $e) {
-            // never the file's content: the refusal names what is wrong with it; the health alert says the account is not read (PF14)
+            // never the file's content: the refusal names what is wrong with it; the health alert says the account is not read (PPF14)
             $fees->refused($account, $e->getMessage());
             $cli->error($e->getMessage());
-            return Cli::CANNOT_RUN;
-        }
-        if (isset($opts['decide'])) {
-            $n = $fees->locked($key->account, static fn (): int => $fees->decideAll($caller, $key->account, null));
-            $cli->log("{$account}: {$n} PayPal rows decided again");
-            return Cli::OK;
-        }
-        $on = array_filter(PaypalFees::accountShops($cli->db, $account), static fn (array $sh): bool => $sh['id'] !== null
-            && PaypalFees::feesFrom($cli->db, $sh['code']) !== null);
-        if ($on === []) {
-            $cli->error("{$account}: no shop of it has its PayPal fees switched on (Settings › Profit: profit.paypal_from_<shop>); nothing read");
             return Cli::CANNOT_RUN;
         }
         $today = $fees->today();

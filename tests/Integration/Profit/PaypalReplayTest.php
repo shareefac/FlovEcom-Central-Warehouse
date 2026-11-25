@@ -13,7 +13,7 @@ use CW\Tests\Support\FakePaypalHttp;
 use CW\Tests\Support\StockTestCase;
 
 /**
- * The real data replayed (CW-1172; docs/decisions.md PF19): PayPal's 14,302 rows of Vape and Go, 1 Oct - 24 Nov 2026, as the lead read them
+ * The real data replayed (CW-1172; docs/decisions.md PPF19): PayPal's 14,302 rows of Vape and Go, 1 Oct - 24 Nov 2026, as the lead read them
  * on 24 Nov, loaded through the real classes (a fake PayPal serving them page by page, window by window: no network). The file is never in
  * git and holds no payer, name or item text (the builder's reduced copy: only the fields CW reads; an invoice or custom field not in the
  * shop's form replaced by a word of another form); the test is skipped without it (CW_PAYPAL_REPLAY = its path on the test box, removed
@@ -89,7 +89,7 @@ final class PaypalReplayTest extends StockTestCase
             $rows[] = json_decode($l, true, 16, JSON_THROW_ON_ERROR);
         }
         self::assertCount(14302, $rows);
-        // ONE PayPal account takes Vape and Go's, Electrofag's and Hayati Vapes' payments (the owner, 25 Nov 2026; PF21): each shop's order
+        // ONE PayPal account takes Vape and Go's, Electrofag's and Hayati Vapes' payments (the owner, 25 Nov 2026; PPF21): each shop's order
         // numbers have their own form; Vape and Go counts from 1 Oct here, Electrofag is switched on later in the test, Hayati Vapes is not in CW
         $ch = (int) $this->site('vapeandgo', 'live')->channelId;
         $ef = (int) $this->site('electrofag', 'live')->channelId;

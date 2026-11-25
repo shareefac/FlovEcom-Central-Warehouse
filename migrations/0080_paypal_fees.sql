@@ -1,36 +1,37 @@
 -- 0080_paypal_fees.sql — CW-1172: PayPal's payment fees in CW's profit, read every night from PayPal's own API (Transaction Search,
--- read only; docs/decisions.md PF1-; the owner, 24 Nov 2026 23:58: "the PayPal fee of each sale goes on THAT order", a refund's fee back on
+-- read only; docs/decisions.md PPF1-; the owner, 24 Nov 2026 23:58: "the PayPal fee of each sale goes on THAT order", a refund's fee back on
 -- the same order, a chargeback's money and fees a cost on the order, anything with no CW order on the shop's "not on an order" line, holds,
 -- releases, bank moves and payments sent or received ignored). It only ADDS: no existing row changes.
 --
 --  * paypal_run: one row per run of bin/paypal_fees.php (the nightly re-read, a backfill): which PayPal account and shop, the days read,
 --    how many pages and rows, how many were new or changed, how many allocations were decided, and whether it ended ok or failed (in CW's own
---    words: never a PayPal answer's text, never the key). The health alert reads the newest ok run (PF14). Never deleted.
+--    words: never a PayPal answer's text, never the key). The health alert reads the newest ok run (PPF14). Never deleted.
 --  * paypal_txn: one row per PayPal transaction read, by account, PayPal's transaction id AND its event code (PayPal gives a dispute hold
---    T1110 and its release T1111 the same id: PF2). Only what the money and the matching need: never a name, an e-mail, an address, the
+--    T1110 and its release T1111 the same id: PPF2). Only what the money and the matching need: never a name, an e-mail, an address, the
 --    item text or a note; the invoice and custom fields are kept as written only when they are a reference (letters, digits, . _ : | = / + -;
 --    one with a space or an @ could be personal: only "dropped" is kept). The shop a row belongs to is the shop whose order-number form its
 --    invoice matches (a setting per shop: Vape and Go <7 digits>-<10 digits>, Electrofag <4-6 digits>-<10 digits>, Hayati Vapes
---    faaeeb-<digits>; the owner, 25 Nov 2026: ONE PayPal account takes the three shops' payments; PF21). A re-read that brings another status, amount or fee changes the row in place (version + 1, its history
---    keeps before and after), never a second row. What it is (kind, by its event code: PF3), what it costs (PF4), whether it counts now
---    (count_state: PF5), the order it is on (match_state: PF6; an order of ANY shop the account serves: PF21) and where its money is counted
---    (alloc_*: PF7): on an order (on the order's paid
+--    faaeeb-<digits>; the owner, 25 Nov 2026: ONE PayPal account takes the three shops' payments; PPF21). A re-read that brings another status, amount or fee changes the row in place (version + 1, its history
+--    keeps before and after), never a second row. What it is (kind, by its event code: PPF3), what it costs (PPF4), whether it counts now
+--    (count_state: PPF5), the order it is on (match_state: PPF6; an order of ANY shop the account serves: PPF21) and where its money is counted
+--    (alloc_*: PPF7): on an order (on the order's paid
 --    day for a sale's fee; on its own UK day for a refund, a chargeback and a fee) or on the shop's "not on an order" line on its own day.
 --    `due` = 1 marks a row read or changed whose allocation is not decided yet (durable before acting: a run that stops half-way leaves it
---    due, the next run decides it: PF9). Never deleted (Grants: no DELETE).
+--    due, the next run decides it: PPF9). Never deleted (Grants: no DELETE).
 --  * paypal_txn_history: every change of a row (what PayPal says, or where its money is counted), before and after (append-only).
 --  * profit_day gets two figures (ADD COLUMN, ALGORITHM = INSTANT: no copy): fee_cost (the PayPal money on the orders: a sale's fee on the
 --    order's paid day, a refund's fee back, a chargeback's money and fees on their own day) and fee_other (the PayPal money on no CW order,
 --    on its own day, in the shop the account is for).
---  * The settings (Settings > Profit, each change kept with its history): the first day each shop's PayPal fees count (Vape and Go
---    2026-11-01; Electrofag and Vape Big not set: not switched on), the shops each PayPal account takes payments for (the first its main
+--  * The settings (Settings > Profit, each change kept with its history): the first day each shop's PayPal fees count (all three not set:
+--    not switched on; the go-live kit sets Vape and Go's to 2026-11-01 once its key file is placed, right before the backfill, so no alert
+--    fires in between; Electrofag and Vape Big later), the shops each PayPal account takes payments for (the first its main
 --    shop: the "not on an order" line of its money on no CW order; the owner, 25 Nov 2026: Electrofag and Hayati Vapes share one account,
---    Vape and Go has its own: PF21), how many days back the nightly reads again, and the "not on an order" alarm (pounds a day). PF13.
+--    Vape and Go has its own: PPF21), how many days back the nightly reads again, and the "not on an order" alarm (pounds a day). PPF13.
 --
 -- HOW IT IS APPLIED: three CREATE TABLE IF NOT EXISTS (new, empty), two columns added to profit_day only while they are not there (a prepared
 -- statement, as 0077 added its two), the settings ON DUPLICATE KEY with their baselines only when missing. No role, no permission (the fees
 -- show on Profit > Real profit and an order's page, under profit.view). Every statement can run again and changes nothing the second time.
--- No undo release (the owner, 24 Nov 2026: CW is fixed forward; docs/decisions.md EX41, PF20); RollbackReleaseTest keeps the old recipe's
+-- No undo release (the owner, 24 Nov 2026: CW is fixed forward; docs/decisions.md EX41, PPF20); RollbackReleaseTest keeps the old recipe's
 -- check (0e3db2a with this file added byte for byte): the release before never reads these tables, and its rebuild of a day writes the
 -- columns it knows and leaves fee_cost and fee_other at 0 on that day.
 
@@ -49,7 +50,7 @@ CREATE TABLE IF NOT EXISTS paypal_run (
   rows_changed   INT UNSIGNED      NOT NULL DEFAULT 0,
   allocated      INT UNSIGNED      NOT NULL DEFAULT 0 COMMENT 'rows whose allocation was decided (new, or moved)',
   refreshed_to   DATETIME(6)       NULL COMMENT 'PayPal''s last_refreshed_datetime of the last window read (UTC): its data is complete up to it',
-  forms_sig      CHAR(16)          NULL COMMENT 'the account''s shops and forms it decided by (a change of them re-decides every row once: PF21)',
+  forms_sig      CHAR(16)          NULL COMMENT 'the account''s shops and forms it decided by (a change of them re-decides every row once: PPF21)',
   error          VARCHAR(255)      NULL COMMENT 'why it failed, in CW''s own words (never PayPal''s text, never the key)',
   actor          VARCHAR(64)       NOT NULL,
   started_at     DATETIME(6)       NOT NULL,
@@ -61,7 +62,7 @@ CREATE TABLE IF NOT EXISTS paypal_run (
   CONSTRAINT ck_paypal_run_row CHECK (from_day <= to_day AND REGEXP_LIKE(account, '^[a-z][a-z0-9_]{0,31}$', 'c')
     AND (state = 'running') = (finished_at IS NULL) AND (state = 'failed' OR error IS NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='a run of bin/paypal_fees.php (docs/decisions.md PF9): never deleted';
+  COMMENT='a run of bin/paypal_fees.php (docs/decisions.md PPF9): never deleted';
 
 CREATE TABLE IF NOT EXISTS paypal_txn (
   id              BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
@@ -80,25 +81,25 @@ CREATE TABLE IF NOT EXISTS paypal_txn (
   fee_currency    CHAR(3)           NULL COMMENT 'fee_amount.currency_code; NULL: PayPal gave no fee',
   fee_pence       BIGINT            NOT NULL DEFAULT 0 COMMENT 'fee_amount in pence, signed as PayPal gives it (a fee taken is below 0)',
   invoice_state   ENUM('none','kept','dropped') NOT NULL COMMENT 'the invoice_id: none given, kept as written (a reference), or dropped (could be personal: never kept)',
-  invoice_ref     VARCHAR(127)      NULL COMMENT 'kept: the invoice_id as written (the shops write their order number there: PF21)',
+  invoice_ref     VARCHAR(127)      NULL COMMENT 'kept: the invoice_id as written (the shops write their order number there: PPF21)',
   custom_state    ENUM('none','kept','dropped') NOT NULL COMMENT 'the custom_field, the same way',
   custom_ref      VARCHAR(127)      NULL COMMENT 'kept: the custom_field as written',
   form_shop       VARCHAR(32)       NULL COMMENT 'the shop whose order-number form its invoice (else custom field) matches (profit.paypal_form_<shop>); NULL: none or two',
   order_no        VARCHAR(12)       NULL COMMENT 'the order number that form carries: digits only',
-  kind            ENUM('sale','refund','chargeback','fee','ignore','unknown') NOT NULL COMMENT 'what it is, by its event code (PF3)',
-  cost_pence      BIGINT            NOT NULL DEFAULT 0 COMMENT 'what it costs the shop (PF4): sale and refund: the fee; chargeback and fee: the money and the fee; money back below 0',
+  kind            ENUM('sale','refund','chargeback','fee','ignore','unknown') NOT NULL COMMENT 'what it is, by its event code (PPF3)',
+  cost_pence      BIGINT            NOT NULL DEFAULT 0 COMMENT 'what it costs the shop (PPF4): sale and refund: the fee; chargeback and fee: the money and the fee; money back below 0',
   count_state     ENUM('counts','pending','not_counted','before_start','outside','look') NOT NULL
                   COMMENT 'counts; pending (status P, read again); not_counted (ignored kind, denied); before_start (before its shop''s first fee day, or its shop not switched on); outside (a shop CW does not hold: Hayati Vapes; kept, never counted); look (needs a look: never counted)',
   look_reason     VARCHAR(32)       NULL COMMENT 'look: why (unknown_code, currency, fee_on_ignored, sign, status)',
   match_state     ENUM('order','no_order','ambiguous','no_number') NULL COMMENT 'counts: on a CW order, a number no CW order has (yet), a number of two or more, or no number',
   candidates      TINYINT UNSIGNED  NOT NULL DEFAULT 0 COMMENT 'ambiguous: how many orders have its number',
-  shop_channel    SMALLINT UNSIGNED NULL COMMENT 'counts, pending, before_start: the CW shop it belongs to (its form''s, else the account''s main shop; PF21)',
+  shop_channel    SMALLINT UNSIGNED NULL COMMENT 'counts, pending, before_start: the CW shop it belongs to (its form''s, else the account''s main shop; PPF21)',
   alloc_dest      ENUM('order','shop') NULL COMMENT 'where its cost counts: on an order, on the shop''s "not on an order" line; NULL: nowhere',
   alloc_channel   SMALLINT UNSIGNED NULL COMMENT 'the shop it counts in',
   alloc_order_ref VARCHAR(64)       NULL COMMENT 'order: the order',
   alloc_day       DATE              NULL COMMENT 'the day it counts on; NULL on an order: the order''s paid day (a sale''s fee)',
   alloc_pence     BIGINT            NOT NULL DEFAULT 0 COMMENT 'what counts there (= cost_pence once decided)',
-  due             TINYINT(1)        NOT NULL DEFAULT 1 COMMENT '1: read or changed, where it counts not decided yet (the run decides it; PF9)',
+  due             TINYINT(1)        NOT NULL DEFAULT 1 COMMENT '1: read or changed, where it counts not decided yet (the run decides it; PPF9)',
   version         INT UNSIGNED      NOT NULL DEFAULT 1 COMMENT 'its latest paypal_txn_history version',
   first_run       BIGINT UNSIGNED   NOT NULL,
   last_run        BIGINT UNSIGNED   NOT NULL COMMENT 'the last run that read it',
@@ -138,7 +139,7 @@ CREATE TABLE IF NOT EXISTS paypal_txn (
     AND (match_state = 'ambiguous') = (candidates >= 2) AND due IN (0, 1) AND version >= 1
     AND (count_state IN ('counts', 'pending', 'before_start') OR shop_channel IS NULL) AND (alloc_channel IS NULL OR alloc_channel = shop_channel))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='a PayPal transaction read from the API (docs/decisions.md PF1-PF9): nothing personal; changed in place with history, never deleted';
+  COMMENT='a PayPal transaction read from the API (docs/decisions.md PPF1-PPF9): nothing personal; changed in place with history, never deleted';
 
 CREATE TABLE IF NOT EXISTS paypal_txn_history (
   id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -157,7 +158,7 @@ CREATE TABLE IF NOT EXISTS paypal_txn_history (
   CONSTRAINT fk_paypal_txn_history_run FOREIGN KEY (run_id) REFERENCES paypal_run (id),
   CONSTRAINT ck_paypal_txn_history_json CHECK (JSON_TYPE(after_json) = 'OBJECT' AND (before_json IS NULL OR JSON_TYPE(before_json) = 'OBJECT'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='every change of a PayPal transaction row, before and after (docs/decisions.md PF8): append-only';
+  COMMENT='every change of a PayPal transaction row, before and after (docs/decisions.md PPF8): append-only';
 
 -- profit_day's two PayPal figures, added only while they are not there (INSTANT: the table is not copied; a run again does nothing).
 SET @cw_0080_profit_day = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'profit_day'
@@ -168,18 +169,18 @@ PREPARE cw_0080_profit_day FROM @cw_0080_profit_day;
 EXECUTE cw_0080_profit_day;
 DEALLOCATE PREPARE cw_0080_profit_day;
 
--- The settings (docs/decisions.md PF13): each shop's first PayPal fee day (the owner, 24 Nov 2026: Vape and Go now, from 1 Nov; Electrofag and
--- Vape Big later: not set = not switched on), the days the nightly reads again, the "not on an order" alarm. Run again: the rows as they are.
+-- The settings (docs/decisions.md PPF13): each shop's first PayPal fee day (the owner, 24 Nov 2026: Vape and Go now, from 1 Nov, set by the
+-- go-live kit; Electrofag and Vape Big later: not set = not switched on), the days the nightly reads again, the "not on an order" alarm. Run again: the rows as they are.
 INSERT INTO app_setting (setting_key, value_type, value_json, provisional, decision, description) VALUES
- ('profit.paypal_from_vapeandgo','date','"2026-11-01"',0,'PF13','The first day Vape and Go''s PayPal fees count (read from PayPal every night); not set: not switched on'),
- ('profit.paypal_from_electrofag','date','""',0,'PF13','The first day Electrofag''s PayPal fees count (read from PayPal every night); not set: not switched on'),
- ('profit.paypal_from_vapebig','date','""',0,'PF13','The first day Vape Big''s PayPal fees count (read from PayPal every night); not set: not switched on'),
- ('profit.paypal_shops_vapeandgo','string','"vapeandgo,electrofag,hayati"',0,'PF21','The shops the PayPal account vapeandgo takes payments for, the main shop first (a row whose invoice matches no shop''s form goes on its "not on an order" line); a code CW has no shop of (hayati) is kept, never counted'),
- ('profit.paypal_form_vapeandgo','string','"^([0-9]{7})-[0-9]{10}$"',0,'PF21','Vape and Go''s order number in a PayPal invoice: a pattern whose (part) is the order number'),
- ('profit.paypal_form_electrofag','string','"^([0-9]{4,6})-[0-9]{10}$"',0,'PF21','Electrofag''s order number in a PayPal invoice: a pattern whose (part) is the order number'),
- ('profit.paypal_form_hayati','string','"^faaeeb-([0-9]{1,6})$"',0,'PF21','Hayati Vapes'' order number in a PayPal invoice (a WooCommerce shop CW does not hold: kept, never counted)'),
- ('profit.paypal_reread_days','int','7',0,'PF13','How many days back the nightly PayPal read goes again (statuses change, rows arrive late, orders reach CW late)'),
- ('profit.paypal_not_on_order_alarm','decimal','"50"',0,'PF13','A day whose PayPal money on no CW order is above this many pounds is in the health alert')
+ ('profit.paypal_from_vapeandgo','date','""',0,'PPF13','The first day Vape and Go''s PayPal fees count (read from PayPal every night); not set: not switched on (the go-live kit sets 2026-11-01 once the key is placed)'),
+ ('profit.paypal_from_electrofag','date','""',0,'PPF13','The first day Electrofag''s PayPal fees count (read from PayPal every night); not set: not switched on'),
+ ('profit.paypal_from_vapebig','date','""',0,'PPF13','The first day Vape Big''s PayPal fees count (read from PayPal every night); not set: not switched on'),
+ ('profit.paypal_shops_vapeandgo','string','"vapeandgo,electrofag,hayati"',0,'PPF21','The shops the PayPal account vapeandgo takes payments for, the main shop first (a row whose invoice matches no shop''s form goes on its "not on an order" line); a code CW has no shop of (hayati) is kept, never counted'),
+ ('profit.paypal_form_vapeandgo','string','"^([0-9]{7})-[0-9]{10}$"',0,'PPF21','Vape and Go''s order number in a PayPal invoice: a pattern whose (part) is the order number'),
+ ('profit.paypal_form_electrofag','string','"^([0-9]{4,6})-[0-9]{10}$"',0,'PPF21','Electrofag''s order number in a PayPal invoice: a pattern whose (part) is the order number'),
+ ('profit.paypal_form_hayati','string','"^faaeeb-([0-9]{1,6})$"',0,'PPF21','Hayati Vapes'' order number in a PayPal invoice (a WooCommerce shop CW does not hold: kept, never counted)'),
+ ('profit.paypal_reread_days','int','7',0,'PPF13','How many days back the nightly PayPal read goes again (statuses change, rows arrive late, orders reach CW late)'),
+ ('profit.paypal_not_on_order_alarm','decimal','"50"',0,'PPF13','A day whose PayPal money on no CW order is above this many pounds is in the health alert')
  ON DUPLICATE KEY UPDATE setting_key = setting_key;
 
 INSERT INTO config_change (subject_type, subject_key, version, action, state, actor)

@@ -19,7 +19,7 @@ use CW\Tests\Support\PaypalTx;
 use CW\Tests\Support\StockTestCase;
 
 /**
- * PayPal's fees in CW's profit (CW-1172; docs/decisions.md PF1-PF20), from MADE-UP PayPal rows served by a fake PayPal (no network): each
+ * PayPal's fees in CW's profit (CW-1172; docs/decisions.md PPF1-PPF22), from MADE-UP PayPal rows served by a fake PayPal (no network): each
  * kind counted where the owner said (a sale's fee on its order's paid day, a refund's fee back and a chargeback's money and fees on the order
  * on their own day, anything with no CW order on the shop's "not on an order" line, holds and bank moves nowhere, an unknown code shown and
  * never counted), a second run that changes nothing, an order reaching CW late, paid late or moved taking its fees along, a pending row
@@ -138,6 +138,8 @@ final class PaypalFeesTest extends StockTestCase
     /** @return array{0: int, 1: FakePaypalHttp} the shop with its orders, and PayPal serving the month */
     private function shopWithOrders(): array
     {
+        // Vape and Go switched on from 1 Nov (the go-live kit's step; 0080 leaves it empty)
+        $this->setting('profit.paypal_from_vapeandgo', '"2026-11-01"');
         $ch = (int) $this->site('vapeandgo', 'live')->channelId;
         self::order($ch, '1001', '1312001', '2026-11-03T10:00:00Z');
         self::order($ch, '1002', '1312002', '2026-11-04T09:00:00Z');

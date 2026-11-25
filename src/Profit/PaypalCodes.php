@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace CW\Profit;
 
 /**
- * What a PayPal transaction is, by its event code (docs/decisions.md PF3), and what it costs the shop (PF4). The owner's rules (24 Nov 2026
+ * What a PayPal transaction is, by its event code (docs/decisions.md PPF3), and what it costs the shop (PPF4). The owner's rules (24 Nov 2026
  * 23:58): a sale's PayPal fee is a cost on its order; a refund's fee given back goes back on the same order; a chargeback's money taken back
  * PLUS PayPal's chargeback fee and any dispute fee are a cost on the order; holds and their releases, money moved to the bank and payments sent
  * or received are NOT costs.
@@ -82,7 +82,7 @@ final class PaypalCodes
         'T0503' => ['ignore', 'Hidden virtual PayPal debit card transaction'],
         'T0504' => ['ignore', 'PayPal debit card cash advance'],
         'T0505' => ['ignore', 'PayPal debit authorization'],
-        // T08nn bonus: the card's cash back (an owner question: shown as ignored, PF3)
+        // T08nn bonus: the card's cash back (an owner question: shown as ignored, PPF3)
         'T0801' => ['ignore', 'Debit card cash back bonus'],
         // T11nn reversals
         'T1105' => ['ignore', 'Reversal of general account hold'],
@@ -145,7 +145,7 @@ final class PaypalCodes
     }
 
     /**
-     * Whether a costed kind's amount has the sign it must have (PF3): a sale received money (above 0), a refund sent it (below 0). A
+     * Whether a costed kind's amount has the sign it must have (PPF3): a sale received money (above 0), a refund sent it (below 0). A
      * chargeback or a fee may go either way (a chargeback reversal gives money back). An amount of the wrong sign is not understood (look).
      */
     public static function signOk(string $kind, int $amount): bool

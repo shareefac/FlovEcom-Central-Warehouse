@@ -12,18 +12,18 @@ use CW\Reports\ReportRefresh;
 use CW\Settings;
 
 /**
- * PayPal's payment fees in CW's profit (CW-1172; docs/decisions.md PF1-PF20), read from PayPal's own API every night (bin/paypal_fees.php).
+ * PayPal's payment fees in CW's profit (CW-1172; docs/decisions.md PPF1-PPF22), read from PayPal's own API every night (bin/paypal_fees.php).
  *
  *  run()      reads the days asked for from PayPal window by window (WINDOW_DAYS at most each; a window is stored whole or not at all), stores
  *             every transaction by account, PayPal's id and event code (a re-read changes the row in place with its history, never a second
- *             row), marks what is new or changed `due` in the same transaction (durable before acting: PF9), then decides every due row.
- *  decide()   where each due row's money counts (PF5-PF7), CHUNK rows a guarded write: on its order (a sale's fee on the order's paid day;
+ *             row), marks what is new or changed `due` in the same transaction (durable before acting: PPF9), then decides every due row.
+ *  decide()   where each due row's money counts (PPF5-PPF7), CHUNK rows a guarded write: on its order (a sale's fee on the order's paid day;
  *             a refund's fee back, a chargeback's money and fees on their own UK day), or on the shop's "not on an order" line on its own day
  *             (no order number, a number no CW order has yet, a number of two or more orders); nowhere when it does not count (a hold, a
  *             payment sent, before the shop's first fee day, pending, denied, not understood). Before deciding it marks due again the rows whose
  *             order reached CW since (a number on no order, or on two) and the rows the shop's first fee day now puts on the other side.
  *
- * The profit days (PF7, PF8): profit_day.fee_cost (on orders) and fee_other (not on an order) change in the same transaction as the rows,
+ * The profit days (PPF7, PPF8): profit_day.fee_cost (on orders) and fee_other (not on an order) change in the same transaction as the rows,
  * through DeliveryBills::guardedWrite (THE guarded write of the profit days' other figures: the order guards, the day rows in key order, the
  * orders' days read again under them, then the rows and the figures by the difference); an order paid or moved to another day takes its
  * sale fees along (OrderSnapshots passes orderFee() to ProfitDays::orderShare), and ProfitDays::compute() works both out from scratch with
@@ -33,7 +33,7 @@ final class PaypalFees
 {
     /** The days of one PayPal window (PayPal allows 31; a week of Vape and Go is about 2,000 rows, well under any limit of PayPal's). */
     public const WINDOW_DAYS = 7;
-    /** The rows one guarded write decides (each takes the guard of every order it names: within the profit days' hold budget, PF15). */
+    /** The rows one guarded write decides (each takes the guard of every order it names: within the profit days' hold budget, PPF15). */
     public const CHUNK = 200;
     /** How long a run waits for another one of the same account, in seconds. */
     public const LOCK_WAIT_SEC = 10;
@@ -43,9 +43,9 @@ final class PaypalFees
     public const PENDING_DAYS = 31;
     public const DEFAULT_REREAD_DAYS = 7;
     public const DEFAULT_ALARM_PENCE = 5000;
-    /** PayPal's statuses: S done, V reversed (it happened; the reversal is a row of its own), P pending, D denied (PF5). */
+    /** PayPal's statuses: S done, V reversed (it happened; the reversal is a row of its own), P pending, D denied (PPF5). */
     public const STATUS_COUNTS = ['S', 'V'];
-    /** What PayPal says of a row, compared on a re-read (a change of one of them is a change of the row, PF2). */
+    /** What PayPal says of a row, compared on a re-read (a change of one of them is a change of the row, PPF2). */
     private const FACTS = ['ref_txn_id', 'ref_type', 'status', 'initiated_at', 'pp_updated_at', 'day', 'currency', 'amount_pence', 'fee_currency', 'fee_pence',
         'invoice_state', 'invoice_ref', 'custom_state', 'custom_ref'];
     /** Where a row counts (decide()'s outcome). */
@@ -57,14 +57,14 @@ final class PaypalFees
     private readonly \Closure $clock;
     /** The run in progress (rematch() records the forms it decides by on it). */
     private ?int $runId = null;
-    /** How long the last rematch() of decideAll() took (the full-size timing, PF15). */
+    /** How long the last rematch() of decideAll() took (the full-size timing, PPF15). */
     public float $lastRematchSec = 0.0;
     /** @var array<string, float> its two parts (the orders reached CW since; the first fee day) */
     public array $rematchParts = [];
 
     /**
      * @param (\Closure(): \DateTimeImmutable)|null $clock CW's now (tests move it)
-     * @param (\Closure(int, float): void)|null $onChunk told the rows and seconds of each guarded write (the full-size timing, PF15)
+     * @param (\Closure(int, float): void)|null $onChunk told the rows and seconds of each guarded write (the full-size timing, PPF15)
      */
     public function __construct(private readonly Db $db, ?\Closure $clock = null, private readonly ?\Closure $onChunk = null)
     {
@@ -85,7 +85,7 @@ final class PaypalFees
      * The shops a PayPal account takes payments for (profit.paypal_shops_<account>: shop codes separated by commas, the FIRST the account's
      * main shop, whose "not on an order" line takes the money no shop's form claims), each with how its order number looks in a PayPal invoice
      * (profit.paypal_form_<shop>: a pattern with ONE (part), the number). The owner, 25 Nov 2026: ONE account takes Vape and Go's, Electrofag's
-     * and Hayati Vapes' payments (docs/decisions.md PF21). A code CW has no shop of (hayati: a WooCommerce shop) is a shop outside CW: its rows
+     * and Hayati Vapes' payments (docs/decisions.md PPF21). A code CW has no shop of (hayati: a WooCommerce shop) is a shop outside CW: its rows
      * are kept, never counted (id null). [] when the setting is missing or names none; a shop without a pattern that compiles is refused.
      *
      * @return list<array{id: ?int, code: string, name: string, form: string}>
@@ -110,10 +110,8 @@ final class PaypalFees
             $out[] = ['id' => $c === null ? null : (int) $c['id'], 'code' => $code, 'name' => $c === null ? $code : (string) $c['name'],
                 'form' => '/' . str_replace('/', '\/', $form) . '/D'];
         }
-        if ($out[0]['id'] === null) {
-            throw new CwException('paypal_bad_shops', "the main shop of the PayPal account {$account} ({$out[0]['code']}) is not a shop CW has: nothing read", 422);
-        }
-        return $out;
+        // the main shop must be a CW shop: without it the account serves no shop CW has ([]: the run is refused, nothing is watched)
+        return $out[0]['id'] === null ? [] : $out;
     }
 
     /** The shops and forms an account decides by, as a short fingerprint (a change re-decides every row of the account once: rematch()). */
@@ -174,7 +172,7 @@ final class PaypalFees
         if ($shops === []) {
             throw new CwException('paypal_no_shops', "the PayPal account {$account} serves no shop CW has (Settings › Profit: profit.paypal_shops_{$account}): nothing read", 422);
         }
-        // the key file names the account's main shop: one for another shop is refused (a key placed for the wrong account; PF11)
+        // the key file names the account's main shop: one for another shop is refused (a key placed for the wrong account; PPF11)
         if ($shops[0]['code'] !== $api->shop()) {
             throw new CwException('paypal_key_refused', "the PayPal key of {$account} is for {$api->shop()}, the account's main shop is {$shops[0]['code']}: nothing read", 403);
         }
@@ -263,7 +261,7 @@ final class PaypalFees
     }
 
     /**
-     * A run that could not start because the account's key was refused (missing, wrong mode, another account's: PF11), recorded as a failed
+     * A run that could not start because the account's key was refused (missing, wrong mode, another account's: PPF11), recorded as a failed
      * run of the account (its main shop; nothing read) so the health alert says it at once (paypal_failed). Never the key's content.
      */
     public function refused(string $account, string $why): void
@@ -285,14 +283,14 @@ final class PaypalFees
     /**
      * Rows decided before whose decision may be another now: a number no CW order had (or two had) that a CW order of one of the account's
      * shops now has, and rows a shop's first fee day now puts on the other side (the setting changed). Marked due (they are decided next).
-     * Plain indexed reads, then marks by id (MySQL planned an UPDATE with a correlated EXISTS row by row: 12 s at the real size; PF15).
+     * Plain indexed reads, then marks by id (MySQL planned an UPDATE with a correlated EXISTS row by row: 12 s at the real size; PPF15).
      */
     public function rematch(string $account): int
     {
         $t0 = microtime(true);
         $shops = self::accountShops($this->db, $account);
         $n = 0;
-        // the shops or their forms changed since the last ok run decided: every row of the account decided again, once (PF21)
+        // the shops or their forms changed since the last ok run decided: every row of the account decided again, once (PPF21)
         $sig = self::formsSig($shops);
         $last = $this->db->value("SELECT forms_sig FROM paypal_run WHERE account = ? AND state = 'ok' AND forms_sig IS NOT NULL ORDER BY id DESC LIMIT 1", [$account]);
         if ($last !== null && $last !== $sig) {
@@ -365,7 +363,7 @@ final class PaypalFees
     }
 
     /**
-     * The PayPal rows on one order, for its page (docs/decisions.md PF16): oldest first, with the day each counts on (null: the order's paid
+     * The PayPal rows on one order, for its page (docs/decisions.md PPF16): oldest first, with the day each counts on (null: the order's paid
      * day) and what it costs.
      *
      * @return list<array{day: string, code: string, name: ?string, kind: string, status: string, counts_on: ?string, pence: int}>
@@ -382,7 +380,7 @@ final class PaypalFees
     }
 
     /**
-     * The health alert's PayPal problems (docs/decisions.md PF14), per PayPal account with a shop switched on (its first fee day set and
+     * The health alert's PayPal problems (docs/decisions.md PPF14), per PayPal account with a shop switched on (its first fee day set and
      * reached), said in the account's main shop:
      *   paypal_not_read      no ok run of the account for STALE_HOURS (or none ever)
      *   paypal_failed        the account's newest run failed (its reason in CW's words)
@@ -599,7 +597,7 @@ final class PaypalFees
     }
 
     /**
-     * Where these rows count (PF5-PF7), decided and written in ONE guarded write with the profit days (DeliveryBills::guardedWrite): the
+     * Where these rows count (PPF5-PPF7), decided and written in ONE guarded write with the profit days (DeliveryBills::guardedWrite): the
      * rows as they count now are the plan's "before", as they will count its "after"; the orders they are on (by number, the shop's own
      * orders) are looked up in the plan and again right before the commit (verify: an order of the number stored meanwhile means the plan is
      * old: made again). Every row's due mark is cleared in the same write.
@@ -663,7 +661,7 @@ final class PaypalFees
                 // makes the plan old (checklist 11: a match is exactly one order, re-checked under the write's guards)
                 'verify' => static fn (Db $db): bool => self::orders($db, $keys) === $lookup,
                 'write' => function (Db $db) use ($plans, $runId, $caller): int {
-                    // a few statements whatever the chunk (the guards are held: the hold budget at full size, PF15): the changed rows in ONE
+                    // a few statements whatever the chunk (the guards are held: the hold budget at full size, PPF15): the changed rows in ONE
                     // update (a CASE per column), their history in ONE insert, the others' due marks cleared in one more
                     $now = Clock::db(($this->clock)());
                     $changed = [];
@@ -710,7 +708,7 @@ final class PaypalFees
 
     /**
      * The shop a row belongs to by its invoice (else its custom field): the ONE shop of the account whose order-number form it matches, with
-     * the number; none, or two shops' forms: unrecognised (code null: the account's main shop's "not on an order" line, PF21).
+     * the number; none, or two shops' forms: unrecognised (code null: the account's main shop's "not on an order" line, PPF21).
      *
      * @param array<string, mixed> $r
      * @param list<array{id: ?int, code: string, name: string, form: string}> $shops
@@ -739,7 +737,7 @@ final class PaypalFees
     }
 
     /**
-     * Where one row counts (PF5-PF7, PF21), in this order: not understood (an unknown code, a fee on an ignored row, another currency, a wrong
+     * Where one row counts (PPF5-PPF7, PPF21), in this order: not understood (an unknown code, a fee on an ignored row, another currency, a wrong
      * sign, an unknown status: look, never counted); ignored (not counted); denied (not counted). Then its shop, by its invoice's form: a shop
      * CW does not hold (Hayati Vapes) is outside (kept, never counted); no shop's form: the account's main shop. Before that shop's first fee
      * day (or that shop not switched on: Electrofag until its day): before_start, never on another shop's lines; pending: read again later;
@@ -929,7 +927,7 @@ final class PaypalFees
         return preg_match('/^(20\d{2})-(\d{2})-(\d{2})$/D', $d, $m) === 1 && checkdate((int) $m[2], (int) $m[3], (int) $m[1]);
     }
 
-    /** Only a server job (bin/paypal_fees.php, the tests): no person and no store writes PayPal's rows (PF12). */
+    /** Only a server job (bin/paypal_fees.php, the tests): no person and no store writes PayPal's rows (PPF12). */
     private static function authorise(Caller $caller): void
     {
         if ($caller->staffUserId !== null || !str_starts_with($caller->actor, 'system:')) {

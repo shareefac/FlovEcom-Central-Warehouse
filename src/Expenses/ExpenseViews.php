@@ -354,7 +354,7 @@ final class ExpenseViews
     /**
      * The real profit of the days $from..$to per shop (the brief's point 4; docs/decisions.md EX15): the profit days' figures as the other
      * Profit pages show them (goods sold less refunds, buying cost, delivery charged, the carriers' bills on the orders and not on one), then
-     * payment fees (PayPal's for a shop switched on, from its first fee day: 0080, PF17; 0 for the others), the expenses (without VAT, by invoice date; a credit note takes off) and the regular costs (per day, without
+     * payment fees (PayPal's for a shop switched on, from its first fee day: 0080, PPF17; 0 for the others), the expenses (without VAT, by invoice date; a credit note takes off) and the regular costs (per day, without
      * their VAT); real profit = goods - cost + delivery charged - delivery cost - fees - expenses - regular costs. All from ONE moment of the
      * database.
      *
@@ -390,7 +390,7 @@ final class ExpenseViews
                 }
                 $f = $views->totals($a, $to, $s['id']);
                 $deliveryCost = (int) $f['delivery_cost'] + (int) $f['delivery_other'];
-                // PayPal's fees (0080, docs/decisions.md PF17) for a shop switched on: what the profit days hold of them from its first fee day
+                // PayPal's fees (0080, docs/decisions.md PPF17) for a shop switched on: what the profit days hold of them from its first fee day
                 // (on its orders and not on one; before that day nothing is counted at all), else 0 as before
                 $feesFrom = \CW\Profit\PaypalFees::feesFrom($this->db, $s['code']);
                 $fees = $feesFrom !== null && $feesFrom <= $to ? (int) $f['fee_cost'] + (int) $f['fee_other'] : 0;

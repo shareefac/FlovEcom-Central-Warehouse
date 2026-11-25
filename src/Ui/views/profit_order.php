@@ -7,7 +7,7 @@
 // Delivery on its own table, never in the goods margin (0077, docs/decisions.md DL23): delivery charged (no VAT, less refunded), what its
 // parcels' carrier bill lines and the collections on it cost, its re-sends' when it is a first order, and delivery after its cost; each
 // parcel with its bill lines or "not billed yet".
-// Its PayPal money (0080, docs/decisions.md PF16): each PayPal row on it (a sale's fee, a refund's fee back, a chargeback's money and fees),
+// Its PayPal money (0080, docs/decisions.md PPF16): each PayPal row on it (a sale's fee, a refund's fee back, a chargeback's money and fees),
 // the day it counts on and what it costs; none: no table.
 $o = $order;
 $sale = (int) $o['sale_ex'];
@@ -115,7 +115,11 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
     <tr>
       <td data-label="<?= $word('PROFIT', 'paypal_day') ?>"><?= $e(\CW\Ui\Html::day($pp['day'])) ?></td>
       <td data-label="<?= $word('PROFIT', 'paypal_what') ?>"><?= $e(\CW\Ui\Words::PROFIT['paypal_kind_' . $pp['kind']] ?? $pp['code']) ?> <span class="muted">(<?= $e($pp['code']) ?>)</span></td>
-      <td data-label="<?= $word('PROFIT', 'paypal_counts_on') ?>"><?= $pp['counts_on'] === null ? $word('PROFIT', 'paypal_order_day') : $e(\CW\Ui\Html::day($pp['counts_on'])) ?></td>
+<?php if ($pp['counts_on'] === null): ?>
+      <td data-label="<?= $word('PROFIT', 'paypal_counts_on') ?>"><?= $word('PROFIT', 'paypal_order_day') ?></td>
+<?php else: ?>
+      <td data-label="<?= $word('PROFIT', 'paypal_counts_on') ?>"><?= $e(\CW\Ui\Html::day($pp['counts_on'])) ?></td>
+<?php endif; ?>
       <td class="num" data-label="<?= $word('PROFIT', 'paypal_cost') ?>"><?= $money($pp['pence'] / 100) ?></td>
     </tr>
 <?php endforeach; ?>

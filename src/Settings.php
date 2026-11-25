@@ -60,11 +60,11 @@ final class Settings
         'profit.real_from_vapeandgo' => ['sales_from' => 'vapeandgo'],
         'profit.real_from_electrofag' => ['sales_from' => 'electrofag'],
         'profit.real_from_vapebig' => ['sales_from' => 'vapebig'],
-        // 0080 (docs/decisions.md PF13): how many days back the nightly PayPal read goes (PayPal's window is 31 days at most), and the "not on an
+        // 0080 (docs/decisions.md PPF13): how many days back the nightly PayPal read goes (PayPal's window is 31 days at most), and the "not on an
         // order" alarm in pounds a day (the first fee days are plain dates: empty = not switched on)
         'profit.paypal_reread_days' => ['min' => 1, 'max' => 31],
         'profit.paypal_not_on_order_alarm' => ['min' => '0', 'max' => '100000'],
-        // 0080 (PF21): the shops the PayPal account takes payments for (the main shop first), and how each shop's order number looks in a PayPal
+        // 0080 (PPF21): the shops the PayPal account takes payments for (the main shop first), and how each shop's order number looks in a PayPal
         // invoice (a pattern with ONE (part): the number; PaypalFees checks it compiles, else the run is refused and the alert says so)
         'profit.paypal_shops_vapeandgo' => ['pattern' => '/^[a-z][a-z0-9_]{0,31}(,[a-z][a-z0-9_]{0,31})*$/D',
             'pattern_says' => 'shop codes separated by commas, the main shop first, like vapeandgo,electrofag,hayati'],

@@ -21427,3 +21427,167 @@ row FOR SHARE and held to the commit (a change of the rate waits for the seed or
 before the shop's first day in profit_day (derived from the data, never a second setting: Vape and Go's 29 Oct 2026 and Electrofag's and Vape
 Big's 17 Nov 2026 on live, as the lead measured) or after 2099-12-31, and any day while CW holds no sales of that shop. Real profit's shop
 choice offers and takes the three shops only (C7).
+
+## PayPal's payment fees in the profit (CW-1172): read every night from PayPal's own API (branch `paypal-fees`, 25 Nov 2026; PPF1-PPF22: the prefix PF is pack F's; migration 0080)
+
+<!-- ---- CW-1172 (0080): PPF1-PPF22. Brief: cw_work/runs/paypal_fees_brief.txt; state: cw_work/runs/PAYPAL_FEES_STATE.md ---- -->
+The owner's rules (24 Nov 2026 23:58, agreed with the lead), kept as the brief gives them: 1. the PayPal fee of each sale goes on THAT
+order, on the order's profit day; 2. a refund: the part of the fee PayPal gives back goes back on the same order, on the refund's day;
+3. a chargeback: the money taken back PLUS PayPal's chargeback fee and any dispute fee are a cost on that order, on the chargeback's day;
+4. anything with no order number (or no CW order for it) goes on the shop's "not on an order" line; 5. holds and their releases, money moved
+to the bank, payments sent or received are NOT costs (read, kept, never counted). The owner, 25 Nov ~00:50 (through the lead): there is ONE
+PayPal account, used by Vape and Go, Electrofag AND Hayati Vapes (hayativapes.uk, WooCommerce, not a CW shop); each row goes to the shop whose
+order-number form its invoice matches; a shop not switched on keeps its rows as facts and NEVER lands on Vape and Go's lines; only rows with
+no or an unrecognised invoice go on the account's main shop (Vape and Go). CW uses the shop's existing PayPal REST key (his choice), and only
+ever calls POST /v1/oauth2/token and GET /v1/reporting/transactions with it. Global Payments is out of scope (its monthly invoice is an
+expense).
+Code: `src/Profit/{PaypalCodes, PaypalRow, PaypalKey, PaypalHttp, PaypalHttpFailed, CurlPaypalHttp, PaypalApi, PaypalFees,
+PaypalInvariants}.php` (new), `bin/paypal_fees.php` (new), one marked block each in `ProfitDays` (DAY_FIELDS, orderShare, compute),
+`OrderSnapshots::apply`, `ProfitViews` (SUMS, figures, order), `DeliveryBills` (a fact's `field`, tidy), `ExpenseViews::realProfit`, the views
+`profit_real` and `profit_order`, `Alerts`, `AlertDispatch`, `Invariants`, `Grants`, `Settings::RULES`, `Words`. Tests: `tests/Unit/
+PaypalReadTest.php`, `tests/Integration/Profit/{PaypalFeesTest, PaypalReplayTest}.php`, `tests/Support/{FakePaypalHttp, PaypalTx}.php`; every
+fixture is made up; the real rows are read only by the replay, from a reduced copy outside git (PPF19).
+
+**PPF1. What is built.** The nightly job reads PayPal's Transaction Search (transaction_info only) for the last few days, stores every
+transaction, decides where its money counts, and keeps two new profit_day figures: `fee_cost` (PayPal money on orders) and `fee_other`
+(PayPal money on no CW order). Profit › Real profit's "Payment fees" line shows them for a shop switched on (its first fee day set); an
+order's page lists its PayPal rows. Nothing else of the profit changes.
+
+**PPF2. One row per transaction AND event code, changed in place.** paypal_txn's key is (account, PayPal's transaction_id, event code):
+PayPal gives a dispute hold (T1110, status P) and its release (T1111, status D) the SAME id (12 such pairs in the real rows of 1 Oct - 24 Nov),
+so the id alone would make the release overwrite the hold. A re-read that brings another status, amount, fee, date or reference changes the
+row in place (version + 1; paypal_txn_history keeps before and after, PPF8) and marks it due; the same row read again changes nothing (its
+last_run only). The same (id, code) twice in one window with different content refuses the window (it moved while read: the next run reads it
+again). Nothing personal is read or kept: no payer, e-mail, name, item text, note, balance or instrument; the invoice and custom fields are kept
+as written only when they are a reference (letters, digits and . _ : | = / + - only, at most 127: the shops write their order number there);
+one with a space or an @ (it could be a name or an e-mail) is never kept, only that there was one (`dropped`).
+
+**PPF3. Every event code classified (PaypalCodes::TABLE).** sale: T0005 (Direct payment API), T0006 (PayPal Checkout): the FEE counts.
+refund: T1107: the fee given back counts. chargeback: T1106 (payment reversal by PayPal), T1201 (chargeback), T1202 (chargeback reversal: the
+money back): the money AND its fee count. fee: T0106 (chargeback processing fee), T0114 (dispute fee): the money and its fee count. ignore
+(rule 5): holds and releases (T1105, T1110, T1111, T1300-T1302, T1500-T1503, T2101-T2108, T2111, T2112), the bank (T0300-T0303, T0400,
+T0401, T0403), currency conversion (T0200-T0202), the PayPal card (T0500-T0505), the card's cash-back bonus (T0801: +£105.03 in the real rows,
+an owner question: not a payment fee), and every payment code T0000-T0019 when the money went OUT (a payment sent: T0003 pre-approved
+payments to other merchants, T0000, T0011 in the real rows). unknown: every other code, and a payment code other than T0005 / T0006 with money
+coming IN: kept, never guessed into money, shown (PPF14). A costed kind with an amount of the wrong sign (a sale not above 0, a refund not
+below 0), a currency other than GBP (amount or fee), an ignored row with a fee, or a status other than S, V, P, D is "needs a look" (never
+counted). In the real rows every code is understood (0 needs a look).
+
+**PPF4. What a row costs, in pence, one rule.** sale and refund: minus the fee (PayPal signs a fee taken below 0: a cost above 0; a fee
+given back: a cost below 0); chargeback and fee: minus (amount + fee) (money taken from the balance below 0: a cost above 0; a chargeback
+reversal: money back, a cost below 0). PayPal's amounts are whole pence: no rounding anywhere (checklist 4), so a month is exactly the sum of
+its days. Credits (checklist 1): a refund's fee back and a chargeback reversal are negative costs on their order on their own day; they never
+set a price and never touch an order's goods or buying cost.
+
+**PPF5. Whether it counts, in this order.** look (PPF3) → not_counted (ignored kind, status D) → outside (a shop CW does not hold: Hayati
+Vapes, PPF21) → before_start (its shop not switched on, or its UK day before the shop's first fee day) → pending (status P: read again: the
+nightly reads back to the oldest pending row, at most 31 days) → counts (S, and V: a reversed sale happened; its reversal is a row of its
+own). The UK day is the day of transaction_initiation_date in Europe/London (the owner's Balance report ties on UK days; the lead's counts by
+form were on UTC days: both shown in PPF19).
+
+**PPF6. Its order.** The shop comes from the form (PPF21); then exactly ONE order of that shop whose sale_order.order_no is the number:
+`order`; none: `no_order`; two or more: `ambiguous`; no shop's form: `no_number`. The lookup is made in the plan and made AGAIN right before
+the commit under the write's guards (the guarded write's verify, checklist 11): an order of the number stored meanwhile makes the plan old
+(made again). A row on no order is tried again every night (rematch: a no_order or ambiguous row whose number now has an order of its shop is
+marked due): an order reaching CW late takes its fee (owner rule 1).
+
+**PPF7. Where its money counts.** On an order: a sale's fee with no day of its own (alloc_day NULL) counts on the order's paid day
+(sale_order.day): OrderSnapshots passes PaypalFees::orderFee to ProfitDays::orderShare, so an order paid later, or moved to another day, takes
+it along; a refund's fee back, a chargeback's money and fees count on their own UK day (alloc_day). On no order: the shop's "not on an order"
+line (fee_other) on its own UK day. An order not paid in CW (day NULL) holds its sale fee but counts it nowhere until it is paid (as its goods
+and its delivery: --status says how many and how much). Every write of these figures goes through DeliveryBills::guardedWrite (THE guarded
+write of the profit days: the order guards in name order, the day rows in key order without waiting, the orders' days read again, then the
+rows and the figures by the difference, then verify): a fact may now name its profit_day figure (`field`: fee_cost or fee_other; the carriers'
+by default; only the four figures, as it is written into SQL), and DeliveryBills::tidy keeps a day row that PayPal money counts on.
+ProfitDays::compute works both figures out from scratch (PaypalFees::dayFigures), so the rebuild check holds them to their rows.
+
+**PPF8. History.** paypal_txn_history (append-only: Grants): `changed` (what PayPal says: before and after) and `allocated` (where its money
+counts: before and after), with the run and the actor; the row's version is its history's last.
+
+**PPF9. The run, durable due marks, nothing half-written.** bin/paypal_fees.php --account=<name>: the job lock (Cli: one run of the job per
+schema) and the account's own lock (GET_LOCK, 10 s). A run row (paypal_run) is written first. The days are read in windows of WINDOW_DAYS = 7
+(PayPal allows 31; a week is about 2,000 rows); each window is read whole (every page) or refused whole, then stored in ONE transaction, its
+new and changed rows marked `due` in that same transaction (checklist 14: durable before acting). Then every due row is decided, CHUNK = 200 a
+guarded write, its due mark cleared in that write. A window that fails ends the run as failed; the windows before it stay stored, their rows
+due; a decision that cannot be made now (an order busy) leaves its rows due; the next run decides them. A run that died is closed as failed
+by the next one (it holds the account's lock). Nightly: the last profit.paypal_reread_days days (7) again, earlier to the oldest pending row,
+never before the first fee day. Backfill: --from=YYYY-MM-DD [--to]. --decide: no PayPal call, the due rows decided. --status: read only.
+Cron 05:20 UTC (05:20 UK in winter, 06:20 in summer: after PayPal's ~3 hour lag), before nothing that depends on it (the 03:40 rebuild of the
+last 3 days re-checks the figures the next night).
+
+**PPF10. PayPal's API, read only.** PaypalApi::PATHS: POST /v1/oauth2/token and GET /v1/reporting/transactions, nothing else (refused before
+any request). fields=transaction_info, page_size 500, page 1..total_pages (at most 100 pages a window). Every request: 60 s timeout, 15 s to
+connect, HTTPS only with the certificate checked, no redirect; a lost connection, 429 or 5xx is tried 4 times (waiting 2, 4, 8 s); a 401 on a
+page asks for a new token once; any other status, an answer not in PayPal's shape, a page count that changes between pages, or rows that do
+not add up to total_items refuses the whole window. A refusal says the call, the page and the HTTP status: never PayPal's text, the key or the
+token. The token lives in the PaypalApi object for the run only. PayPal serves a row in the window of its last update too (a September dispute
+hold's release came in October's read): the same row read again in another window is the same row (PPF2).
+
+**PPF11. The key.** The account's key file: app.env `paypal_key_file_<account>` (CW_PAYPAL_KEY_FILE_<ACCOUNT>), a JSON object of exactly
+client_id, client_secret, api_base (PayPal's live or sandbox host only), shop (the account's main shop) and account. Refused (the run does
+not start, a failed run is recorded so the alert says it at once: paypal_failed) when the path is not set, the file is missing, a link or not
+a plain file, not owned by root, readable by others, writable by its group, executable, larger than 4 KB, not that JSON, for another account,
+or its shop is not the account's main shop. Never printed, never logged; PaypalKey hides the secret from dumps; the refusal names what is
+wrong, never what the file holds. The go-live kit places it from the shop's config (Website/ajax/paypal/config.php live block) without
+printing it, root:www-data 0640.
+
+**PPF12. Who writes.** Only a server job (Caller::system): no person, no store, never through the web (no screen writes PayPal's rows).
+
+**PPF13. Settings (Settings › Profit, each change kept with its history).** profit.paypal_from_<shop> (date; empty = not switched on):
+all three empty from 0080; the go-live kit sets Vape and Go's to 2026-11-01 once its key file is placed, right before the backfill (no
+"never read" alert in between); Electrofag and Vape Big later. profit.paypal_shops_vapeandgo: the shops of the account, the main shop first
+(`vapeandgo,electrofag,hayati`). profit.paypal_form_<shop>: how the shop's order number looks in a PayPal invoice, a pattern from ^ to $ with
+ONE (part), the number: Vape and Go `^([0-9]{7})-[0-9]{10}$`, Electrofag `^([0-9]{4,6})-[0-9]{10}$` (5,6xx now: 4 digits until 9,999, then 5),
+Hayati Vapes `^faaeeb-([0-9]{1,6})$` (all 321 of its rows in the real data have the letters `faaeeb`). profit.paypal_reread_days (7, 1 to
+31). profit.paypal_not_on_order_alarm (£50 a day: Vape and Go's own rows on no order are a few pounds a day; the other shops' rows never land
+there).
+
+**PPF14. The health alert.** Per account with a shop switched on, said in its main shop: paypal_not_read (no ok run for 26 hours, or none
+ever), paypal_failed (the newest run failed: its reason in CW's words; also a key refused, or the account's shops or forms set wrong),
+paypal_needs_look (rows not understood since the first fee day: never counted until a person looks; bin/paypal_fees.php --status lists them),
+paypal_not_on_order (a day of the last re-read days whose money on no CW order is above the setting).
+
+**PPF15. Full size, timed (the replay, PPF19, on the CW test box).** 14,302 real rows (1 Oct - 24 Nov): the backfill read + store + decide
+in 17.6 s (PayPal's pages served 0.3 s, parse 0.9 s, store 3.5 s in 8 windows, decide 12.8 s in 72 guarded writes of 200: 0.15 s each on
+average, 0.19 s the longest), peak memory 74 MB; the same days again 2.8 s (nothing new, changed or decided); a nightly of 7 days (1,851 rows)
+0.4 s; Electrofag switched on (1,205 rows decided again) 1.2 s; 57 days rebuilt from scratch 2.6 s; the PayPal invariants 0.2 s. A guarded
+write holds its order guards for well under the 3 s a snapshot waits (0.19 s at most, every row of a chunk in ONE update and ONE history
+insert). The rematch reads plain indexed rows and marks by id: MySQL planned the first version (an UPDATE with a correlated EXISTS) row by row,
+12 s at this size.
+
+**PPF16. An order's page.** A "PayPal" table: each row on the order (its day, what it is, the day it counts on, what it costs) and the total.
+
+**PPF17. Profit › Real profit.** "− Payment fees" is a shop's fee_cost + fee_other of the days (from its first fee day; 0 before it and for a
+shop not switched on, whose "not built yet" note stays); the real profit takes it off. Global Payments' fees stay an expense.
+
+**PPF18. The nightly checks (CW\Invariants: PaypalInvariants).** PP1 a decided row counts its whole cost in exactly one place or nowhere;
+PP2 only in its own shop (never another shop's line), on an order of that shop with its number, a sale's fee on the order's day and the rest on
+their own day; PP3 kind and cost are what the rules say; PP4 nothing due for 26 hours; PP5 no run "running" for 26 hours. Their cost: PP3 reads
+every row 5,000 at a time (a year is about 100,000: well inside the 1 GB of bin/invariants.php).
+
+**PPF19. The real-data replay (tests/Integration/Profit/PaypalReplayTest.php).** The lead's 14,302 rows reduced to the fields CW reads (no
+payer, name, item text, balance; an invoice or custom field that is not a reference dropped), copied to the test box only for the run (removed
+by a trap arranged before the copy, its absence checked after; cw_work/runs/paypal_replay_run.sh), served by the fake PayPal page by page.
+It holds: the account's October on UK days to the owner's Balance report (sales' fees 6,449.95 = 2,584.30 + 3,865.65; refunds' fees back
+81.16; chargebacks 288.79 less the 0.68 fee back on a reversal; chargeback fees 56.00; dispute fees 36.00); each shop's October by its form on
+UTC days as the lead counted (Vape and Go 6,575 sales, fees 5,699.03; Electrofag 603, 611.90; Hayati Vapes 131, 108.71; no invoice 50,
+21.08) and Vape and Go's on UK days (5,708.26); 0 rows not understood; Electrofag (not switched on) and Hayati Vapes never on Vape and Go's
+lines; every penny once (Vape and Go's days = its counted rows); each day's figures = its rows'; a second run changes nothing; a rebuild of
+every day gives the same pence; Electrofag switched on puts its October sales' fees (611.90) on its own orders, Vape and Go's days unchanged.
+
+**PPF20. No undo release.** The owner (24 Nov 2026): CW is fixed forward. RollbackReleaseTest keeps the recipe's check (0e3db2a with 0080
+added byte for byte); the release before never reads the new tables, and its rebuild of a day writes the columns it knows and leaves fee_cost
+and fee_other at 0 on that day.
+
+**PPF21. One account, several shops, by the invoice's form.** A row's shop is the ONE shop of the account whose form its invoice matches
+(else its custom field's); none, or two shops' forms: no shop (the main shop's "not on an order" line, match `no_number`). A shop CW does not
+hold (Hayati Vapes) is `outside`: kept, never counted, never on another shop's line. A CW shop not switched on (Electrofag until its first fee
+day) keeps its rows `before_start` with their shop: switched on, the next run counts them on its own orders and its own line (rematch marks
+them due). The account's shops and forms are fingerprinted on each run (paypal_run.forms_sig): a change of them decides every row of the
+account again, once. A shop or form setting that is not what PPF13 says refuses the run (paypal_bad_shops, paypal_bad_form) and the alert says
+it.
+
+**PPF22. Not built / owner questions.** (a) T0801 (the PayPal card's cash back, +£105.03 in the real rows): ignored as not a payment fee.
+(b) Hayati Vapes' PayPal money (Oct 108.71 of sales' fees) is kept as facts only; it becomes counted if Hayati Vapes ever is a CW shop.
+(c) A chargeback the shop ALSO refunds in its admin would count twice (the refund in the sales, the chargeback here): never seen in the real
+rows; to watch. (d) No screen lists the PayPal rows (bin/paypal_fees.php --status does); a "PayPal" page under Profit is a later step.

@@ -33,7 +33,7 @@ final class ProfitViews
         . 'COALESCE(SUM(units_no_cost), 0) AS units_no_cost, COALESCE(SUM(delivery_ex), 0) AS delivery_ex, '
         // 0077 (docs/decisions.md DL11): what the carriers' bills say delivery cost, on the orders and not on an order.
         . 'COALESCE(SUM(delivery_cost), 0) AS delivery_cost, COALESCE(SUM(delivery_other), 0) AS delivery_other, '
-        // 0080 (docs/decisions.md PF7): PayPal's money on the orders and not on an order.
+        // 0080 (docs/decisions.md PPF7): PayPal's money on the orders and not on an order.
         . 'COALESCE(SUM(fee_cost), 0) AS fee_cost, COALESCE(SUM(fee_other), 0) AS fee_other';
     private const ITEM_SUMS = 'COALESCE(SUM(p.units), 0) AS units, COALESCE(SUM(p.sale_ex), 0) AS sale_ex, COALESCE(SUM(p.cost), 0) AS cost, '
         . 'COALESCE(SUM(p.units_no_cost), 0) AS units_no_cost';
@@ -357,7 +357,7 @@ final class ProfitViews
         $delivery = DeliveryViews::order($this->db, $store, (string) $o['order_ref'], $parcels, $chain);
         return [
             'order' => $o,
-            // its PayPal money (0080, docs/decisions.md PF16): a sale's fee, a refund's fee back, a chargeback's money and fees
+            // its PayPal money (0080, docs/decisions.md PPF16): a sale's fee, a refund's fee back, a chargeback's money and fees
             'paypal' => PaypalFees::orderLines($this->db, $store, (string) $o['order_ref']),
             'clone_goods_inc' => $cloneGoods,
             'lines' => self::grouped($lines),
@@ -442,7 +442,7 @@ final class ProfitViews
             // Delivery on its own line, never in the goods margin (0077, docs/decisions.md DL23): what it cost on the orders, the carriers' charges on no
             // order, and delivery charged less both.
             'delivery_cost' => $deliveryCost, 'delivery_other' => $deliveryOther, 'delivery_result' => $delivery - $deliveryCost - $deliveryOther,
-            // PayPal's money (0080, PF7): on the orders, on no order, and both
+            // PayPal's money (0080, PPF7): on the orders, on no order, and both
             'fee_cost' => (int) ($r['fee_cost'] ?? 0), 'fee_other' => (int) ($r['fee_other'] ?? 0), 'fees' => (int) ($r['fee_cost'] ?? 0) + (int) ($r['fee_other'] ?? 0),
             'no_cost' => (int) ($r['units_no_cost'] ?? 0), 'pending' => (int) ($r['pending'] ?? 0),
             'incomplete' => self::incomplete((int) ($r['units_no_cost'] ?? 0) + (int) ($r['pending'] ?? 0), (int) ($r['units'] ?? 0))];

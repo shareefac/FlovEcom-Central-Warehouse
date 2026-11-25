@@ -8,7 +8,7 @@ use CW\Profit\PaypalHttp;
 use CW\Profit\PaypalHttpFailed;
 
 /**
- * PayPal's Transaction Search as the tests see it (docs/decisions.md PF10): a token for the right Basic credentials, and the rows whose
+ * PayPal's Transaction Search as the tests see it (docs/decisions.md PPF10): a token for the right Basic credentials, and the rows whose
  * transaction_initiation_date is inside [start_date, end_date] served page by page (page_size, page, total_items, total_pages,
  * last_refreshed_datetime), as PayPal does. Nothing leaves the test: no network. $fail may answer a request instead (a 503, a lost
  * connection, a 401) by its number; every request is recorded (method, path, query) with no header kept.

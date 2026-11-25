@@ -1,7 +1,7 @@
 <?php
 // Profit › Real profit (CW-1150; docs/decisions.md EX15; the approved drawing ProfitMonth of 24 Nov 2026): the days chosen (this month unless
 // asked) and a column per shop: sales less refunds, what the goods cost, delivery charged, the carriers' bills, payment fees (PayPal's for
-// a shop switched on, 0080 PF17; in grey while no shop is), the expenses added, the regular costs, and the real profit. A line opens what is in it. On a phone each row is a card. Each
+// a shop switched on, 0080 PPF17; in grey while no shop is), the expenses added, the regular costs, and the real profit. A line opens what is in it. On a phone each row is a card. Each
 // shop counts from its own first day (EX39): a shop not started on these days shows "not started (from <day>)" in its column, never a figure;
 // one that starts inside them is counted from its day, and the page says so.
 $P = \CW\Ui\Words::PROFIT;
@@ -11,7 +11,7 @@ $lines = [
     ['real_cost', 'cost', 'goods'],
     ['real_delivery_charged', 'delivery', 'delivery'],
     ['real_delivery', 'delivery_cost', 'delivery'],
-    ['real_fees', 'fees', null], // PayPal's (0080, PF17) for a shop switched on; 0 for the others (the note says which)
+    ['real_fees', 'fees', null], // PayPal's (0080, PPF17) for a shop switched on; 0 for the others (the note says which)
     ['real_expenses', 'expenses', 'expenses'],
     ['real_regular', 'regular', 'regular'],
     ['real_profit', 'real', null],
@@ -24,7 +24,7 @@ if (!$canExpenses) {
 $incomplete = array_filter($shops, static fn (array $s): bool => $s['incomplete']) !== [];
 $notStarted = static fn (?string $first): string => $first === null ? \CW\Ui\Words::PROFIT['real_not_set'] : \CW\Ui\Words::say('PROFIT', 'real_not_started', \CW\Ui\Html::day($first));
 $later = array_values(array_filter($shops, static fn (array $s): bool => $s['counted_from'] !== null));
-// The shops whose PayPal fees are read (0080, PF17: their first fee day set and reached in these days): their fees line is a figure; the others
+// The shops whose PayPal fees are read (0080, PPF17: their first fee day set and reached in these days): their fees line is a figure; the others
 // keep the "not built yet" note.
 $feesOn = array_values(array_filter($shops, static fn (array $s): bool => $s['started'] && ($s['fees_from'] ?? null) !== null));
 ?>

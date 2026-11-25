@@ -2989,7 +2989,7 @@ final class Words
         'duty.unstamped_zero_from' => 'Unstamped stock must be gone from',
         'duty.page_rows' => 'Lines of the duty register on a page',
         'duty.export_max_rows' => 'Most lines in one download of the duty register',
-        // 0080 (docs/decisions.md PF13): PayPal's fees in the profit
+        // 0080 (docs/decisions.md PPF13): PayPal's fees in the profit
         'profit.paypal_from_vapeandgo' => 'Vape and Go\'s PayPal fees count from',
         'profit.paypal_from_electrofag' => 'Electrofag\'s PayPal fees count from',
         'profit.paypal_from_vapebig' => 'Vape Big\'s PayPal fees count from',
@@ -10930,10 +10930,10 @@ final class Words
         'real_delivery' => '− Delivery (the carriers\' bills)',
         'real_fees' => '− Payment fees',
         'real_fees_not_built' => 'Payment fees are not built yet for the other shops: they show 0. A Global Payments invoice you add as an expense is in the expenses line.',
-        // 0080 (docs/decisions.md PF17): a shop whose PayPal fees are read
+        // 0080 (docs/decisions.md PPF17): a shop whose PayPal fees are read
         'real_fees_paypal' => '%s\'s payment fees are PayPal\'s, read from PayPal every night, from %s: each sale\'s fee on its order, a refund\'s fee back, a '
             . 'chargeback\'s money and fees, and what is on no order. Global Payments\' are in the expenses line when you add their invoice.',
-        // 0080 (docs/decisions.md PF16): an order's PayPal money on its page
+        // 0080 (docs/decisions.md PPF16): an order's PayPal money on its page
         'paypal_table' => 'PayPal',
         'paypal_table_note' => 'What PayPal took on this order (a fee, money taken back) or gave back (part of a fee on a refund), as PayPal reports it. '
             . 'A sale\'s fee counts on the order\'s paid day; the others on their own day.',
@@ -13630,7 +13630,7 @@ final class Words
         'rm_days_waiting' => 'Royal Mail %s: %s day(s) of its bills have waited more than %s days for a Click & Drop report (the oldest %s). Upload the "Manifested Orders" report for those days on Profit › Delivery bills.', // DL84, DL86 1
         'rm_billed_more' => 'Royal Mail %s: %s day(s) or Special Delivery manifest(s) billed more than their labels by more than %s%% (the oldest %s). See "Needs a look" on the bill\'s page (Profit › Delivery bills).', // DL86 7
         'rm_check_failed' => 'Royal Mail %s: CW could not check its bills just now (%s). It checks again at the next run; tell the CW team if this stays.', // DL86 (the Codex check r10 #15)
-        // 0080 (docs/decisions.md PF14): PayPal's fees
+        // 0080 (docs/decisions.md PPF14): PayPal's fees
         'paypal_never_read' => '%s: PayPal has never been read, so its payment fees are missing from its profit (they count from %s). Tell the CW team.',
         'paypal_not_read' => '%s: PayPal has not been read for %s hours, so its payment fees are not up to date. Tell the CW team.',
         'paypal_failed' => '%s: the last PayPal read failed (%s). The next night reads it again; tell the CW team if this stays.',

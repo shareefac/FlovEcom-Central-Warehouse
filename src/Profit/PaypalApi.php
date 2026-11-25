@@ -7,7 +7,7 @@ namespace CW\Profit;
 use CW\CwException;
 
 /**
- * PayPal's Transaction Search, read only (docs/decisions.md PF10, PF11). Exactly two calls ever leave CW with the shop's key:
+ * PayPal's Transaction Search, read only (docs/decisions.md PPF10, PPF11). Exactly two calls ever leave CW with the shop's key:
  * POST {api}/v1/oauth2/token (client credentials; the token is kept in this object only, for this run) and GET {api}/v1/reporting/transactions
  * (fields=transaction_info, page_size 500, page by page). Every other path is refused before a request is made (PATHS).
  *

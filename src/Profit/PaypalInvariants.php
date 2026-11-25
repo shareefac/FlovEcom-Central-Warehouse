@@ -7,14 +7,14 @@ namespace CW\Profit;
 use CW\Db;
 
 /**
- * The nightly checks of PayPal's rows (0080; docs/decisions.md PF18; called by CW\Invariants::check, so bin/invariants.php and every stock
+ * The nightly checks of PayPal's rows (0080; docs/decisions.md PPF18; called by CW\Invariants::check, so bin/invariants.php and every stock
  * test run them). Read-only; at most MAX_PER_CHECK findings per check. The day figures they feed are held to their rows by the rebuild check
  * (bin/rebuild_profit_days.php: ProfitDays::compute works fee_cost and fee_other out from scratch with PaypalFees::dayFigures).
  *
  *  PP1. a decided row (not due) counts its whole cost in exactly one place, or nowhere: counts with a cost not 0 = one place holding exactly
  *       its cost (an order, or the shop's "not on an order" line); anything else = no place and 0 (every penny once, none twice).
  *  PP2. a row counts only in its own shop (the shop of its invoice's form; with no shop's form, the account's main shop: never another
- *       shop's line, PF21); on an order: one of that shop's orders that carries its number (never another number's), a sale's fee on the
+ *       shop's line, PPF21); on an order: one of that shop's orders that carries its number (never another number's), a sale's fee on the
  *       order's paid day (no day of its own), every other kind on its own UK day; on the shop's line: on its own day.
  *  PP3. kind and cost are what the event code and the amounts say (PaypalCodes): a stored row never disagrees with the rules it was read by.
  *  PP4. no row is due for more than STALE hours after it was last read or changed (a run that stopped half-way is finished by the next one).

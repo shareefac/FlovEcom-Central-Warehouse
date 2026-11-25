@@ -8,10 +8,10 @@ use CW\CwException;
 use CW\Reports\ReportRefresh;
 
 /**
- * One transaction_info object of PayPal's Transaction Search, read strictly (docs/decisions.md PF2, PF10): the fields CW keeps, in CW's
+ * One transaction_info object of PayPal's Transaction Search, read strictly (docs/decisions.md PPF2, PPF10): the fields CW keeps, in CW's
  * shapes, or a refusal that names the row and the field, never what it holds (checklist 6: a window with one row not understood is
  * refused whole). Nothing personal is read or kept: no payer, no item text, no note. The invoice and custom fields are kept as written only
- * when they are a reference (letters, digits and . _ : | = / + - only, at most 127: the shops write the order number there, PF21); one with
+ * when they are a reference (letters, digits and . _ : | = / + - only, at most 127: the shops write the order number there, PPF21); one with
  * a space, an @ or anything else (it could be a name or an e-mail) is never kept, only that there was one ("dropped").
  */
 final class PaypalRow

@@ -14,7 +14,7 @@ use CW\Tests\Support\PaypalTx;
 use PHPUnit\Framework\TestCase;
 
 /**
- * PayPal's rows, codes, key and API as CW reads them (docs/decisions.md PF2-PF4, PF10, PF11), from MADE-UP rows in PayPal's shape (never a
+ * PayPal's rows, codes, key and API as CW reads them (docs/decisions.md PPF2-PPF4, PPF10, PPF11), from MADE-UP rows in PayPal's shape (never a
  * real id or amount): a row read strictly (a field not understood refuses it by row and field, never its content), every kind and its cost,
  * the key file's checks (owner, mode, shape, shop) with nothing of it in a refusal, and the API read page by page with its tries, the token
  * asked again once on a 401, only its two paths ever called, and a window refused whole when PayPal's count moves.
@@ -46,7 +46,7 @@ final class PaypalReadTest extends TestCase
         // the UK day: 23:30 UTC on 24 Oct (BST) is the 25th in the UK; on 31 Oct (GMT) it is the 31st
         self::assertSame('2026-10-25', PaypalRow::parse(PaypalTx::sale('9XA00002', '2026-10-24T23:30:00Z', '1.00', '-0.01', null), 1)['day']);
         self::assertSame('2026-11-22', PaypalRow::parse(PaypalTx::sale('9XA00003', '2026-11-22T10:00:00+0000', '1.00', '-0.01', null), 1)['day']);
-        // a reference is kept as written (the shop's form is decided by the settings later, PF21); one that could be a name or an e-mail never
+        // a reference is kept as written (the shop's form is decided by the settings later, PPF21); one that could be a name or an e-mail never
         $o = PaypalRow::parse(PaypalTx::sale('9XA00004', '2026-11-22T10:00:00Z', '5', '-0.5', null) + ['invoice_id' => 'faaeeb-1234', 'custom_field' => '1234'], 1);
         self::assertSame(['kept', 'faaeeb-1234', 'kept', '1234', 500, -50], [$o['invoice_state'], $o['invoice_ref'], $o['custom_state'], $o['custom_ref'], $o['amount_pence'],
             $o['fee_pence']]);

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace CW\Tests\Support;
 
 /**
- * Made-up PayPal transaction_info objects in PayPal's shape (docs/decisions.md PF2): never a real id, payer or amount.
+ * Made-up PayPal transaction_info objects in PayPal's shape (docs/decisions.md PPF2): never a real id, payer or amount.
  */
 final class PaypalTx
 {

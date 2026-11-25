@@ -84,7 +84,7 @@ final class DeliveryBills
     /** How many times a write is tried again when an order it counts moved to another day while it read. */
     public const TRIES = 5;
     private const RETRY = 'delivery_retry';
-    /** The profit_day figures a guarded write may count in (field()): the carriers' bills' and PayPal's (0080, PF7). */
+    /** The profit_day figures a guarded write may count in (field()): the carriers' bills' and PayPal's (0080, PPF7). */
     private const FIELDS = ['delivery_cost', 'delivery_other', 'fee_cost', 'fee_other'];
     private const GUARD_BUSY = 'delivery_guard_busy';
 
@@ -215,7 +215,7 @@ final class DeliveryBills
     /**
      * One guarded delivery write (DL13, DL37, DL41) for another bills service (RoyalMailBills, 0078: DL64): its plan's facts are counted on the
      * profit days exactly as DPD's lines (state matched: on an order; not_matched: a shop's "not on an order" on its date, in inv_ch). A fact
-     * may name the figure it counts in (`field`: PayPal's fee_cost and fee_other, 0080: docs/decisions.md PF7; the carriers' by default).
+     * may name the figure it counts in (`field`: PayPal's fee_cost and fee_other, 0080: docs/decisions.md PPF7; the carriers' by default).
      *
      * @template T
      * @param \Closure(Db): array{before: list<array<string, mixed>>, after: list<array<string, mixed>>, verify?: \Closure(Db): bool, versions?: array<string, string>,
@@ -999,7 +999,7 @@ final class DeliveryBills
 
     /**
      * The profit_day figure a fact counts in: the carriers' own (delivery_cost on an order, delivery_other on none) unless the fact names
-     * another of the guarded figures (PayPal's: fee_cost, fee_other; 0080, docs/decisions.md PF7). Only these four: it is written into SQL.
+     * another of the guarded figures (PayPal's: fee_cost, fee_other; 0080, docs/decisions.md PPF7). Only these four: it is written into SQL.
      *
      * @param array<string, mixed> $f
      */
@@ -1069,7 +1069,7 @@ final class DeliveryBills
                 . "WHERE l.match_state IN ('not_matched', 'ambiguous') AND l.line_date = ? LIMIT 1", [$channelId, $day]) !== null
             || $db->value("SELECT 1 FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id AND i.status = 'live' WHERE a.dest = 'shop' AND a.day = ? "
                 . 'AND a.channel_id = ? AND a.ended_at IS NULL LIMIT 1', [$day, $channelId]) !== null
-            // PayPal's money counted on the day itself (0080, PF7): the day's row is kept, as a rebuild keeps it
+            // PayPal's money counted on the day itself (0080, PPF7): the day's row is kept, as a rebuild keeps it
             || PaypalFees::anyOnDay($db, $channelId, $day)) {
             return;
         }

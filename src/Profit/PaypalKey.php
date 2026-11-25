@@ -7,7 +7,7 @@ namespace CW\Profit;
 use CW\CwException;
 
 /**
- * A PayPal account's REST app key, read from its key file on the CW server (docs/decisions.md PF11; the owner, 24 Nov 2026: CW uses the
+ * A PayPal account's REST app key, read from its key file on the CW server (docs/decisions.md PPF11; the owner, 24 Nov 2026: CW uses the
  * shop's existing key). The file's path is app.env's `paypal_key_file_<account>` (or CW_PAYPAL_KEY_FILE_<ACCOUNT>); it is a JSON object of
  * exactly client_id, client_secret, api_base, shop (the account's main shop: PaypalFees::run refuses a key whose shop is not the account's
  * main shop) and account, owned by root, readable by its owner and group only and written by nobody

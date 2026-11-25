@@ -27,7 +27,7 @@ use CW\Db;
  * order's delivery cost to orderShare() (DeliveryBills::orderCost), so an order paid or moved to another day takes it along; the bills'
  * own writes (CW\Profit\DeliveryBills) change the same two figures under the same day locks; compute() works both out from scratch.
  *
- * PayPal's money (0080; docs/decisions.md PF7): fee_cost is the PayPal money on orders (a sale's fee on the order's paid day, passed to
+ * PayPal's money (0080; docs/decisions.md PPF7): fee_cost is the PayPal money on orders (a sale's fee on the order's paid day, passed to
  * orderShare() as PaypalFees::orderFee so it moves with the order; a refund's fee back, a chargeback's money and fees on their own day),
  * fee_other the PayPal money on no CW order on its own day; PaypalFees' writes go through the same guarded write as the bills'.
  */
@@ -43,7 +43,7 @@ final class ProfitDays
      * @param array<string, mixed>|null $order a sale_order row (or the row about to be written)
      * @param array<string, array<string, mixed>> $lines its sale_line rows
      * @param int $deliveryCost what the live carrier bill lines on the order cost (DeliveryBills::orderCost), pence ex VAT
-     * @param int $feeCost its PayPal sale fees (PaypalFees::orderFee, 0080: docs/decisions.md PF7), pence: they count on its paid day
+     * @param int $feeCost its PayPal sale fees (PaypalFees::orderFee, 0080: docs/decisions.md PPF7), pence: they count on its paid day
      * @return array{days: array<string, array<string, int>>, items: array<string, array<string, int>>} "day" and "day|sku" => figures
      */
     public static function orderShare(?array $order, array $lines, int $deliveryCost = 0, int $feeCost = 0): array
@@ -167,7 +167,7 @@ final class ProfitDays
         }
         // The delivery bills' lines of the day (0077, DL11): on each paid order, and on no order dated that day.
         $delivery = DeliveryBills::dayFigures($db, $channelId, $day);
-        // PayPal's money (0080, PF7): the sale fees on each paid order, and what counts on the day itself (on orders: refunds, chargebacks,
+        // PayPal's money (0080, PPF7): the sale fees on each paid order, and what counts on the day itself (on orders: refunds, chargebacks,
         // fees; on no order).
         $fees = PaypalFees::dayFigures($db, $channelId, $day);
         $days = [];
