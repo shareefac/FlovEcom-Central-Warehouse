@@ -28,9 +28,14 @@ final class RollbackReleaseTest extends IntegrationTestCase
      * docs/decisions.md EX) go live on top of Royal Mail's bills: the release before is ae5f36e (Royal Mail's bills), whose last is 0078; the
      * plain rollback source is ae5f36e's code with 0079 added, byte for byte.
      */
-    public const BEFORE_LAST = '0078_royal_mail_bills.sql';
-    /** The migration files the rollback release takes from this release (README of build/A, "Undo"; CW-1155: RR20; the delivery bills: DL22). */
-    public const ROLLBACK_FILES = ['0079_expenses.sql'];
+    public const BEFORE_LAST = '0079_expenses.sql';
+    /**
+     * The migration files the rollback release takes from this release (README of build/A, "Undo"; CW-1155: RR20; the delivery bills: DL22).
+     * CW-1180 (don't restock = written off at once, docs/decisions.md NR1-NR9): the release before is 04dbab6 (the expense total's typing,
+     * CW-1176, live 25 Nov 13:31), whose last is 0079; the plain rollback (kit norestock_cw1180, branch nrkit-rollback) is 04dbab6's code with
+     * 0081 added, byte for byte. Built on another live release first (PayPal's 0080): its last, and the kit's tools/build_on_live.sh sets both.
+     */
+    public const ROLLBACK_FILES = ['0081_cancel_not_restockable.sql'];
 
     private ?string $dir = null;
     private ?string $rollback = null;
