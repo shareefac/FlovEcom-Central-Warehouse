@@ -884,7 +884,7 @@ final class PaypalFees
                     foreach (['invoice', 'custom'] as $f) {
                         if ($r["{$f}_state"] === 'dropped' && $old["{$f}_state"] === 'order') {
                             [$r["{$f}_state"], $r["{$f}_shop"], $r["{$f}_no"]] = ['order', (string) $old["{$f}_shop"], (string) $old["{$f}_no"]];
-                            $rowSig = (string) $old['read_sig'];
+                            $rowSig = $old['read_sig'] === null ? null : (string) $old['read_sig'];
                         }
                     }
                 }
