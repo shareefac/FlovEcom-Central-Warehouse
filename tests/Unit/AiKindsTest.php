@@ -50,7 +50,8 @@ final class AiKindsTest extends TestCase
     {
         $lines = self::week();
         $page = RoyalMailBillPage::parse(RmBill::page($lines, ['invoice' => '9077300608']), RmBill::PRODUCTS);
-        foreach (['slash', 'spaced'] as $form) {
+        // M1 (Codex final of 86aebbd): a reference cell is written as Claude read it, so a bare sales order ("7181703660", no slash) keeps its order
+        foreach (['slash', 'spaced', 'bare'] as $form) {
             self::assertSame($page, self::read(AiAnswers::royalMail($lines, ['invoice' => '9077300608', 'sales_form' => $form])),
                 "the rows, totals and fingerprint of the page (a sales order printed {$form})");
         }
@@ -142,7 +143,8 @@ final class AiKindsTest extends TestCase
         foreach ([[$line(2, 'service_date', '31:02:2026'), 'line 3: its date'], [$line(0, 'product_code', 'SD 1'), 'line 1: its product code'],
             [$line(4, 'quantity', 'one'), 'line 5: its quantity'], [$line(1, 'net', 'GBP 20.07'), 'line 2: its net'], [$line(1, 'gross', '24.1'), 'line 2: its gross'],
             [$line(6, 'vat_code', 'TT'), 'line 7: its VAT code'], [$line(3, 'description', 'TRACKED GBP 5.00 EXTRA'), 'line 4: its description'],
-            [$line(3, 'reference', str_repeat('X', 201)), 'line 4: its reference'], [$line(3, 'reference', 42), 'line 4: its reference']] as [$a, $words]) {
+            [$line(3, 'reference', str_repeat('X', 201)), 'line 4: its reference'], [$line(3, 'reference', 42), 'line 4: its reference'],
+            [$line(3, 'reference', '12:11:2026 TPL'), 'line 4: its reference']] as [$a, $words]) {
             try {
                 $k->shape($a);
                 self::fail($words);
@@ -197,6 +199,13 @@ final class AiKindsTest extends TestCase
         self::assertCount(160, self::read(AiAnswers::royalMail($lines))['rows']);
     }
 
+    /**
+     * H3 (Codex final of 86aebbd): an invoice's reading is read against its WHOLE schema before anything is filled: every field present and of
+     * its type (an explicit null where the schema allows it), no other field, each amount "1234.50" (a minus only as a sign), a date a day, the
+     * currency three letters; anything else refuses the whole reading, naming the field. The amounts are filled ONLY when the currency is
+     * GBP, all three are read, net + VAT = total exactly and none is below 0, and it is not a credit note; else none is filled and the
+     * person is told why (they type them).
+     */
     public function testAnInvoicesReadingFillsOnlyWhatHoldsTogether(): void
     {
         $k = new ExpenseInvoiceKind();
@@ -213,24 +222,38 @@ final class AiKindsTest extends TestCase
         // a supplier CW does not have: left to staff, its printed name said; a shop printed as billed: picked; no VAT: "No VAT"
         $f = ExpenseInvoiceKind::fill($k->shape(AiAnswers::invoice(['supplier_name' => 'New Co', 'billed_to' => 'ELECTROFAG', 'net' => '12.00', 'vat' => '0.00',
             'total' => '12.00'])), $sup, $shops, 2000, $typed);
-        self::assertSame(['', '2', 'none'], [$f['typed']['supplier'], $f['typed']['shop'], $f['typed']['vat_way']]);
+        self::assertSame(['', '2', 'none', '12.00'], [$f['typed']['supplier'], $f['typed']['shop'], $f['typed']['vat_way'], $f['typed']['total']]);
         self::assertSame([['fill_supplier_choose', ['New Co']]], $f['notes']);
-        // another VAT ("Different VAT"); a credit note's amounts without a minus, its tick on
-        $f = ExpenseInvoiceKind::fill($k->shape(AiAnswers::invoice(['document_kind' => 'credit_note', 'net' => '-100.00', 'vat' => '5.00', 'total' => '105.00'])),
-            $sup, $shops, 2000, $typed);
-        self::assertSame([true, '100.00', '5.00', 'other'], [$f['typed']['credit'], $f['typed']['net'], $f['typed']['vat'], $f['typed']['vat_way']]);
-        // amounts that do not add up, or not in pounds, or missing: never filled, said
-        foreach ([[['total' => '90.00'], 'fill_amounts_disagree'], [['currency' => 'USD'], 'fill_not_gbp'], [['net' => null, 'vat' => null], 'fill_amounts_missing'],
-            [['net' => '1,234.567', 'vat' => 'fourteen'], 'fill_amounts_missing']] as [$over, $note]) {
+        // never filled, said: not added up, another or an unknown currency, one missing (never worked out from the others), below 0, a credit note
+        foreach ([[['total' => '90.00'], 'fill_amounts_disagree'], [['currency' => 'USD'], 'fill_not_gbp'], [['currency' => null], 'fill_currency_unknown'],
+            [['net' => null], 'fill_amounts_missing'], [['net' => null, 'vat' => null], 'fill_amounts_missing'],
+            [['net' => '-70.60', 'vat' => '-14.12', 'total' => '-84.72'], 'fill_negative'], [['net' => '-70.60', 'vat' => '14.12', 'total' => '-56.48'], 'fill_negative'],
+            [['document_kind' => 'credit_note'], 'fill_credit_note']] as [$over, $note]) {
             $f = ExpenseInvoiceKind::fill($k->shape(AiAnswers::invoice($over)), $sup, $shops, 2000, $typed);
             self::assertSame(['', '', ''], [$f['typed']['net'], $f['typed']['vat'], $f['typed']['total']], $note);
-            self::assertSame($note, $f['notes'][0][0]);
+            self::assertSame($note, $f['notes'][array_key_last($f['notes'])][0], $note);
+            self::assertTrue(\CW\Ui\Words::has('AIREAD', $note), "{$note} is said in words");
         }
-        // the total and the VAT printed, no net: the net is the rest (never a VAT CW works out)
-        $f = ExpenseInvoiceKind::fill($k->shape(AiAnswers::invoice(['net' => null])), $sup, $shops, 2000, $typed);
-        self::assertSame('70.60', $f['typed']['net']);
-        $f = ExpenseInvoiceKind::fill($k->shape(AiAnswers::invoice(['net' => null, 'vat' => null])), $sup, $shops, 2000, $typed);
-        self::assertSame('', $f['typed']['net'], 'a total alone: the VAT is not worked out');
+        $f = ExpenseInvoiceKind::fill($k->shape(AiAnswers::invoice(['document_kind' => 'credit_note'])), $sup, $shops, 2000, $typed);
+        self::assertSame([true, ['supplier', 'invoice_no', 'invoice_date', 'credit']], [$f['typed']['credit'], $f['filled']], 'a credit note: its tick, no amounts');
+        // the whole reading refused, naming the field: a malformed amount (the Codex case: a total of "84.7x" with net and VAT that add up), a
+        // malformed date or currency, a field missing, one more, a wrong type, a text too long
+        $without = AiAnswers::invoice();
+        unset($without['total']);
+        foreach ([[AiAnswers::invoice(['total' => '84.7x']), 'the total'], [AiAnswers::invoice(['net' => '1,234.56']), 'the net'],
+            [AiAnswers::invoice(['vat' => 'fourteen']), 'the VAT'], [AiAnswers::invoice(['total' => 84.72]), 'the total'],
+            [AiAnswers::invoice(['invoice_date' => '2026-13-01']), 'the invoice date'], [AiAnswers::invoice(['currency' => 'pounds']), 'the currency'],
+            [AiAnswers::invoice(['invoice_number' => str_repeat('9', 65)]), 'the invoice number'], [AiAnswers::invoice(['supplier_name' => str_repeat('S', 101)]), 'the supplier'],
+            [AiAnswers::invoice(['billed_to' => 7]), 'the name billed'], [$without, 'the total (missing)'], [AiAnswers::invoice(['tip' => 'x']), 'a field CW did not ask for'],
+            [AiAnswers::invoice(['readable' => 'yes']), 'readable'], [AiAnswers::invoice(['not_readable_reason' => 'not_an_invoice']), 'the reason not readable'],
+            [AiAnswers::invoice(['document_kind' => 'statement']), 'the kind of document']] as [$answer, $words]) {
+            try {
+                $k->shape($answer);
+                self::fail("refused: {$words}");
+            } catch (CwException $e) {
+                self::assertSame(['ai_bad_answer', $words], [$e->errorCode, $e->getMessage()]);
+            }
+        }
         // not an invoice: refused with Claude's reason (a code), nothing filled
         try {
             $k->shape(AiAnswers::invoice(['readable' => false, 'not_readable_reason' => 'not_an_invoice']));
@@ -238,8 +261,5 @@ final class AiKindsTest extends TestCase
         } catch (CwException $e) {
             self::assertSame(['ai_not_readable', 'not_an_invoice'], [$e->errorCode, $e->getMessage()]);
         }
-        // a date that is no day, a number too long: not filled
-        $s = $k->shape(AiAnswers::invoice(['invoice_date' => '2026-13-01', 'invoice_number' => str_repeat('9', 65)]));
-        self::assertSame([null, null], [$s['invoice_date'], $s['invoice_no']]);
     }
 }

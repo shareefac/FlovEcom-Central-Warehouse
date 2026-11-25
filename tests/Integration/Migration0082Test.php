@@ -13,7 +13,7 @@ use CW\Tests\Support\MigrationFixture;
 
 /**
  * 0082 ("Claude reads the upload", CW-1182; docs/decisions.md AI7-AI9), applied to a scratch schema at the file before it (on this branch
- * 0079, the live release's last: 0080 and 0081 are other branches' and are not needed): it only ADDS (three tables, seven settings with their
+ * 0081, the live release 86c21af's last (CW-1180); 0080 is PayPal's branch's and is not needed): it only ADDS (three tables, seven settings with their
  * baselines, switched OFF and the key empty); no existing row changes; its CHECKs; the app login's rights (a call's row is written before the
  * request and finished once after it: who, where, the model asked and the most it may cost are never changed, a row is never removed; the
  * jobs are removed a day after; the reader's one row of its last runs); running every statement again changes nothing, a value set on the
@@ -46,8 +46,13 @@ final class Migration0082Test extends IntegrationTestCase
         // the file and that most are frozen
         self::assertSame(['served_model', 'input_tokens', 'output_tokens', 'cost_millipence', 'result', 'reason', 'refusal_category', 'request_id', 'fallback', 'seconds',
             'checked', 'check_code', 'checked_at'], array_keys(Grants::desiredColumns('ai_call')), 'only the call\'s outcome and what CW\'s checks made of it are written later');
-        self::assertSame(['Select', 'Insert', 'Update', 'Delete'], Grants::desired('ai_read'), 'the jobs: removed a day after they finish');
-        self::assertSame(['Select', 'Insert', 'Update', 'Delete'], Grants::desired('ai_reader'), 'the reader\'s own row of its runs');
+        // M10 (Codex final of 86aebbd): a job's who, where, file (size, sha256) and context are frozen once it is made; only its lifecycle is
+        // written (and the job removed a day after it finishes); the reader's row: only what the runner writes, never removed
+        self::assertSame(['Select', 'Insert', 'Delete'], Grants::desired('ai_read'), 'the jobs: removed a day after they finish');
+        self::assertSame(['state', 'reason', 'detail', 'answer', 'started_at', 'finished_at', 'taken_at', 'spool_name', 'file_used_at'],
+            array_keys(Grants::desiredColumns('ai_read')));
+        self::assertSame(['Select', 'Insert'], Grants::desired('ai_reader'), 'the reader\'s own row of its runs, never removed');
+        self::assertSame(['started_at', 'ended_at', 'ok_at', 'failed_at', 'error'], array_keys(Grants::desiredColumns('ai_reader')));
         self::assertTrue(Settings::isSecret('ai.anthropic_api_key'), 'the key is a secret: never shown back, the history keeps a fingerprint');
 
         $files = array_map('basename', glob(dirname(__DIR__, 2) . '/migrations/*.sql') ?: []);

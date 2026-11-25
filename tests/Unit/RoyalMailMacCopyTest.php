@@ -43,6 +43,30 @@ final class RoyalMailMacCopyTest extends TestCase
         self::assertCount(9, $one['rows']);
     }
 
+    /**
+     * M1 (Codex final of 86aebbd): a copy that breaks AFTER the reference keeps the reference (a £12 line's manifest M42, a sales order and
+     * its manifest): the same rows as the one-line copy, references and fingerprint included; a break after the reference with more words
+     * before the amounts (whose words are they: the description's or the reference's?) is refused whole, never guessed.
+     */
+    public function testABreakAfterTheReferenceKeepsTheReference(): void
+    {
+        $lines = [RmBill::line('2026-11-05', 'SD1', 1, 1000, 'CLICK AND DROP M42'), RmBill::line('2026-11-05', 'SD1', 5, 5308, 'CLICK AND DROP M2281', '5155465848'),
+            RmBill::line('2026-11-09', 'TPL', 431, 109612, '943'), RmBill::line('2026-11-12', 'TSS', 2, 539, '', '7181703660')];
+        $one = RoyalMailBillPage::parse(RmBill::text($lines), RmBill::PRODUCTS);
+        $mac = RoyalMailBillPage::parse(RmBill::macText($lines, ['break_after_ref' => [0, 1, 3]]), RmBill::PRODUCTS);
+        self::assertSame($one, $mac, 'the same rows (references and sales orders), totals and fingerprint');
+        self::assertSame([['manifest', '42', null], ['manifest', '2281', '5155465848'], ['preadvice', '943', null], ['none', null, '7181703660']],
+            array_map(static fn (array $r): array => [$r['ref_kind'], $r['ref_no'], $r['sales_order']], $mac['rows']));
+        $text = RmBill::macText($lines, ['break_after_ref' => [0]], 0);
+        self::assertStringContainsString("CLICK AND DROP M42\n(HV)\nGBP 10.00", $text);
+        try {
+            RoyalMailBillPage::parse($text, RmBill::PRODUCTS);
+            self::fail('refused');
+        } catch (CwException $e) {
+            self::assertSame('bad_file', $e->errorCode);
+        }
+    }
+
     /** @return iterable<string, array{0: \Closure(string): string}> */
     public static function broken(): iterable
     {

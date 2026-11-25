@@ -149,6 +149,8 @@ final class AiClaudeTest extends TestCase
             . implode('', array_map(static fn (int $i): string => "{$i} 0 obj << /Type /Page /Parent 1 0 R >> endobj\n", range(2, 6))) . "%%EOF\n";
         self::assertSame(5, Claude::pages($five), 'five page objects (the page tree itself is not a page)');
         self::assertSame(12, Claude::pages("%PDF-1.5\n1 0 obj << /Type/Pages /Count 12 >> endobj\n%%EOF\n"), 'no page objects to read: the page tree\'s count');
+        // M2 (Codex final of 86aebbd): the larger of the two, never fewer than either (one page object visible, the other 19 packed away)
+        self::assertSame(20, Claude::pages("%PDF-1.5\n1 0 obj << /Type /Pages /Count 20 >> endobj\n2 0 obj << /Type /Page >> endobj\n%%EOF\n"));
         self::assertSame(Claude::PAGES_UNKNOWN, Claude::pages("%PDF-1.5\n(compressed object streams)\n%%EOF\n"), 'nothing to count: 100');
         self::assertSame(100, Claude::PAGES_UNKNOWN);
         $bill = new RoyalMailBillKind();
@@ -160,8 +162,54 @@ final class AiClaudeTest extends TestCase
         self::assertSame(intdiv(strlen(Claude::SYSTEM) + strlen($invoice->instructions()) + strlen((string) json_encode($invoice->schema())) + 1, 2)
             + Claude::FRAME_TOKENS + Claude::PAGE_TOKENS, Claude::maxInputTokens($invoice, 'not read', 'image/png'), 'a photo: one page');
         // £ example (docs/decisions.md AI16): a 5-page bill's most = its ~54,000 tokens in at £3.20 + 64,000 out at £16.00 a million = about £1.20
-        $most = AiUsage::millipence($in, $bill->maxTokens(), '3.20', '16.00');
-        self::assertGreaterThan(115_000, $most);
-        self::assertLessThan(125_000, $most);
+        // an attempt; M2: every attempt that may be billed is reserved: the request and the server-side fallback's (no SDK retry: 0)
+        self::assertSame([2, 0, 300], [Claude::ATTEMPTS, Claude::MAX_RETRIES, Claude::DEADLINE_SEC]);
+        $most = \CW\Ai\DocumentReader::most($bill, $five, 'application/pdf', '3.20', '16.00');
+        self::assertSame(AiUsage::millipence(2 * $in, 2 * $bill->maxTokens(), '3.20', '16.00'), $most);
+        self::assertGreaterThan(230_000, $most);
+        self::assertLessThan(250_000, $most);
+    }
+
+    /**
+     * H2 (Codex final of 86aebbd): only https://api.anthropic.com:443 is ever reached. A 3xx is a failure (`redirect`), never followed: the SDK's
+     * own redirect loop never sees it, so the document is never replayed elsewhere; a request to any other place is refused before it leaves.
+     * H4: a stream that ends before message_stop is a broken stream (`connection`), never half a message read as an answer. M2: no SDK retry.
+     */
+    public function testOnlyAnthropicIsReachedAndOnlyAWholeStreamIsRead(): void
+    {
+        $k = new ExpenseInvoiceKind();
+        foreach ([307, 308, 302, 301] as $code) {
+            $f = (new FakeClaude())->push(FakeClaude::redirect($code, 'https://elsewhere.example.invalid/v1/messages'), FakeClaude::answer(AiAnswers::invoice(), 10, 10));
+            $r = self::claude($f)->read($k, "%PDF-1.4\nmade up\n", 'application/pdf');
+            self::assertSame(['redirect', null], [$r['reason'], $r['json']], (string) $code);
+            self::assertCount(1, $f->sent, "{$code}: never followed");
+        }
+        $f = new FakeClaude();
+        $guard = new \CW\Ai\AnthropicOnly($f);
+        foreach (['https://elsewhere.example.invalid/v1/messages', 'http://api.anthropic.com/v1/messages', 'https://api.anthropic.com:8443/v1/messages',
+            'https://api.anthropic.com.example.invalid/v1/messages', 'https://user@api.anthropic.com/v1/messages'] as $url) {
+            try {
+                $guard->sendRequest(new Request('POST', $url));
+                self::fail("refused: {$url}");
+            } catch (\Psr\Http\Client\ClientExceptionInterface $e) {
+                self::assertInstanceOf(\CW\Ai\AnthropicOnly::class, $guard);
+            }
+        }
+        self::assertSame([], $f->sent, 'nothing reached the network');
+        $f->push(FakeClaude::answer(AiAnswers::invoice(), 10, 10));
+        self::assertSame(200, $guard->sendRequest(new Request('POST', 'https://api.anthropic.com:443/v1/messages'))->getStatusCode());
+        // H4: valid JSON, end_turn, then the connection closed before message_stop: not an answer; counted as a broken stream
+        $f = (new FakeClaude())->push(FakeClaude::answer(AiAnswers::invoice(), 2100, 640, ['no_stop' => true]));
+        $r = self::claude($f)->read($k, 'x', 'image/jpeg');
+        self::assertSame(['connection', null], [$r['reason'], $r['json']]);
+        // M2: overloaded twice: ONE request (no SDK retry: a retry would be billed twice under one reservation); the person tries again
+        $busy = static fn (): \GuzzleHttp\Psr7\Response => new \GuzzleHttp\Psr7\Response(529, ['Content-Type' => 'application/json'],
+            '{"type":"error","error":{"type":"overloaded_error","message":"made up"}}');
+        $f = (new FakeClaude())->push($busy(), $busy());
+        $r = (new Claude(self::KEY, 'claude-opus-5-5', 'medium', $f))->read($k, 'x', 'image/jpeg');
+        self::assertSame(['overloaded', 1], [$r['reason'], count($f->sent)]);
+        // M4: the HTTP client's limits: the whole transfer within the deadline (300 s: below the installer's 6-minute drain), no redirect
+        self::assertSame(['timeout' => 300, 'connect_timeout' => 15, 'read_timeout' => 120, 'allow_redirects' => false, 'http_errors' => false],
+            array_intersect_key(Claude::guzzleOptions(), array_flip(['timeout', 'connect_timeout', 'read_timeout', 'allow_redirects', 'http_errors'])));
     }
 }

@@ -22,7 +22,7 @@ final class AiAnswers
      *
      * @param list<array<string, mixed>> $lines RmBill::line()
      * @param array<string, mixed> $over account, invoice, date (YYYY-MM-DD), net/vat/gross (pence), surcharge (pence|null), sales_form ("slash" |
-     *   "spaced": how a sales order is printed before the reference), and any answer field to replace
+     *   "spaced" | "bare": how a sales order is printed before the reference), and any answer field to replace
      * @return array<string, mixed>
      */
     public static function royalMail(array $lines, array $over = []): array
@@ -33,7 +33,11 @@ final class AiAnswers
             [$y, $m, $d] = explode('-', $l['day']);
             $ref = (string) $l['ref'];
             if ($l['sales'] !== null) {
-                $ref = ($over['sales_form'] ?? 'slash') === 'slash' ? $l['sales'] . '/' . ($ref === '' ? '' : ' ' . $ref) : $l['sales'] . ' / ' . $ref;
+                $ref = match ($over['sales_form'] ?? 'slash') {
+                    'slash' => $l['sales'] . '/' . ($ref === '' ? '' : ' ' . $ref),
+                    'bare' => $l['sales'] . ($ref === '' ? '' : ' ' . $ref), // M1: "7181703660" as printed with no slash
+                    default => $l['sales'] . ' / ' . $ref,
+                };
             }
             $rows[] = ['service_date' => "{$d}:{$m}:{$y}", 'product_code' => $l['product'], 'quantity' => number_format($l['qty'], 3, '.', ''),
                 'description' => 'A DESCRIPTION OF THE PRODUCT', 'reference' => trim($ref), 'net' => self::plain($l['net']), 'gross' => self::plain($l['gross']),

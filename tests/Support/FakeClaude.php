@@ -57,7 +57,7 @@ final class FakeClaude implements ClientInterface
      *
      * @param array<string, mixed>|string|null $json the answer (an array is JSON-encoded; a string is sent as it is; null: no text block)
      * @param array<string, mixed> $over model, stop (stop_reason), category (a refusal's), fallback (the model that answered after a
-     *   decline), cache_read, id
+     *   decline), cache_read, id, no_stop (the stream ends before message_stop: a connection closed early)
      */
     public static function answer(array|string|null $json, int $in, int $out, array $over = []): ResponseInterface
     {
@@ -94,7 +94,9 @@ final class FakeClaude implements ClientInterface
         }
         $events[] = ['message_delta', ['type' => 'message_delta', 'delta' => ['stop_reason' => $stop, 'stop_sequence' => null,
             'stop_details' => $stop === 'refusal' ? ['type' => 'refusal', 'category' => $over['category'] ?? null, 'explanation' => null] : null], 'usage' => $deltaUsage]];
-        $events[] = ['message_stop', ['type' => 'message_stop']];
+        if (($over['no_stop'] ?? false) !== true) {
+            $events[] = ['message_stop', ['type' => 'message_stop']];
+        }
         $body = '';
         foreach ($events as [$name, $data]) {
             $body .= "event: {$name}\ndata: " . json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . "\n\n";
@@ -107,6 +109,12 @@ final class FakeClaude implements ClientInterface
     {
         return new Response($code, ['Content-Type' => 'application/json', 'request-id' => 'req_01FakeError', 'x-should-retry' => 'false'],
             json_encode(['type' => 'error', 'error' => ['type' => $type, 'message' => $message]], JSON_THROW_ON_ERROR));
+    }
+
+    /** A redirect (H2, Codex final of 86aebbd): the SDK would follow it, replaying the document to $location. */
+    public static function redirect(int $code, string $location): ResponseInterface
+    {
+        return new Response($code, ['Location' => $location, 'request-id' => 'req_01FakeRedirect'], '');
     }
 
     /** A network failure as a PSR-18 client throws one (the host cannot be reached). */

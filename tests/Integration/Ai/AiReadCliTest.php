@@ -18,6 +18,8 @@ use CW\Tests\Support\TestDb;
 final class AiReadCliTest extends IntegrationTestCase
 {
     private string $spool = '';
+    /** @var array<string, string> more of the job's environment */
+    private array $env = [];
 
     public static function setUpBeforeClass(): void
     {
@@ -46,6 +48,7 @@ final class AiReadCliTest extends IntegrationTestCase
         $root = dirname(__DIR__, 3);
         $env = getenv();
         $env['CW_AI_SPOOL_DIR'] = $this->spool;
+        $env = $this->env + $env;
         $p = proc_open([PHP_BINARY, '-d', 'memory_limit=256M', "{$root}/bin/ai_read.php", '--db=' . TestDb::name(), ...$args], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes, $root, $env);
         self::assertIsResource($p);
@@ -97,5 +100,16 @@ final class AiReadCliTest extends IntegrationTestCase
         self::assertStringContainsString('the last run did not end', $r['out']);
         $run = self::$db->one('SELECT ended_at, ok_at, failed_at, error FROM ai_reader WHERE id = 1') ?? [];
         self::assertSame(['did not end', true, true], [$run['error'], $run['failed_at'] !== null, (string) $run['ok_at'] >= (string) $run['failed_at']]);
+        // M4 (Codex final of 86aebbd): the installer has paused the writers (its marker): the reader starts no reading, the job waits for after
+        $pause = AiFixtures::dir('pause');
+        touch($pause . '/cw-prod.cron.paused');
+        $this->env = ['CW_PAUSE_DIR' => $pause];
+        $wait = self::$db->insert("INSERT INTO ai_read (staff_user_id, place, kind, context, media_type, file_bytes, file_sha256, state, created_at) VALUES "
+            . "(?, 'expense_new', 'expense_invoice', '{}', 'application/pdf', 9, ?, 'waiting', ?)", [$staff, str_repeat('0', 64), Clock::db(Clock::now())]);
+        $r = $this->cli('--once');
+        exec('rm -rf ' . escapeshellarg($pause));
+        self::assertSame(0, $r['code'], $r['err']);
+        self::assertStringContainsString('the writers are paused (an install): no reading starts', $r['out']);
+        self::assertSame('waiting', self::$db->value('SELECT state FROM ai_read WHERE id = ?', [$wait]));
     }
 }

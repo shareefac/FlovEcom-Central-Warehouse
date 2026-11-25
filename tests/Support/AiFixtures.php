@@ -33,10 +33,10 @@ final class AiFixtures
         return new DocumentReader($db, $spool, static fn (AiSettings $s): Claude => new Claude($s->key, $s->model, $s->effort, $fake, 0), $clock);
     }
 
-    /** A tiny PDF (what finfo calls application/pdf), with $text in it so two files differ. */
+    /** A tiny PDF of one page (what finfo calls application/pdf), with $text in it so two files differ. */
     public static function pdf(string $dir, string $text = 'made up', string $name = 'doc.pdf'): string
     {
-        $body = "%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\n% {$text}\ntrailer << /Root 1 0 R >>\n%%EOF\n";
+        $body = "%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\n2 0 obj << /Type /Page >> endobj\n% {$text}\ntrailer << /Root 1 0 R >>\n%%EOF\n";
         file_put_contents($dir . '/' . $name, $body);
         return $dir . '/' . $name;
     }

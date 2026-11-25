@@ -36,11 +36,17 @@ final class AiDeployTest extends TestCase
         foreach (['production/cw-prod.cron' => ['/opt/cw-prod', 'cw_prod'], 'staging/cw-staging.cron' => ['/opt/cw-staging', 'cw_staging']] as $file => [$dir, $db]) {
             $cron = (string) file_get_contents(self::ROOT . '/deploy/' . $file);
             self::assertSame(1, preg_match_all('#^[^\#\n]*bin/ai_read\.php#m', $cron), "{$file}: one line");
-            self::assertMatchesRegularExpression('#^\* \* \* \* \*  root  cd ' . preg_quote($dir, '#') . ' && php -d memory_limit=512M bin/ai_read\.php --db=' . $db
-                . ' >> /var/log/cw/ai_read\.log 2>&1$#m', $cron);
+            // H1 (Codex final of 86aebbd): the reader runs as www-data (the spool's owner), never root; from its own folder (www-data's cwd), its log
+            // written by cron's root shell
+            self::assertMatchesRegularExpression('#^\* \* \* \* \*  root  cd ' . preg_quote($dir, '#') . ' && runuser -u www-data -- php -d memory_limit=512M '
+                . 'bin/ai_read\.php --db=' . $db . ' >> /var/log/cw/ai_read\.log 2>&1$#m', $cron);
         }
         $install = (string) file_get_contents(self::ROOT . '/deploy/production/install_cron.sh');
         self::assertStringNotContainsString('ai_read.php', $install, 'never run as an installer\'s smoke check (it reads documents)');
+        // H9 (Codex final of 86aebbd): the go-live kit names the commit it checked; the installer checks it again under its own lock (as PayPal's)
+        foreach (['--expect-revision=*) expect_rev=', '--expect-active=*) expect_active=', 'not the expected $expect_rev (a push replaced it)'] as $part) {
+            self::assertStringContainsString($part, $install);
+        }
     }
 
     public function testTheLabelReportIsNeverOfferedToClaude(): void

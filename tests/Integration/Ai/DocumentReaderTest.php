@@ -30,6 +30,9 @@ use CW\Tests\Support\RmBill;
  */
 final class DocumentReaderTest extends IntegrationTestCase
 {
+    /** Every upload place (the screens pass their own: M5). */
+    private const ALL = [...DocumentReader::BILL_PLACES, ...DocumentReader::EXPENSE_PLACES];
+
     private string $spool = '';
     private string $files = '';
 
@@ -135,9 +138,9 @@ final class DocumentReaderTest extends IntegrationTestCase
         $r = AiFixtures::reader(self::$db, $this->spool, $f);
         self::assertNull($r->runNext(), 'nothing waiting');
         $pdf = AiFixtures::pdf($this->files);
-        $most = AiUsage::millipence(Claude::maxInputTokens(new RoyalMailBillKind(), (string) file_get_contents($pdf), 'application/pdf'), 64_000, '3.20', '16.00');
+        $most = DocumentReader::most(new RoyalMailBillKind(), (string) file_get_contents($pdf), 'application/pdf', '3.20', '16.00');
         $id = $r->start($job, 'delivery_upload', $pdf, ['account' => 3]);
-        self::assertSame('waiting', $r->view($job, $id)['state']);
+        self::assertSame('waiting', $r->view($job, $id, self::ALL)['state']);
         self::assertSame(['id' => $id, 'state' => 'done', 'reason' => 'ok'], $r->runNext());
         self::assertSame(['started', 'started', (string) $most, (string) $most], array_map('strval', array_values($seen ?? [])),
             'AI16: the call\'s row written before the request, at the most it may cost');
@@ -157,19 +160,19 @@ final class DocumentReaderTest extends IntegrationTestCase
         }
         self::assertSame(['calls' => 1, 'documents' => 1, 'pence' => 26], array_diff_key(AiUsage::month(self::$db), ['from' => 1]), '25.6p, rounded up');
         // the answer: another person never sees it; its person takes it once
-        self::assertSame('not_found', self::refused(fn () => $r->view($other, $id))->errorCode);
-        self::assertSame('not_found', self::refused(fn () => $r->take($other, $id))->errorCode);
-        $a = $r->take($job, $id);
+        self::assertSame('not_found', self::refused(fn () => $r->view($other, $id, self::ALL))->errorCode);
+        self::assertSame('not_found', self::refused(fn () => $r->take($other, $id, self::ALL))->errorCode);
+        $a = $r->take($job, $id, self::ALL);
         self::assertSame(['0706703000', '9070000001', 2, '5.08'], [$a['account'], $a['invoice_number'], count($a['lines']), $a['lines'][0]['net']]);
-        self::assertSame('ai_taken', self::refused(fn () => $r->take($job, $id))->errorCode);
+        self::assertSame('ai_taken', self::refused(fn () => $r->take($job, $id, self::ALL))->errorCode);
         // the person's own check busy just now (the bills' lock): the answer given back, taken again, never read a second time
         $r->giveBack($other, $id, $a);
-        self::assertSame('taken', $r->view($job, $id)['state'], 'another person never gives a reading back');
+        self::assertSame('taken', $r->view($job, $id, self::ALL)['state'], 'another person never gives a reading back');
         $r->giveBack($job, $id, $a);
-        self::assertSame('done', $r->view($job, $id)['state']);
-        self::assertSame($a, $r->take($job, $id));
+        self::assertSame('done', $r->view($job, $id, self::ALL)['state']);
+        self::assertSame($a, $r->take($job, $id, self::ALL));
         self::assertCount(1, $f->sent);
-        self::assertSame(['taken', null], [$r->view($job, $id)['state'], self::$db->value('SELECT answer FROM ai_read WHERE id = ?', [$id])], 'the answer gone once shown');
+        self::assertSame(['taken', null], [$r->view($job, $id, self::ALL)['state'], self::$db->value('SELECT answer FROM ai_read WHERE id = ?', [$id])], 'the answer gone once shown');
         $r->checked($id, false, 'bad_file');
         $r->checked($id, true);
         self::assertSame(['refused', 'bad_file'], array_values(self::$db->one('SELECT checked, check_code FROM ai_call WHERE read_id = ?', [$id]) ?? []), 'written once');
@@ -192,7 +195,7 @@ final class DocumentReaderTest extends IntegrationTestCase
         $r->runNext();
         $r->runNext();
         self::assertSame($id, $r->start($job, 'expense_new', $pdf, ['shop' => '1']), 'read, not shown yet: the same reading (no second call)');
-        $r->take($job, $id);
+        $r->take($job, $id, self::ALL);
         $again = $r->start($job, 'expense_new', $pdf, ['shop' => '1']);
         self::assertNotSame($id, $again, 'once shown, sending it again reads it again');
         self::assertCount(2, $f->sent);
@@ -210,10 +213,10 @@ final class DocumentReaderTest extends IntegrationTestCase
             throw new \Error('made up');
         });
         $pdf = AiFixtures::pdf($this->files);
-        $most = AiUsage::millipence(Claude::maxInputTokens(new ExpenseInvoiceKind(), (string) file_get_contents($pdf), 'application/pdf'), 8_000, '3.20', '16.00');
+        $most = DocumentReader::most(new ExpenseInvoiceKind(), (string) file_get_contents($pdf), 'application/pdf', '3.20', '16.00');
         $id = $r->start($job, 'expense_new', $pdf, []);
         self::assertSame(['id' => $id, 'state' => 'failed', 'reason' => 'error'], $r->runNext());
-        self::assertSame('Error', $r->view($job, $id)['detail']);
+        self::assertSame('Error', $r->view($job, $id, self::ALL)['detail']);
         self::assertSame(\CW\Ui\Words::say('AIREAD', 'failed', \CW\Ui\Words::AIREAD['why_error']) . ' ' . \CW\Ui\Words::AIREAD['next_expense_invoice'],
             \CW\Ui\AiReadWords::failure('expense_invoice', 'error', 'Error'), 'said in words, never the class');
         self::assertSame(['failed', 'error', (string) $most, (string) $most], array_map('strval', array_values(self::$db->one('SELECT result, reason, cost_millipence, '
@@ -241,7 +244,7 @@ final class DocumentReaderTest extends IntegrationTestCase
         $f = new FakeClaude();
         $r = AiFixtures::reader(self::$db, $this->spool, $f);
         $png = AiFixtures::png($this->files);
-        $most = AiUsage::millipence(Claude::maxInputTokens(new ExpenseInvoiceKind(), (string) file_get_contents($png), 'image/png'), 8_000, '3.20', '16.00');
+        $most = DocumentReader::most(new ExpenseInvoiceKind(), (string) file_get_contents($png), 'image/png', '3.20', '16.00');
         $month = null;
         $f->onSend = static function () use (&$month): void {
             $month = AiUsage::month(self::$db)['pence'];
@@ -275,7 +278,7 @@ final class DocumentReaderTest extends IntegrationTestCase
         self::assertSame([1, 1], [$s['stopped'], $s['crashed']], 'with the lock held: no runner is reading it');
         self::assertSame([['crashed', 'stopped', '120000'], ['crashed', 'stopped', '90000']], array_map(static fn (array $c): array => array_map('strval', array_values($c)),
             self::$db->all('SELECT result, reason, cost_millipence FROM ai_call WHERE id = ? OR read_id = ? ORDER BY cost_millipence DESC', [$old, $dead])), 'closed at their most');
-        self::assertSame(['failed', 'stopped'], [$r->view($job, $dead)['state'], $r->view($job, $dead)['reason']]);
+        self::assertSame(['failed', 'stopped'], [$r->view($job, $dead, self::ALL)['state'], $r->view($job, $dead, self::ALL)['reason']]);
         self::assertSame(AiUsage::pence(1_696 + 120_000 + 90_000), AiUsage::month(self::$db)['pence'], 'the month counts them');
         // the limit counts them: £2.12 used, a limit of £2 starts nothing
         AiFixtures::on(self::$db, [AiSettings::LIMIT => '"2"']);
@@ -304,10 +307,10 @@ final class DocumentReaderTest extends IntegrationTestCase
             self::assertSame(['id' => $id, 'state' => 'failed', 'reason' => $reason], $r->runNext(), $reason);
             self::assertCount($n + 1, $this->spooled(), "{$reason}: the invoice kept for its Save");
             self::assertTrue($r->kept($job, $id), $reason);
-            $v = $r->view($job, $id);
+            $v = $r->view($job, $id, self::ALL);
             self::assertSame([$reason, $detail], [$v['reason'], $v['detail']]);
             self::assertSame([$result, $reason], array_values(self::$db->one('SELECT result, reason FROM ai_call WHERE read_id = ?', [$id]) ?? []));
-            self::assertSame('ai_taken', self::refused(fn () => $r->take($job, $id))->errorCode, 'nothing to take');
+            self::assertSame('ai_taken', self::refused(fn () => $r->take($job, $id, self::ALL))->errorCode, 'nothing to take');
         }
         self::assertSame('cyber', self::$db->value("SELECT refusal_category FROM ai_call WHERE reason = 'refusal'"));
         self::assertSame(['384', '0', '0'], array_map('strval', self::$db->column("SELECT cost_millipence FROM ai_call WHERE reason IN ('refusal', 'auth', 'overloaded') "
@@ -386,11 +389,11 @@ final class DocumentReaderTest extends IntegrationTestCase
         // without the runner's lock a `reading` job is left alone (a runner may be reading it)
         $s = $r->sweep(false);
         self::assertSame(['stopped' => 0, 'too_old' => 1, 'expired' => 1], array_intersect_key($s, ['stopped' => 1, 'too_old' => 1, 'expired' => 1]));
-        self::assertSame('reading', $r->view($job, $stopped)['state']);
+        self::assertSame('reading', $r->view($job, $stopped, self::ALL)['state']);
         self::assertSame(1, $r->sweep(true)['stopped'], 'with the lock held, no runner is reading it: it stopped');
-        self::assertSame(['failed', 'stopped'], [$r->view($job, $stopped)['state'], $r->view($job, $stopped)['reason']]);
-        self::assertSame(['failed', 'too_old'], [$r->view($job, $old)['state'], $r->view($job, $old)['reason']]);
-        self::assertSame(['expired', null], [$r->view($job, $done)['state'], self::$db->value('SELECT answer FROM ai_read WHERE id = ?', [$done])]);
+        self::assertSame(['failed', 'stopped'], [$r->view($job, $stopped, self::ALL)['state'], $r->view($job, $stopped, self::ALL)['reason']]);
+        self::assertSame(['failed', 'too_old'], [$r->view($job, $old, self::ALL)['state'], $r->view($job, $old, self::ALL)['reason']]);
+        self::assertSame(['expired', null], [$r->view($job, $done, self::ALL)['state'], self::$db->value('SELECT answer FROM ai_read WHERE id = ?', [$done])]);
         $left = $this->spooled();
         sort($left);
         $want = ['README', str_repeat('d', 32), $stoppedFile];
@@ -430,7 +433,7 @@ final class DocumentReaderTest extends IntegrationTestCase
         self::assertCount(1, $this->spooled(), 'read, and kept for its Save');
         self::assertTrue($r->kept($job, $id));
         self::assertFalse($r->kept($other, $id), 'for its person only');
-        $r->take($job, $id);
+        $r->take($job, $id, self::ALL);
         $now = $now->modify('+50 minutes');
         $r->sweep(true);
         self::assertCount(1, $this->spooled(), 'kept an hour from when its page took it');
@@ -469,6 +472,114 @@ final class DocumentReaderTest extends IntegrationTestCase
         // an expense keeps a PDF, a JPEG or a PNG: a GIF is refused before it is read
         self::assertSame('ai_type_expense', self::refused(fn () => $r->start($job, 'expense_new', AiFixtures::gif($this->files), []))->errorCode);
         self::assertNotSame('', (string) \CW\Ui\AiReadWords::refusal(new CwException('ai_type_expense', 'x', 415)));
+    }
+
+    /**
+     * H1 (Codex final of 86aebbd): the reader sends only its OWN spool file: a name of 32 hex, inside the spool, a regular file that is not a
+     * link, of the size and sha256 the job recorded; anything else ends the job (file_gone) with no call, and nothing outside the spool is
+     * ever read or deleted.
+     */
+    public function testTheReaderSendsAndDeletesOnlyItsOwnSpoolFile(): void
+    {
+        $bills = self::person('delivery_bills');
+        AiFixtures::on(self::$db);
+        $f = new FakeClaude();
+        $r = AiFixtures::reader(self::$db, $this->spool, $f);
+        $outside = AiFixtures::pdf($this->files, 'outside', 'o.pdf');
+        $keep = file_get_contents($outside);
+        $cases = [
+            'a path, not a spool name' => static fn (string $name): string => '../' . basename(dirname($outside)) . '/o.pdf',
+            'a link to a file outside' => function (string $name) use ($outside): string {
+                unlink($this->spool . '/' . $name);
+                symlink($outside, $this->spool . '/' . $name);
+                return $name;
+            },
+            'the bytes changed (same size)' => function (string $name): string {
+                $p = $this->spool . '/' . $name;
+                file_put_contents($p, strrev((string) file_get_contents($p)));
+                return $name;
+            },
+        ];
+        foreach ($cases as $what => $tamper) {
+            $id = $r->start($bills, 'delivery_upload', $outside, ['case' => $what]);
+            $name = (string) self::$db->value('SELECT spool_name FROM ai_read WHERE id = ?', [$id]);
+            self::$db->exec('UPDATE ai_read SET spool_name = ? WHERE id = ?', [$tamper($name), $id]);
+            self::assertSame(['id' => $id, 'state' => 'failed', 'reason' => 'file_gone'], $r->runNext(), $what);
+            self::assertSame([], $f->sent, "{$what}: nothing sent");
+            self::assertSame($keep, @file_get_contents($outside), "{$what}: the file outside the spool untouched");
+            $r->sweep(true);
+            self::assertSame($keep, @file_get_contents($outside), "{$what}: the clean-up never deletes outside the spool");
+        }
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM ai_call'));
+    }
+
+    /**
+     * M3 (Codex final of 86aebbd): the month's limit is a HARD cap: a call starts only when the month's spend plus its most stays within the
+     * limit (the runner checks, under its lock); prices must be above 0 (a price of 0 would count paid readings as nothing).
+     */
+    public function testTheLimitIsAHardCapAndPricesAreNeverZero(): void
+    {
+        $job = self::person('expenses');
+        AiFixtures::on(self::$db, [AiSettings::LIMIT => '"0.30"']);
+        $f = new FakeClaude();
+        $r = AiFixtures::reader(self::$db, $this->spool, $f);
+        $png = AiFixtures::png($this->files);
+        $most = DocumentReader::most(new ExpenseInvoiceKind(), (string) file_get_contents($png), 'image/png', '3.20', '16.00');
+        self::assertGreaterThan(3_000 * 10, $most, 'a photo\'s most is above 30p');
+        $id = $r->start($job, 'expense_new', $png, []);
+        self::assertSame(['id' => $id, 'state' => 'failed', 'reason' => 'limit'], $r->runNext(), '0p + its most > 30p: not sent');
+        self::assertSame([], $f->sent);
+        AiFixtures::on(self::$db, [AiSettings::LIMIT => '"30"']);
+        foreach ([AiSettings::PRICE_IN, AiSettings::PRICE_OUT] as $k) {
+            try {
+                (new \CW\Settings(self::$db))->set(Caller::system('test'), $k, '0', 'made-up test');
+                self::fail("{$k} 0 refused");
+            } catch (CwException $e) {
+                self::assertSame('bad_value', $e->errorCode, $k);
+            }
+        }
+        // a price of 0 in the database all the same (by hand): reading is off, said, nothing sent
+        self::$db->exec("UPDATE app_setting SET value_json = CAST('\"0\"' AS JSON) WHERE setting_key = ?", [AiSettings::PRICE_OUT]);
+        self::assertSame(['ai_off', 'off_price'], (static function () use ($r, $job, $png): array {
+            try {
+                $r->start($job, 'expense_new', $png, ['again' => 1]);
+            } catch (CwException $e) {
+                return [$e->errorCode, $e->getMessage()];
+            }
+            return ['started', ''];
+        })());
+        self::assertNotSame('', \CW\Ui\AiReadWords::refusal(new CwException('ai_off', 'off_price', 409)));
+    }
+
+    /**
+     * M5, M6 (Codex final of 86aebbd): a reading is seen and taken only where it was made (a Royal Mail bill's never at the Expenses page, which
+     * would consume it), and an answer past its hour is never taken (expired then, under the row lock), whatever the clean-up's turn.
+     */
+    public function testAReadingIsTakenOnlyWhereItWasMadeAndWithinItsHour(): void
+    {
+        $both = self::person('delivery_bills');
+        self::$db->exec("INSERT INTO staff_role (staff_user_id, role) VALUES (?, 'expenses')", [$both->staffUserId]);
+        AiFixtures::on(self::$db);
+        $now = Clock::now();
+        $clock = static function () use (&$now): \DateTimeImmutable {
+            return $now;
+        };
+        $f = (new FakeClaude())->push(FakeClaude::answer(AiAnswers::royalMail([RmBill::line('2026-11-09', 'TPL', 2, 508, '943')]), 100, 10),
+            FakeClaude::answer(AiAnswers::invoice(), 100, 10));
+        $r = AiFixtures::reader(self::$db, $this->spool, $f, $clock);
+        $bill = $r->start($both, 'delivery_upload', AiFixtures::pdf($this->files, 'bill'), []);
+        $r->runNext();
+        $expenses = DocumentReader::EXPENSE_PLACES;
+        self::assertSame('not_found', self::refused(fn () => $r->view($both, $bill, $expenses))->errorCode);
+        self::assertSame('not_found', self::refused(fn () => $r->take($both, $bill, $expenses))->errorCode);
+        self::assertSame('done', $r->view($both, $bill, DocumentReader::BILL_PLACES)['state'], 'not consumed');
+        self::assertSame('9070000001', $r->take($both, $bill, DocumentReader::BILL_PLACES)['invoice_number']);
+        // an answer finished 61 minutes ago, the clean-up not run yet: expired now, never taken
+        $inv = $r->start($both, 'expense_new', AiFixtures::pdf($this->files, 'inv'), []);
+        $r->runNext();
+        $now = $now->modify('+61 minutes');
+        self::assertSame('ai_taken', self::refused(fn () => $r->take($both, $inv, $expenses))->errorCode);
+        self::assertSame(['expired', null], [$r->view($both, $inv, $expenses)['state'], self::$db->value('SELECT answer FROM ai_read WHERE id = ?', [$inv])]);
     }
 
     public function testTheMonthIsTheUkMonth(): void

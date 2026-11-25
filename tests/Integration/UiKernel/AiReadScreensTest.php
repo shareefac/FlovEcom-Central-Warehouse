@@ -95,6 +95,22 @@ final class AiReadScreensTest extends KernelUiTestCase
         return [RmBill::line('2026-11-09', 'TPL', 2, 508, '943'), RmBill::line('2026-11-08', 'RW4', 1, 105, 'Rectification Week 45')];
     }
 
+    /**
+     * H5 (Codex final of 86aebbd): the form's submit buttons in the order Enter meets them: the FIRST must be Save (no formaction), the Claude
+     * button only after it (pressed on purpose).
+     *
+     * @return list<string> each button's formaction ('' for none)
+     */
+    private static function submits(UiResponse $r, string $action): array
+    {
+        $xp = new \DOMXPath($r->dom());
+        $out = [];
+        foreach ($xp->query('//form[@action="' . $action . '"]//*[(self::button and (not(@type) or @type="submit")) or (self::input and @type="submit")]') ?: [] as $b) {
+            $out[] = $b instanceof \DOMElement ? $b->getAttribute('formaction') : '';
+        }
+        return $out;
+    }
+
     private function upload(KernelBrowser $web, array $form, string $path, string $name = 'bill.pdf'): UiResponse
     {
         $page = $web->get('/ui/profit/delivery');
@@ -272,6 +288,9 @@ final class AiReadScreensTest extends KernelUiTestCase
         AiFixtures::on(self::$db);
         $new = $web->get('/ui/profit/expenses/new');
         self::assertStringContainsString('formaction="/ui/profit/expenses/read"', $new->body);
+        $order = self::submits($new, '/ui/profit/expenses/new');
+        self::assertSame('', $order[0] ?? null, 'H5: Enter presses Save, never "Fill from the file with Claude"');
+        self::assertContains('/ui/profit/expenses/read', $order);
         $form = ['shop' => (string) $vpg, 'type' => $type, 'note' => 'typed before'] + $new->form('/ui/profit/expenses/new');
         $none = $web->postMultipart('/ui/profit/expenses/read', $form, []);
         self::assertSame(400, $none->status, $none->describe());
@@ -295,7 +314,7 @@ final class AiReadScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('AIREAD', 'filled', implode(', ', array_map(static fn (string $k): string => Words::AIREAD['field_' . $k],
             ['supplier', 'invoice_no', 'invoice_date', 'total', 'net', 'vat']))), $filled->text());
         // AI15: the invoice Claude read is kept for this expense: never asked for again
-        self::assertArrayNotHasKey('file_again', $v);
+        self::assertSame('1', $v['file_again'] ?? null, 'H7: the marker the release before reads (choose the file again), alongside ai_file');
         self::assertStringContainsString(Words::AIREAD['file_kept'], $filled->text());
         self::assertCount(1, array_diff(scandir($this->spool) ?: [], ['.', '..']), 'kept in the spool for its Save');
         // another person's form naming that reading attaches nothing: refused in words, nothing saved
@@ -309,7 +328,7 @@ final class AiReadScreensTest extends KernelUiTestCase
         $refused = $web->postMultipart('/ui/profit/expenses/new', ['then' => 'done', 'shop' => ''] + $v, []);
         self::assertSame(422, $refused->status, $refused->describe());
         $again = $refused->form('/ui/profit/expenses/new');
-        self::assertSame([$read, false], [$again['ai_file'] ?? null, isset($again['file_again'])]);
+        self::assertSame([$read, '1'], [$again['ai_file'] ?? null, $again['file_again'] ?? null]);
         self::assertNull(self::$db->value('SELECT file_used_at FROM ai_read WHERE id = ?', [$read]), 'a refused Save uses nothing');
         // Save: stored with Claude's figures, the supplier CW's own, and the invoice it read attached (as if chosen), once
         $save = $web->postMultipart('/ui/profit/expenses/new', array_merge($again, ['then' => 'done', 'shop' => (string) $vpg]), []);
@@ -336,6 +355,9 @@ final class AiReadScreensTest extends KernelUiTestCase
         $before = (int) self::$db->value('SELECT file_id FROM expense');
         $page = $web->get('/ui/profit/expenses/' . $id);
         $change = $page->form('/ui/profit/expenses/' . $id . '/change');
+        $order = self::submits($page, '/ui/profit/expenses/' . $id . '/change');
+        self::assertSame('', $order[0] ?? null, 'H5: the Change form\'s Enter presses Save too');
+        self::assertContains('/ui/profit/expenses/' . $id . '/read', $order);
         $f->push(FakeClaude::answer(AiAnswers::invoice(['invoice_number' => 'INV-20418', 'net' => '50.00', 'vat' => '10.00', 'total' => '60.00']), 2_100, 640));
         $r = $web->postMultipart('/ui/profit/expenses/' . $id . '/read', $change, ['file' => ['path' => AiFixtures::png($this->dir), 'name' => 'photo.png']]);
         self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
@@ -343,8 +365,8 @@ final class AiReadScreensTest extends KernelUiTestCase
         $filled = $web->get((string) $r->location());
         self::assertSame(200, $filled->status, $filled->describe());
         $v = $filled->form('/ui/profit/expenses/' . $id . '/change');
-        self::assertSame(['INV-20418', '60.00', '50.00', '10.00', $change['seen'], (string) self::$db->value('SELECT MAX(id) FROM ai_read'), false],
-            [$v['invoice_no'], $v['total'], $v['net'], $v['vat'], $v['seen'], $v['ai_file'] ?? null, isset($v['file_again'])]);
+        self::assertSame(['INV-20418', '60.00', '50.00', '10.00', $change['seen'], (string) self::$db->value('SELECT MAX(id) FROM ai_read'), true],
+            [$v['invoice_no'], $v['total'], $v['net'], $v['vat'], $v['seen'], $v['ai_file'] ?? null, ($v['file_again'] ?? null) === '1']);
         $fold = (new \DOMXPath($filled->dom()))->query('//details[@id="change"]')?->item(0);
         self::assertTrue($fold instanceof \DOMElement && $fold->hasAttribute('open'), 'the Change fold open, filled');
         // the add form never takes a Change's invoice

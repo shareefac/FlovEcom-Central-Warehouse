@@ -180,10 +180,18 @@ final class RmBill
         foreach ($lines as $i => $l) {
             [$y, $m, $d] = explode('-', $l['day']);
             $long = $i === $longDescription;
+            $ref = array_values(array_filter([$l['sales'] ?? '', ($l['sales'] === null ? '' : '/ ') . $l['ref']], static fn (string $c): bool => $c !== ''));
+            $money = [self::gbp($l['net']), self::gbp($l['gross']), $l['vat']];
+            if (in_array($i, $over['break_after_ref'] ?? [], true)) {
+                // M1 (Codex final of 86aebbd): the copy breaks AFTER the reference cell: "date, product, quantity, description, reference" then
+                // "net, gross, VAT code"
+                $out .= implode("\t", ["{$d}:{$m}:{$y}", $l['product'], number_format($l['qty'], 3, '.', ''), 'A DESCRIPTION OF THE PRODUCT', ...$ref]) . "\n"
+                    . ($long ? "(HV)\n" : '') . implode("\t", $money) . "\n";
+                continue;
+            }
             $out .= implode("\t", ["{$d}:{$m}:{$y}", $l['product'], number_format($l['qty'], 3, '.', ''), $long ? 'ROYAL MAIL TRACKED 48' : 'A DESCRIPTION OF THE PRODUCT'])
                 . ($i % 2 === 0 ? "\t" : '') . "\n" . ($long ? "(HV)\n" : '')
-                . ($i % 3 === 0 ? "\t" : '') . implode("\t", array_values(array_filter([$l['sales'] ?? '', ($l['sales'] === null ? '' : '/ ') . $l['ref'],
-                    self::gbp($l['net']), self::gbp($l['gross']), $l['vat']], static fn (string $c): bool => $c !== ''))) . "\n";
+                . ($i % 3 === 0 ? "\t" : '') . implode("\t", [...$ref, ...$money]) . "\n";
         }
         if (!($over['no_summary'] ?? false)) {
             foreach ($t['by_code'] as $code => $f) {
