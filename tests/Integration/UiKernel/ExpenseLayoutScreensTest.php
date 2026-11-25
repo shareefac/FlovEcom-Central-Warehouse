@@ -145,6 +145,15 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         return $control->getAttribute('name');
     }
 
+    /** The money row (EX65): Total with VAT (its hint under it) | Amount without VAT | VAT (its hint under it). @return list<string> */
+    private static function money(\DOMElement $row): array
+    {
+        self::assertSame('div.ex-row.ex-money', self::sig($row));
+        $cells = self::kids($row);
+        self::assertCount(3, $cells, 'three cells');
+        return [self::cell($cells[0], true), self::cell($cells[1], false), self::cell($cells[2], true)];
+    }
+
     /** @param list<bool> $hints which of the row's two cells carry a hint @return list<string> the row's two controls */
     private static function row(\DOMElement $row, array $hints): array
     {
@@ -187,8 +196,9 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         self::assertSame('legend', self::kids($parts[0])[0]->nodeName);
         self::assertSame(['label.choice.shop-choice', 'label.choice.shop-choice', 'label.choice.shop-choice'], array_map(self::sig(...), array_slice(self::kids($parts[0]), 1)));
         $f = self::kids($parts[1]);
-        self::assertSame(['div.ex-row', 'div.ex-row', 'div.ex-credit', 'div.ex-row', 'p.expense-total', 'p.alert.expense-dollar', 'div.field.ex-wide'],
-            array_map(self::sig(...), $f), 'supplier / type, date / number, the credit tick, the amounts, the total, the dollar hint, the note');
+        self::assertSame(['div.ex-row', 'div.ex-row', 'div.ex-credit', 'fieldset.vat-pick.ex-vat-way', 'div.ex-row.ex-money', 'p.hint.ex-adds-up', 'p.expense-total',
+            'p.alert.expense-dollar', 'div.field.ex-wide'], array_map(self::sig(...), $f),
+            'supplier / type, date / number, the credit tick, the VAT on the invoice, total with VAT / without VAT / VAT (EX65), the total, the dollar hint, the note');
         self::assertSame(['supplier', 'type'], self::row($f[0], [true, true]));
         // The supplier's slot under the box: its hint, then "Add it as a new supplier" (no line of its own across the form).
         $under = self::kids(self::kids($f[0])[0])[2];
@@ -198,8 +208,9 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         $credit = self::kids($f[2]);
         self::assertSame(['label.choice.ex-tick', 'p.hint'], array_map(self::sig(...), $credit));
         self::assertSame($credit[1]->getAttribute('id'), ($credit[0]->getElementsByTagName('input')->item(0))?->getAttribute('aria-describedby'), 'the credit hint is read with its tick');
-        self::assertSame(['net', 'vat'], self::row($f[3], [false, true]));
-        self::assertSame('note', self::cell($f[6], false));
+        self::assertSame(['legend', 'label.choice', 'label.choice', 'label.choice'], array_map(self::sig(...), self::kids($f[3])), 'the VAT choice: three buttons');
+        self::assertSame(['total', 'net', 'vat'], self::money($f[4]));
+        self::assertSame('note', self::cell($f[8], false));
         // The file panel: its title, the label, the box (its hint under it, tied to it), the words that say it is kept.
         $file = self::kids($side);
         self::assertSame(['fieldset.expense-file'], array_map(self::sig(...), $file));
@@ -221,7 +232,7 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));
         $form = self::form($page, '/ui/profit/expenses/new');
         self::expenseCard($form, true);
-        self::assertSame(['shop', 'shop', 'shop', 'supplier', 'new_supplier', 'type', 'invoice_date', 'invoice_no', 'credit', 'net', 'vat', 'note', 'file', 'then', 'then'],
+        self::assertSame(['shop', 'shop', 'shop', 'supplier', 'new_supplier', 'type', 'invoice_date', 'invoice_no', 'credit', 'vat_way', 'vat_way', 'vat_way', 'total', 'net', 'vat', 'note', 'file', 'then', 'then'],
             self::order($form), 'the reading order is the keyboard\'s: the file before Save');
         self::assertSame(['done', 'another'], array_map(static fn (\DOMElement $b): string => $b->getAttribute('value'), iterator_to_array($form->getElementsByTagName('button'))),
             'Save expense stays the first button (Enter in a box saves)');
@@ -254,7 +265,7 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         $panel = array_map(self::sig(...), self::kids(self::kids(self::kids($f)[1])[0]));
         self::assertSame(['legend', 'p.note', 'div.field', 'label.choice', 'p.muted'], $panel, 'the file asked again, then the box, then Save without a file');
         self::assertSame('-£77.04', trim((string) $xp->evaluate('string(//output[@data-expense-total])')), 'a credit note\'s total as minus');
-        self::assertSame(['shop', 'shop', 'shop', 'supplier', 'new_supplier', 'type', 'invoice_date', 'invoice_no', 'credit', 'net', 'vat', 'note', 'file', 'no_file_ok', 'then', 'then'],
+        self::assertSame(['shop', 'shop', 'shop', 'supplier', 'new_supplier', 'type', 'invoice_date', 'invoice_no', 'credit', 'vat_way', 'vat_way', 'vat_way', 'total', 'net', 'vat', 'note', 'file', 'no_file_ok', 'then', 'then'],
             self::order($f));
         self::idsHold($r);
         // The same invoice again: the list above the form, the tick at the end of the card, just above Save.
@@ -265,7 +276,7 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         $f = self::form($same, '/ui/profit/expenses/new');
         self::expenseCard($f, true, true);
         self::assertSame(1, (new \DOMXPath($same->dom()))->query('//div[contains(@class, "same-list")]/following-sibling::form[@action="/ui/profit/expenses/new"]')?->length);
-        self::assertSame(['shop', 'shop', 'shop', 'supplier', 'new_supplier', 'type', 'invoice_date', 'invoice_no', 'credit', 'net', 'vat', 'note', 'file', 'same_ok', 'then', 'then'],
+        self::assertSame(['shop', 'shop', 'shop', 'supplier', 'new_supplier', 'type', 'invoice_date', 'invoice_no', 'credit', 'vat_way', 'vat_way', 'vat_way', 'total', 'net', 'vat', 'note', 'file', 'same_ok', 'then', 'then'],
             self::order($f), 'the question just above Save');
         self::idsHold($same);
     }
@@ -280,7 +291,7 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         self::assertSame(200, $one->status, $one->describe());
         $f = self::form($one, "/ui/profit/expenses/{$id}/change");
         self::expenseCard($f, false);
-        self::assertSame(['shop', 'shop', 'shop', 'supplier', 'new_supplier', 'type', 'invoice_date', 'invoice_no', 'credit', 'net', 'vat', 'note', 'file', ''], self::order($f));
+        self::assertSame(['shop', 'shop', 'shop', 'supplier', 'new_supplier', 'type', 'invoice_date', 'invoice_no', 'credit', 'vat_way', 'vat_way', 'vat_way', 'total', 'net', 'vat', 'note', 'file', ''], self::order($f));
         self::idsHold($one);
         // A refused change opens the form, the box marked in its row; the refusal in the fold, just above the form it refused, as wide as it
         // (Codex r1 L1), never at the top of the page as well.
@@ -298,15 +309,23 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         self::assertSame(['summary', 'p.error', 'form.record'], array_map(self::sig(...), self::kids(self::fold($d, 'delete'))));
         self::assertSame(1, (new \DOMXPath($d->dom()))->query('//p[contains(@class, "error")][@role="alert"]')?->length);
         self::focused($d, 'delete');
-        // A form that came incomplete (no version it was shown at: 400 bad_form) is either form's: said at the top, as before (Codex final L1:
-        // never in Change for a Delete sent).
+        // The page knows the form it answers (the controller names it, as for a regular cost: Fable's Low a on f044e2f), so a Delete that came
+        // incomplete (no version it was shown at: 400 bad_form) is said in Delete, opened, with Change closed (Codex final L1).
         $bad = $job->post("/ui/profit/expenses/{$id}/delete", ['reason' => 'put in twice', 'sure' => '1', 'seen' => 'x'] + $one->form("/ui/profit/expenses/{$id}/delete"));
         self::assertSame(400, $bad->status, $bad->describe());
-        $bx = new \DOMXPath($bad->dom());
         self::assertSame('bad_form', $bad->errorCode());
-        self::assertSame(1, $bx->query('//div[@class="page"]/p[contains(@class, "error")][@role="alert"]')?->length, $bad->describe());
-        self::assertSame(1, $bx->query('//p[contains(@class, "error")][@role="alert"]')?->length, 'said once');
-        self::assertSame(0, $bx->query('//details//p[contains(@class, "error")]')?->length);
+        self::assertSame(['summary', 'p.error', 'form.record'], array_map(self::sig(...), self::kids(self::fold($bad, 'delete'))));
+        self::assertSame(1, (new \DOMXPath($bad->dom()))->query('//p[contains(@class, "error")][@role="alert"]')?->length, 'said once');
+        self::assertFalse(((new \DOMXPath($bad->dom()))->query('//details[@id="change"]') ?: null)?->item(0)?->hasAttribute('open'), 'Change stays closed');
+        // A reason too short (bad_reason) in Delete too.
+        $short = $job->post("/ui/profit/expenses/{$id}/delete", ['reason' => 'x', 'sure' => '1'] + $one->form("/ui/profit/expenses/{$id}/delete"));
+        self::assertSame('bad_reason', $short->errorCode(), $short->describe());
+        self::assertSame(['summary', 'p.error', 'form.record'], array_map(self::sig(...), self::kids(self::fold($short, 'delete'))));
+        self::focused($short, 'delete');
+        // A change that came incomplete: in Change.
+        $badc = $job->postMultipart("/ui/profit/expenses/{$id}/change", ['seen' => 'x'] + $one->form("/ui/profit/expenses/{$id}/change"), []);
+        self::assertSame('bad_form', $badc->errorCode(), $badc->describe());
+        self::assertSame('p.error', self::sig(self::kids(self::fold($badc, 'change'))[1]));
         // The same invoice asked on a change: the list and the refusal in the Change fold.
         $job->postMultipart('/ui/profit/expenses/new', $this->fields(['invoice_no' => 'B-2', 'new_supplier' => '']) + $job->get('/ui/profit/expenses/new')->form('/ui/profit/expenses/new'), []);
         $s = $job->postMultipart("/ui/profit/expenses/{$id}/change", ['invoice_no' => 'B-2'] + $job->get("/ui/profit/expenses/{$id}")->form("/ui/profit/expenses/{$id}/change"), []);
@@ -336,6 +355,18 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         self::assertSame('-1', $p->getAttribute('tabindex'), "#{$fold}: focusable by script only");
         self::assertTrue($p->hasAttribute('autofocus'), "#{$fold}: brought into sight and read out when the page opens");
         self::assertSame(1, $xp->query('//*[@autofocus]')?->length, 'one autofocus on the page');
+    }
+
+    /** The refusal's words on a page whose errors carry no code (a regular cost's): the code whose words they are. */
+    private static function codeOf(UiResponse $r): ?string
+    {
+        $text = trim((string) (new \DOMXPath($r->dom()))->evaluate('string(//p[contains(@class, "error")][@role="alert"])'));
+        foreach (Words::EXPENSES_ERROR as $code => $words) {
+            if ($code === 'changed_meanwhile' ? str_contains($text, 'changed this since the page was shown') : $text === $words) {
+                return (string) $code;
+            }
+        }
+        return null;
     }
 
     /** A page's fold (details) by its id. */
@@ -398,6 +429,33 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         $r = $job->post("/ui/profit/regular/{$rid}/delete", ['reason' => 'put in by mistake'] + $one->form("/ui/profit/regular/{$rid}/delete"));
         self::assertSame(422, $r->status, $r->describe());
         self::focused($r, 'delete');
+        // Someone else changed it meanwhile: said at the top, no fold opened, nothing focused (Fable's Low c on f044e2f).
+        $old = $one->form("/ui/profit/regular/{$rid}/change");
+        self::assertSame(303, $job->post("/ui/profit/regular/{$rid}/change", ['note' => 'first'] + $old)->status);
+        $late = $job->post("/ui/profit/regular/{$rid}/change", ['note' => 'second'] + $old);
+        self::assertSame('changed_meanwhile', $late->errorCode() ?? self::codeOf($late), $late->describe());
+        $lx = new \DOMXPath($late->dom());
+        self::assertSame(1, $lx->query('//div[@class="page"]/p[contains(@class, "error")][@role="alert"]')?->length, $late->describe());
+        self::assertSame(0, $lx->query('//details[@open]')?->length);
+        self::assertSame(0, $lx->query('//*[@autofocus]')?->length);
+        // The same one met on a Change (a second line renamed to the first's name, the same shop and days): the list with the refusal in Change.
+        $r2 = $job->post('/ui/profit/regular/new', ['name' => 'Unit 2 rent'] + $rf + $job->get('/ui/profit/regular/new')->form('/ui/profit/regular/new'));
+        self::assertSame(303, $r2->status, $r2->describe());
+        $rid2 = (int) self::$db->value("SELECT id FROM regular_cost WHERE name = 'Unit 2 rent'");
+        $one2 = $job->get("/ui/profit/regular/{$rid2}");
+        $sc = $job->post("/ui/profit/regular/{$rid2}/change", ['name' => 'Unit 1 rent'] + $one2->form("/ui/profit/regular/{$rid2}/change"));
+        self::assertSame(409, $sc->status, $sc->describe());
+        self::assertSame(['summary', 'p.error', 'div.note.same-list', 'form.record.regular-form'], array_map(self::sig(...), self::kids(self::fold($sc, 'change'))));
+        self::focused($sc, 'change');
+        // A line ending on its first day has no "new amount" fold: a new amount sent all the same is refused at the top.
+        $r3 = $job->post('/ui/profit/regular/new', ['name' => 'One day', 'until' => '2026-11-01'] + $rf + $job->get('/ui/profit/regular/new')->form('/ui/profit/regular/new'));
+        self::assertSame(303, $r3->status, $r3->describe());
+        $rid3 = (int) self::$db->value("SELECT id FROM regular_cost WHERE name = 'One day'");
+        $one3 = $job->get("/ui/profit/regular/{$rid3}");
+        self::assertFalse($one3->hasForm("/ui/profit/regular/{$rid3}/amount"), 'no new amount for a line of one day');
+        $na = $job->post("/ui/profit/regular/{$rid3}/amount", ['csrf' => $this->token($job), 'seen' => '1', 'amount' => '210.00', 'from' => '2026-11-02']);
+        self::assertGreaterThanOrEqual(400, $na->status, $na->describe());
+        self::assertSame(1, (new \DOMXPath($na->dom()))->query('//div[@class="page"]/p[contains(@class, "error")][@role="alert"]')?->length, $na->describe());
         // The same one again: the tick just above Save.
         $same = $job->post('/ui/profit/regular/new', $rf + $job->get('/ui/profit/regular/new')->form('/ui/profit/regular/new'));
         self::assertSame(409, $same->status, $same->describe());
@@ -586,6 +644,9 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         // Equal buttons in a row (Codex final L2: "Vape and Go" wrapping at 540 px left its bottom lower than the other two).
         self::assertMatchesRegularExpression('/fieldset:is\(\.shop-pick, \.vat-pick\) \{[^}]*align-items: stretch;/', $block);
         self::assertStringContainsString('grid-template-areas: "main side" "ask side" "acts side";', $block, 'the file panel beside the card on a wide screen');
+        // A row with no hint in either cell takes no empty third line (Fable's Low b on f044e2f); the money row three cells from 600 px (EX65).
+        self::assertStringContainsString('form.record:is(.expense-form, .regular-form) .ex-row:not(:has(.hint)) > .field { grid-row: span 2; }', $block);
+        self::assertStringContainsString('form.record.expense-form .ex-row.ex-money { grid-template-columns: repeat(3, minmax(0, 1fr)); }', $block);
         self::assertStringContainsString('grid-column: auto;', $block, 'the shop buttons in a row, not one line each');
     }
 }
