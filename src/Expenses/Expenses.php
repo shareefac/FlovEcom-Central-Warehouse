@@ -247,9 +247,11 @@ final class Expenses
         }
         // The total with VAT, when the form sends one (EX65): typed as printed (a credit note's without a minus, as its amounts), it must be the
         // amount without VAT + the VAT as typed; CW saves those two boxes and works nothing out (EX3). Empty: not asked (the old way, no script).
-        $total = trim((string) ($in['total'] ?? ''));
-        if ($total !== '') {
-            $t = ExpenseMoney::pence($total);
+        $total = (string) ($in['total'] ?? '');
+        if (!ExpenseMoney::blank($total)) {
+            // The same money rule as the boxes (nothing trimmed that they are refused for), up to two boxes' worth (Codex's final review of
+            // 1f18763, L1 and M2).
+            $t = ExpenseMoney::pence($total, ExpenseMoney::MAX_TOTAL_PENCE);
             if ($t === null) {
                 throw new CwException('bad_total', 'the total with VAT is not an amount in pounds and pence', 422, ['field' => 'total']);
             }

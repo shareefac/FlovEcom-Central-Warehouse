@@ -8,7 +8,9 @@
 // The total with VAT (EX65, the owner's 25 Nov 2026): the VAT on the invoice (Includes the shops' rate, picked for you; No VAT; Different VAT),
 // then one row of Total with VAT | Amount without VAT | VAT: the script fills the two from the total once it is typed (data-expense-anchor:
 // a total the person sent back on a refusal leads again; an expense's Change leaves the box empty and its script shows net + VAT there);
-// what the boxes say is what is saved (the server only checks they add up to a total typed); a line under the row says so when they disagree.
+// what the boxes say is what is saved (the server only checks they add up to a total typed); a line under the row says so when they disagree
+// or when the total is not an amount; the hidden "hand" carries which boxes were typed by hand (and "sum": the total box holds the script's
+// sum), so a refused form comes back as it was typed (Codex's final review of 1f18763, H1; Fable's M1). Never saved.
 ?>
     <div class="ex-fields">
       <div class="ex-row">
@@ -75,7 +77,8 @@
           <p class="hint" id="ex-vat-hint"><?= $word('EXPENSES', 'vat_hint') ?></p>
         </div>
       </div>
-      <p class="hint ex-adds-up" data-expense-adds-up data-words="<?= $word('EXPENSES', 'adds_up') ?>" role="status"></p>
+      <input type="hidden" name="hand" value="<?= $e((string) $t['hand']) ?>">
+      <p class="hint ex-adds-up" data-expense-adds-up data-words="<?= $word('EXPENSES', 'adds_up') ?>" data-words-bad="<?= $word('EXPENSES', 'total_not_amount') ?>" role="status"></p>
       <p class="expense-total"><span><?= $word('EXPENSES', 'total') ?></span> <output data-expense-total><?php if ($net !== null && $vat !== null && $t['credit']): ?><?= $e(\CW\Expenses\ExpenseMoney::gbp(-($net + $vat))) ?><?php elseif ($net !== null && $vat !== null): ?><?= $e(\CW\Expenses\ExpenseMoney::gbp($net + $vat)) ?><?php else: ?>-<?php endif; ?></output></p>
       <p class="alert expense-dollar"><?= $word('EXPENSES', 'dollar_hint') ?></p>
       <div class="field ex-wide">

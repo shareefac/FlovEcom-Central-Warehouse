@@ -6,26 +6,38 @@ namespace CW\Expenses;
 
 /**
  * Money as the expense and regular cost forms take it and the pages show it (docs/decisions.md EX4): typed in pounds and pence ("64.20",
- * "£1,234.56", "12.5", "200"), kept in whole pence (BIGINT), never a float. At most two decimals, never below 0, at most £9,999,999.99.
+ * "£1,234.56", "12.5", "200"), kept in whole pence (BIGINT), never a float. At most two decimals, never below 0, at most £9,999,999.99 in a
+ * box; an expense's total with VAT at most two boxes' worth (EX65). ONE rule, the same as the page's script (app.js, Codex's final review of
+ * 1f18763, L1): spaces, tabs and the no-break spaces (U+00A0, U+202F, U+2007) around and after the £ are nothing; any other character
+ * (a line break, a control character, a zero-width space) makes it not an amount.
  */
 final class ExpenseMoney
 {
     /** The largest amount a form takes (pence): £9,999,999.99. */
     public const MAX_PENCE = 999_999_999;
+    /** The largest total with VAT (EX65): two boxes at their largest (a £9,000,000 + £1,800,000 expense's total is £10,800,000). */
+    public const MAX_TOTAL_PENCE = 2 * self::MAX_PENCE;
+    /** What counts as nothing around an amount, the script's [ \t\u00A0\u202F\u2007]. */
+    private const SPACES = [" ", "\t", "\u{00A0}", "\u{202F}", "\u{2007}"];
 
-    /** Pounds and pence typed => pence; null when it is not an amount (empty, negative, three decimals, a word, too large). */
-    public static function pence(string $typed): ?int
+    /** Pounds and pence typed => pence; null when it is not an amount (empty, negative, three decimals, a word, larger than $max). */
+    public static function pence(string $typed, int $max = self::MAX_PENCE): ?int
     {
-        $s = str_replace("\u{00A0}", ' ', $typed);
-        $s = trim($s, " \t");
+        $s = trim(str_replace(self::SPACES, ' ', $typed), ' ');
         if (str_starts_with($s, '£')) {
             $s = ltrim(substr($s, strlen('£')), ' ');
         }
-        if (preg_match('/^(\d{1,3}(?:,\d{3}){1,2}|\d{1,7})(?:\.(\d{1,2}))?$/D', $s, $m) !== 1) {
+        if (preg_match('/^(\d{1,3}(?:,\d{3}){1,2}|\d{1,8})(?:\.(\d{1,2}))?$/D', $s, $m) !== 1) {
             return null;
         }
         $p = (int) str_replace(',', '', $m[1]) * 100 + (int) str_pad($m[2] ?? '', 2, '0');
-        return $p > self::MAX_PENCE ? null : $p;
+        return $p > $max ? null : $p;
+    }
+
+    /** Whether a box holds nothing (only the spaces the rule above ignores): a total left empty is not asked (EX65). */
+    public static function blank(string $typed): bool
+    {
+        return trim(str_replace(self::SPACES, ' ', $typed), ' ') === '';
     }
 
     /** Pence as the pages show it: "£1,234.56", "-£12.00". */

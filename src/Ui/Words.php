@@ -3095,7 +3095,8 @@ final class Words
             . 'cannot put on an order (**not matched**, or **to check** when two parcels fit) are in the profit as charges not on an order, on the '
             . 'line\'s date. The lines always add up to the bill\'s net. CW never keeps the file or any address: only what it needs.',
         // 0079 (docs/decisions.md EX5, EX6, EX15): Profit > Expenses, Regular costs, Real profit
-        'expenses' => 'An **expense** is an invoice you add, for ONE shop: its amount without VAT and its VAT as printed (CW never works VAT out). '
+        'expenses' => 'An **expense** is an invoice you add, for ONE shop: its amount without VAT and its VAT as printed (type its total with VAT and the form '
+            . 'suggests the split at the shops\' rate; check it against the invoice: CW saves the amounts the boxes show). '
             . 'It goes in the profit on its **invoice date**, without VAT. A **credit note** is ticked as one: typed as printed, it comes off that shop\'s '
             . 'expenses. A **regular cost** has no invoice: it goes out every week, month or year, includes VAT at the shops\' rate (now %s) unless it is marked **No VAT**, and its '
             . 'cost without VAT is shared out **per day**: a weekly cost over its 7 days, a monthly cost over the days of its month, a yearly cost over the days of its year. '
@@ -11175,6 +11176,7 @@ final class Words
         'way_none' => 'No VAT',
         'way_other' => 'Different VAT (type it)',
         'adds_up' => 'The two boxes add up to %s, not the total with VAT (%s): check them against the invoice.',
+        'total_not_amount' => 'The total with VAT is not an amount: type it as printed, for example 8.47.',
         'total' => 'Total',
         'dollar_hint' => 'Bill in dollars (Anthropic, OpenAI)? Type the £ amount your card was charged.',
         // A credit note (the owner, 24 Nov 2026: EX37)

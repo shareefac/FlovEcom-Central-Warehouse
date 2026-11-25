@@ -21472,4 +21472,12 @@ keeps the amount without VAT and the VAT exactly as in the boxes and works nothi
 with both sums named and nothing saved (a credit note's total is typed as printed, without a minus, like its amounts: EX37). The VAT choice
 is not saved: an expense's Change picks the choice its figures match (no VAT; the rate's split; else Different) and its script shows the
 total (net + VAT) in the box, which the page itself leaves empty, so the amounts changed without the script never meet a stale total. No database change. The page is told which form it answers (Change, Delete) as a regular cost's page is, so a refusal of
-either, even an incomplete form, opens that fold and is said there.
+either, even an incomplete form, opens that fold and is said there. The final reviews of 1f18763 (Codex, Fable): the script keeps a hidden
+"hand" (which boxes were typed by hand: net, vat; and sum when the total box holds the sum it wrote), given back with a refusal so the page
+carries on as it was typed (a total the person typed leads again, a sum the script wrote does not; a box typed by hand stays kept); a box
+typed by hand before the total shows "Different VAT"; the old way's two amounts pick the choice their split matches (as a saved expense's
+Change does), and the sum goes only into an empty total box or over the sum written before; a total that is not an amount ("8,47") is said
+so under the boxes and never written over. One money rule for the three boxes in the script and on the server (spaces, tabs and the no-break
+spaces U+00A0, U+202F, U+2007 around and after the £; nothing else trimmed; a box at most £9,999,999.99, a total at most two boxes' worth).
+The one-effect key (FormOnce) checks the fields and a typed total, never the choice or the record of hand typing, so an Add sent from the
+page live before keeps its fingerprint and is replayed. The page reads the shops' rate once for the label and the script.

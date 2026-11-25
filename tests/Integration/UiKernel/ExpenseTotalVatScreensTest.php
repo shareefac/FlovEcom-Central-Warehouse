@@ -214,11 +214,17 @@ final class ExpenseTotalVatScreensTest extends KernelUiTestCase
             // A box typed by hand wins over the choice, whenever it was typed (Codex final M1): the choice shows Different VAT.
             "if (hand.net || hand.vat) {\n        setWay('other');",
             // Which boxes were typed by hand goes with the form and comes back with a refusal (Codex final H1).
-            "querySelector('input[name=\"hand\"]')", 'handBox.value = (hand.net ? \'net \' : \'\') + (hand.vat ? \'vat\' : \'\');',
+            "querySelector('input[name=\"hand\"]')", 'handBox.value = (hand.net ? \'net \' : \'\') + (hand.vat ? \'vat \' : \'\') + (summed ? \'sum\' : \'\');',
+            'summed = /\\bsum\\b/.test(handBox.value);',
             "hand.net = /\\bnet\\b/.test(handBox.value);",
             // One money rule (Codex final L1): the same spaces as the server, the same caps (a total up to two boxes' worth).
             "/^[ \\t\\u00A0\\u202F\\u2007]*£?[ \\t\\u00A0\\u202F\\u2007]*(\\d{1,3}(?:,\\d{3}){1,2}|\\d{1,8})(?:\\.(\\d{1,2}))?[ \\t\\u00A0\\u202F\\u2007]*$/",
-            'var MAX = 999999999;', 'var MAX_TOTAL = 1999999998;'] as $piece) {
+            'var MAX = 999999999;', 'var MAX_TOTAL = 1999999998;',
+            // The sum goes only into an empty total box or over the sum written before (Fable's L2), and a total that is not an amount is said so.
+            '(summed || blank(gross.value))', "getAttribute('data-words-bad')",
+            // The choice two amounts make, as the server's wayOf reads them (Fable's L1): old way and both boxes typed by hand.
+            "return b === 0 ? 'none' : (a === Math.floor((2 * (a + b) * 10000 + (10000 + bp)) / (2 * (10000 + bp))) ? 'inc' : 'other');",
+            'setWay(splitWay(a, b));', 'setWay(splitWay(n, v));'] as $piece) {
             self::assertStringContainsString($piece, $part, $piece);
         }
         // Programmatic values raise no input event: only the person's own typing marks a box as typed by hand.
@@ -238,13 +244,30 @@ final class ExpenseTotalVatScreensTest extends KernelUiTestCase
         $back = $r->form('/ui/profit/expenses/new');
         self::assertSame(['120.00', '90.00', '30.00', 'other', 'net'], [$back['total'] ?? null, $back['net'] ?? null, $back['vat'] ?? null, $back['vat_way'] ?? null, $back['hand'] ?? null]);
         self::assertSame(1, (new \DOMXPath($r->dom()))->query('//input[@name="total"][@data-expense-anchor]')?->length);
-        // Only the two words it knows, once each, in one order.
+        // Only the words it knows, once each, in one order.
         $r = $this->add($job, ['shop' => '', 'hand' => 'vat x net vat <b>']);
         self::assertSame('net vat', $r->form('/ui/profit/expenses/new')['hand'] ?? null);
+        // A total box holding the sum the script wrote (the old way: sum) does not lead when it comes back; a total the person typed does.
+        $r = $this->add($job, ['shop' => '', 'total' => '120.00', 'net' => '90.00', 'vat' => '30.00', 'hand' => 'sum net vat']);
+        self::assertSame('net vat sum', $r->form('/ui/profit/expenses/new')['hand'] ?? null);
+        self::assertSame(0, (new \DOMXPath($r->dom()))->query('//input[@name="total"][@data-expense-anchor]')?->length);
         // An expense's Change starts with nothing typed by hand.
         self::assertSame(303, $this->add($job)->status);
         $id = (int) self::$db->value('SELECT id FROM expense');
-        self::assertSame('', $job->get("/ui/profit/expenses/{$id}")->form("/ui/profit/expenses/{$id}/change")['hand'] ?? null);
+        $f = $job->get("/ui/profit/expenses/{$id}")->form("/ui/profit/expenses/{$id}/change");
+        self::assertSame('', $f['hand'] ?? null);
+        // A refused Change (Fable's M1): the VAT fixed by hand the old way, the total box holding the script's sum: comes back without the
+        // total leading and with the VAT still marked typed by hand; a total the person typed comes back leading.
+        $r = $job->postMultipart("/ui/profit/expenses/{$id}/change", ['type' => '', 'total' => '8.48', 'vat' => '1.42', 'hand' => 'vat sum', 'vat_way' => 'other'] + $f, []);
+        self::assertSame('choose_type', $r->errorCode(), $r->describe());
+        $cx = new \DOMXPath($r->dom());
+        self::assertSame(0, $cx->query('//input[@name="total"][@data-expense-anchor]')?->length);
+        self::assertSame(['vat sum', '8.48', '1.42'], [$r->form("/ui/profit/expenses/{$id}/change")['hand'] ?? null, $r->form("/ui/profit/expenses/{$id}/change")['total'] ?? null,
+            $r->form("/ui/profit/expenses/{$id}/change")['vat'] ?? null]);
+        $r = $job->postMultipart("/ui/profit/expenses/{$id}/change", ['type' => '', 'total' => '8.48', 'net' => '7.07', 'hand' => ''] + $f, []);
+        self::assertSame(1, (new \DOMXPath($r->dom()))->query('//input[@name="total"][@data-expense-anchor]')?->length);
+        // The line under the boxes has its words for a total that is not an amount.
+        self::assertSame(Words::EXPENSES['total_not_amount'], (string) $cx->evaluate('string(//p[@data-expense-adds-up]/@data-words-bad)'));
     }
 
     /** Big amounts (Codex final M2): a total may be the sum of two boxes at their largest, in the script and on the server. */

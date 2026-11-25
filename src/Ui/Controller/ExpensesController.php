@@ -171,7 +171,7 @@ final class ExpensesController
             $another = $ctx->req->field('then') === 'another';
             // One effect per form (FormOnce, I46; the Codex check r3, H1): the same form sent again (a lost answer, a retry), a confirmed second
             // invoice too, lands where the first did and adds nothing. What it keeps of the form: the fields and the file's fingerprint.
-            $request = $typed + ['same_ok' => $same, 'then' => $another ? 'another' : 'done',
+            $request = self::fingerprint($typed) + ['same_ok' => $same, 'then' => $another ? 'another' : 'done',
                 'file' => $file === null ? '' : (string) hash_file('sha256', $file['path'])];
             $r = FormOnce::run($ctx, 'ui.expense.add', $request, static function (\CW\Db $db) use ($ctx, $typed, $file, $same, $another): \CW\OpResult {
                 $x = (new Expenses($db, static fn (): FileStore => $ctx->files()))->add($ctx->caller(), $typed, $file, $same);
@@ -319,8 +319,36 @@ final class ExpensesController
             'new_supplier' => $ctx->req->field('new_supplier') === '1', 'type' => $f('type'),
             'invoice_date' => $f('invoice_date'), 'invoice_no' => $f('invoice_no'), 'credit' => $ctx->req->field('credit') === '1', 'net' => $f('net'), 'vat' => $f('vat'),
             // The total with VAT as typed (checked against net + VAT on save) and the VAT choice that steers the page's script (EX65; never saved).
-            // anchor: a total the person sent leads the script's sums when the page comes back (a saved one shown on Change does not).
-            'total' => $f('total'), 'vat_way' => self::vatWay($f('vat_way')), 'anchor' => trim($f('total')) !== '', 'note' => $f('note')];
+            // hand: which boxes the person typed by hand (net, vat) and whether the total box holds the sum the script wrote (sum), kept by the
+            // script and given back with a refusal so it carries on as it was (Codex's final review of 1f18763, H1; Fable's M1); anchor: the
+            // total leads the script's sums when the page comes back, so a total the person typed (not a sum the script wrote) leads again.
+            'total' => $f('total'), 'vat_way' => self::vatWay($f('vat_way')), 'hand' => self::hand($f('hand')),
+            'anchor' => !ExpenseMoney::blank($f('total')) && !str_contains(self::hand($f('hand')), 'sum'), 'note' => $f('note')];
+    }
+
+    /** The script's record of what was typed by hand (EX65): the words it knows (net, vat, sum), once each, in one order; never saved. */
+    private static function hand(string $typed): string
+    {
+        $words = preg_split('/\s+/', $typed, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        return implode(' ', array_values(array_filter(['net', 'vat', 'sum'], static fn (string $w): bool => in_array($w, $words, true))));
+    }
+
+    /**
+     * What a form's one-effect key is checked against (FormOnce): the fields that make the expense, and the total when one was typed (it is
+     * checked against them); never the VAT choice or the record of hand typing (they change nothing saved). A form sent from the page live
+     * before EX65 (no total) keeps exactly the fingerprint that page's Add stored, so its lost answer is replayed after the go-live, never
+     * refused as "sent with other values" (Codex's final review of 1f18763, M3).
+     *
+     * @param array<string, mixed> $typed
+     * @return array<string, mixed>
+     */
+    private static function fingerprint(array $typed): array
+    {
+        $fp = array_diff_key($typed, array_flip(['total', 'vat_way', 'hand', 'anchor']));
+        if (!ExpenseMoney::blank((string) ($typed['total'] ?? ''))) {
+            $fp['total'] = $typed['total'];
+        }
+        return $fp;
     }
 
     /** The VAT choice of the form (EX65): one it offers, else the one picked for you ("Includes ... VAT"). */
@@ -402,12 +430,13 @@ final class ExpensesController
     private function form(Context $ctx, int $status, ?CwException $error, array $typed, ?string $notice): HtmlResponse
     {
         $views = new ExpenseViews($ctx->db, $ctx->caller());
+        $bp = (new \CW\Profit\ProfitSettings($ctx->db))->vatBp();
         return $ctx->page('profit_expense_new', [
             'shops' => $views->shops(),
             'types' => (new ExpenseTypes($ctx->db))->active('expense'),
             'suppliers' => array_values(array_filter($views->suppliers(), static fn (array $s): bool => $s['is_active'])),
             'typed' => $typed + ['shop' => '', 'supplier' => '', 'new_supplier' => false, 'type' => '', 'invoice_date' => '', 'invoice_no' => '', 'credit' => false,
-                'total' => '', 'vat_way' => 'inc', 'anchor' => false, 'net' => '', 'vat' => '', 'note' => ''],
+                'total' => '', 'vat_way' => 'inc', 'hand' => '', 'anchor' => false, 'net' => '', 'vat' => '', 'note' => ''],
             'error' => $error === null ? null : self::plain($error),
             'errorCode' => $error?->errorCode,
             'errorField' => is_string($error?->detail['field'] ?? null) ? $error->detail['field'] : null,
@@ -418,8 +447,9 @@ final class ExpensesController
             'maxMb' => intdiv(ExpenseFiles::MAX_BYTES, 1_048_576),
             'fileAgain' => $error !== null && self::fileChosen($ctx),
             'formKey' => self::formKey($ctx, $error),
-            'vatPct' => self::vatPct($ctx),
-            'vatBp' => (new \CW\Profit\ProfitSettings($ctx->db))->vatBp(),
+            // The shops' rate read ONCE for the page: the label and the script's sums from the same reading (Codex's final review, L2).
+            'vatPct' => RegularCostMath::percent($bp),
+            'vatBp' => $bp,
         ], $status, ['title' => Words::EXPENSES['new_title'], 'notice' => $notice]);
     }
 
@@ -461,7 +491,7 @@ final class ExpensesController
             $types[] = ['id' => (int) $x['type_id'], 'name' => (string) $x['type']]; // its own type, switched off since, stays its choice
         }
         $title = Words::say('EXPENSES', 'one_title', (string) $x['supplier'], (string) $x['invoice_no'] !== '' ? (string) $x['invoice_no'] : Html::day((string) $x['invoice_date']));
-        $rateBp = (new \CW\Profit\ProfitSettings($ctx->db))->vatBp();
+        $bp = (new \CW\Profit\ProfitSettings($ctx->db))->vatBp();
         return $ctx->page('profit_expense', [
             'x' => $x,
             'shops' => $views->shops(),
@@ -474,7 +504,7 @@ final class ExpensesController
                 'net' => ExpenseMoney::plain(abs((int) $x['net_pence'])), 'vat' => ExpenseMoney::plain(abs((int) $x['vat_pence'])), 'note' => (string) ($x['note'] ?? ''),
                 // The VAT choice its figures match (EX65); the total box left empty in the page (its script shows net + VAT there), so a
                 // change of the amounts sent without the script never meets a stale total.
-                'total' => '', 'vat_way' => self::wayOf(abs((int) $x['net_pence']), abs((int) $x['vat_pence']), $rateBp), 'anchor' => false],
+                'total' => '', 'vat_way' => self::wayOf(abs((int) $x['net_pence']), abs((int) $x['vat_pence']), $bp), 'hand' => '', 'anchor' => false],
             'form' => $form,
             'canEdit' => $ctx->me()->can(self::PERM_EDIT) && $x['deleted_at'] === null,
             'error' => $error === null ? null : self::plain($error),
@@ -484,8 +514,9 @@ final class ExpensesController
             'sameIds' => is_string($error?->detail['confirm'] ?? null) ? $error->detail['confirm'] : '',
             'sameList' => self::sameList($error),
             'maxMb' => intdiv(ExpenseFiles::MAX_BYTES, 1_048_576),
-            'vatPct' => self::vatPct($ctx),
-            'vatBp' => $rateBp,
+            // The shops' rate read ONCE for the page (L2).
+            'vatPct' => RegularCostMath::percent($bp),
+            'vatBp' => $bp,
             'listHref' => Html::url(self::PATH, ['month' => substr((string) $x['invoice_date'], 0, 7)]),
             // A change refused because someone else changed it shows their figures and still asks for the file chosen (the Codex check r3, M8).
             'fileAgain' => $error !== null && self::fileChosen($ctx),
