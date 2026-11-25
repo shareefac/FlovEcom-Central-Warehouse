@@ -21458,7 +21458,8 @@ PayPal gives a dispute hold (T1110, status P) and its release (T1111, status D) 
 so the id alone would make the release overwrite the hold. A re-read that brings another status, amount, fee, date or reference changes the
 row in place (version + 1; paypal_txn_history keeps before and after, PPF8) and marks it due; the same row read again changes nothing (its
 last_run only). The same (id, code) twice in one window with different content refuses the window (it moved while read: the next run reads it
-again). Nothing personal is read or kept: no payer, e-mail, name, item text, note, balance or instrument; the invoice and custom fields are kept
+again). A row whose stored kind or cost is not what the rules of the running code make of it (a release that classes a code anew) is a
+change too, when it is read again (PP3 says the others every night). Nothing personal is read or kept: no payer, e-mail, name, item text, note, balance or instrument; the invoice and custom fields are kept
 as written only when they are a reference (letters, digits and . _ : | = / + - only, at most 127: the shops write their order number there);
 one with a space or an @ (it could be a name or an e-mail) is never kept, only that there was one (`dropped`).
 

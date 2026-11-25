@@ -118,7 +118,7 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
             $r = $fees->run($caller, $api, $from, $to, $kind);
         } catch (CwException $e) {
             $cli->error("{$account} {$kind} {$from}..{$to}: " . $e->getMessage());
-            return $e->httpStatus === 422 ? Cli::USAGE : Cli::PROBLEM;
+            return $e->errorCode === 'paypal_bad_days' ? Cli::USAGE : Cli::PROBLEM;
         }
         $cli->log(sprintf('%s %s %s..%s: run %d, %d windows, %d pages, %d rows (%d new, %d changed), %d decided, PayPal complete to %s, %.1f s (%s)', $account, $kind,
             $from, $to, $r['run'], $r['windows'], $r['pages'], $r['read'], $r['new'], $r['changed'], $r['allocated'], $r['refreshed'] ?? '-', microtime(true) - $t,

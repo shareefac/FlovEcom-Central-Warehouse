@@ -554,8 +554,10 @@ final class PaypalFees
                     $new[] = $r;
                     continue;
                 }
-                $before = self::facts($old);
-                $after = self::facts($r);
+                // what PayPal says AND what the rules make of it (a release that classes a code anew re-decides a row it reads again; PP3 says
+                // the others)
+                $before = self::facts($old) + ['kind' => (string) $old['kind'], 'cost_pence' => (int) $old['cost_pence']];
+                $after = self::facts($r) + ['kind' => (string) $r['kind'], 'cost_pence' => (int) $r['cost_pence']];
                 if ($before === $after) {
                     $same[] = (int) $old['id'];
                     continue;
