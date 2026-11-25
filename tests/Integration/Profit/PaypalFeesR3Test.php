@@ -168,15 +168,14 @@ final class PaypalFeesR3Test extends StockTestCase
             }
             return $a;
         };
+        // round 4 (H8): the window that proved only 1-4 Nov is followed by one from 5 Nov (its first day not proven), so the run covers on
         self::readPp($http, '2026-11-01', '2026-11-24');
-        self::assertSame('2026-11-04', PaypalFees::coveredUntil(self::$db, 'vapeandgo', '2026-11-01'), 'proven only to the end of what the answer covered');
-        self::assertSame('2026-11-03', self::fees()->nightlyFrom('vapeandgo'), 'the next read starts from there');
-        self::assertContains('paypal_not_read', self::alerts(), 'the alert stays until the days are covered');
-        // the whole days answered the next time: covered to yesterday, the alert clears
-        $http->alter = null;
-        self::nightly($http);
+        $starts = array_map(static fn (array $c): string => substr($c['query']['start_date'], 0, 10), array_values(array_filter($http->calls,
+            static fn (array $c): bool => $c['path'] === PaypalApi::SEARCH_PATH && $c['query']['page'] === '1')));
+        self::assertSame(['2026-11-01', '2026-11-05'], array_slice($starts, 0, 2), 'the next window starts on the first day the answer did not cover');
         self::assertSame('2026-11-24', PaypalFees::coveredUntil(self::$db, 'vapeandgo', '2026-11-01'));
         self::assertNotContains('paypal_not_read', self::alerts());
+        // (what an answer short of its end leaves to the next nights, and the alert meanwhile: PaypalFeesR4Test, H7 and H8)
     }
 
     public function testTheLeastFreshPageDecidesAndAPageOfAnotherNumberIsRefused(): void
@@ -249,7 +248,7 @@ final class PaypalFeesR3Test extends StockTestCase
             }
         };
         $night('2026-11-25', 2);
-        self::assertSame('2026-11-17', PaypalFees::coveredUntil(self::$db, 'vapeandgo', '2026-11-01'), 'night 1: two forward windows from the last day proven');
+        self::assertSame('2026-11-19', PaypalFees::coveredUntil(self::$db, 'vapeandgo', '2026-11-01'), 'night 1: two forward windows from the first day not proven (round 4)');
         self::assertSame(0, (int) self::row('3D0000000000' . '0012')['due'], 'what the night read is decided the same night, its run failed or not');
         $night('2026-11-26', 2);
         self::assertSame('2026-11-25', PaypalFees::coveredUntil(self::$db, 'vapeandgo', '2026-11-01'), 'night 2: the catch-up is finished');

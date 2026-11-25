@@ -13653,7 +13653,7 @@ final class Words
         'paypal_not_read' => '%s: PayPal has not been read for %s hours, so its payment fees are not up to date. Tell the CW team.',
         'paypal_failed' => '%s: the last PayPal read failed (%s). The next night reads it again; tell the CW team if this stays.',
         'paypal_stale' => '%s: PayPal says its data is complete only up to %s, so the payment fees are not up to date. Tell the CW team if this stays.',
-        'paypal_needs_look' => '%s: %s PayPal rows CW does not understand (the newest %s). They are not counted until the CW team looks at them.',
+        'paypal_needs_look' => '%s: %s PayPal rows that need a look (%s; the newest %s). The money in doubt is not counted until the CW team looks at them.',
         'paypal_not_on_order' => '%s: %s day(s) with more than %s of PayPal money on no order in CW (the newest %s: %s). Tell the CW team if this is not expected.',
         'landing_orders' => 'Website bug: an order on %1$s for the landing page %2$s (option %3$s, order %4$s). %5$s such orders are open: '
             . 'Approvals › From the stores › Website bugs.',

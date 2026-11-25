@@ -38,7 +38,8 @@ use CW\Settings;
  *   per shop whose PayPal fees are switched on (docs/decisions.md PPF14; PaypalFees::health):
  *     paypal_not_read      no ok run of its PayPal account for 26 hours (or none ever)
  *     paypal_failed        its newest PayPal run failed (PayPal not read whole, an order busy, its key refused)
- *     paypal_needs_look    PayPal rows CW does not understand since its first fee day (never counted until looked at)
+ *     paypal_needs_look    PayPal rows that need a look since its first fee day, with their reasons (the money in doubt not counted until looked
+ *                          at; said at most once a day)
  *     paypal_not_on_order  a day of the last re-read days with more PayPal money on no CW order than profit.paypal_not_on_order_alarm
  *
  * Read only. The probe is injectable (tests).

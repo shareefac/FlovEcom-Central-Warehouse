@@ -21644,7 +21644,8 @@ and fee_other at 0 on that day. (25 Nov 09:49: live moved to f044e2f, the expens
 (else its custom field's); none, or two shops' forms: no shop (the main shop's "not on an order" line, match `no_number`). A shop CW does not
 hold (Hayati Vapes) is `outside`: kept, never counted, never on another shop's line. A CW shop not switched on (Electrofag until its first fee
 day) keeps its rows `before_start` with their shop: switched on, the next run counts them on its own orders and its own line (rematch marks
-them due). The account's shops and forms are fingerprinted on each run (paypal_run.forms_sig): a change of them decides every row of the
+them due). The account's shops and forms are fingerprinted (PaypalFees::formsSig; each row keeps the fingerprint it was read under, read_sig,
+and decided by, decided_sig): a change of them decides every row of the
 account again, once. A shop or form setting that is not what PPF13 says refuses the run (paypal_bad_shops, paypal_bad_form) and the alert says
 it.
 
@@ -21851,3 +21852,96 @@ tip's shape: columns, each column's type and NULL, primary and unique keys (`tab
 backfill's run proven read (covered_to) to its last day, a finished UK day (golive.sh backfill: yesterday by default). The return from the
 rollback release rebuilds from the earliest day any PayPal money counts on (`box.sh rebuild-from`) and reconciles every shop against the
 release live then (`box.sh reconcile-days --release=<commit>`).
+
+### Round 4, the last fix round: the Codex astra final of df9b8d3 (`runs/codex_25nov/paypal_final2_astra_final.md`: NO GO, 8 High + 5 Medium) and the Fable final review (GO with Mediums and Lows), with the lead's decisions (25 Nov 2026), each shown failing first on df9b8d3 (`runs/paypal_r4_red.log`: 15 of 15 red) and then green (PPF47-PPF57)
+
+The lead's design rule still holds: **when CW cannot be sure, the row needs a look (with its reason), never a guessed shop or offset.**
+
+**PPF47. The sales no shop's form takes stay on Vape and Go's "not on an order" line (H1; the owner, 25 Nov ~04:25).** A PayPal row whose
+invoice and custom field no shop's form takes (no invoice, or one no form takes: 17 sales, £6.18 of fees in 1-23 Nov) counts on the account's
+main shop's "not on an order" line, as the owner approved. The kit prints their count and pence on their own line in backfill-check (never
+hidden in the pin) and STOPs when they are not the pinned ones. An Electrofag sale read while its form was narrowed is such a row under the
+forms of then; once the form is put back it is held (PPF48) until a read under the forms of now gives it to Electrofag.
+
+**PPF48. A form change holds every row read under other forms, whatever its age, and its children (H3; HIGH).** CW keeps no invoice text
+(PPF36), so a capture made under other shops or forms than now (read_sig not the forms of now) is no more certain than none: such a row with an
+invoice or custom field captured (by one shop, none or two) needs a look (`form_unread`) at once, whatever its age, until a read under the
+forms of now gives it (the nightly reads the last PENDING_DAYS = 31 days of such rows again in their own windows; older ones need a backfill
+of their days, `bin/paypal_fees.php --from --to`). A row whose parent (the row its PayPal reference names) is so held, or of two PayPal
+versions, gets no shop from it (`ref_unresolved`): an invoice-less £14 fee never falls to Vape and Go while its sale is held. When a row's
+facts, captures or forms change at a read, or its place moves at a decision, the rows that refer to it, and those that refer to them (three
+steps, as the shop is followed), are due again in the same transaction: a fee whose chargeback is denied (its own place unchanged) still
+follows its sale once the sale is read under the forms of now. This replaces PPF44's "older than the days read again" and PPF42's "a capture
+a narrowed form no longer makes is kept" as a place to count (the capture is still kept, as evidence, with the forms that made it).
+
+**PPF49. A row's own fields first: two shops are a look, never "the first field wins" (H2; HIGH).** A row whose invoice and custom field are
+captured by two different shops' forms is a look (`field_conflict`), and so is a row of two shops' forms on either field (`form_overlap`):
+whatever its PayPal reference says (a referenced sale never overrides a fee's own overlapping invoice), and its children wait with it
+(`ref_unresolved`). The order NUMBERS of the invoice and the custom field are NOT compared: on every real row with both (13,238 of the lead's
+14,302), the custom field carries another number of the same shop (Vape and Go's own id, 188,379 above the order number, with the invoice's
+10-digit tail; Electrofag's about 1,059 above), so comparing them would hold every row. For the same reason a row whose shop comes from its
+custom field alone gets that shop but NO order number: its shop's "not on an order" line, never an order found by the custom field's number
+(no real row has a custom field without an invoice; the number would one day be a real order's). Its reference vs its own invoice: a
+different shop, or a different number of its invoice, is `ref_conflict` as before. QUESTION FOR THE LEAD (my pick built): the custom-only
+row on its shop's line (a) rather than a look (b).
+
+**PPF50. A chargeback's money held, its fee counted (H4, H5; HIGH x2).** A chargeback (T1106, T1201, T1202) whose MONEY CW cannot place surely
+is a look whose FEE on the same row is certain and counts on its own day: `refund_not_on_paypal` (its order's refunds in CW that PayPal's own
+refunds of it do not cover, PPF43; the fee on that order), `order_ambiguous` (its order number has two or more orders of its shop: which
+order's refunds? the fee on the shop's "not on an order" line; held until one order has the number, then decided by PPF43). Both parts are
+reconciled on their own: PP1 holds such a row's allocation to exactly its fee (-fee_pence) and its money to nowhere; 0080's checks allow an
+allocation on a look only for these two reasons on a chargeback. Example: £30 back and a £14 fee on one T1201, £30 refunded in CW not on
+PayPal: a look, £14 on the order on its day; PayPal's own £30 refund of the order read later: the row counts £44 whole.
+
+**PPF51. An order paid before the first day read: ANY refund recorded in CW makes its chargeback a look (H6; HIGH).** CW tracks the refunds
+recorded on the order (every line's refund, a cancelled, free or removed line's too, the order-level and delivery refunds, as recorded)
+apart from the refunds the profit counts (PPF43); for an order paid before the account's first day read from PayPal, any recorded refund is
+a look (`refund_not_on_paypal`, the recorded pence kept in refund_seen_pence). Paid in November, a cancelled line's refund still counts
+nothing and the chargeback counts whole (a4).
+
+**PPF52. A day is proven only by pages that say their whole interval; the catch-up resumes on the first day not proven (H7, H8; HIGH x2).**
+EVERY page must give its start_date and end_date (one that does not: nothing of its window proven); a start later than asked proves nothing; an
+end earlier than asked by even a second proves only up to the last whole UK day before it (no slack below the end asked for; PayPal printing a
+LATER end proves the whole); a row PayPal repeats in its answer (PPF55) proves nothing of its window. The forward read is window by window:
+a window whose answer's own interval ended early is followed by one from its FIRST DAY NOT PROVEN (split), so a 1-7 Nov request answered for
+1-2 Nov is followed by 3 Nov, never 1 Nov again; the run's covered_to moves only while the windows join without a gap; a window that proves
+nothing leaves a gap (its rows stored all the same). The nightly starts from the first day not proven (or the re-read days, the earlier).
+(This replaces PPF41's 60 s slack.)
+
+**PPF53. The key file is root's alone; PayPal reached before the key (Fable F-M1, F-check).** The key file is root:root 0600 (0400 passes):
+PaypalKey refuses any group or other read, so nothing the web app runs as (www-data) can read it; only bin/paypal_fees.php reads it, run by
+root's cron (`grep -rln "PaypalKey::load\|paypal_key_file" src public bin`: PaypalKey itself and bin/paypal_fees.php). The kit's key-place
+writes 0600, key-check wants it, and before the key `box.sh paypal-reach` wants PayPal's API host to answer 401 to a request with no key
+(outbound HTTPS from the CW box works), else STOP.
+
+**PPF54. An order snapshot decides its chargebacks again at once (M1; MEDIUM; Codex's earlier a4 second half).** OrderSnapshots::apply marks
+the PayPal chargebacks of the order (of its shop with its number, now or before, and those on it) due IN ITS OWN TRANSACTION, and right after
+the commit decides them (PaypalFees::decideRows: the guarded write takes the order's guard, then the rows that follow them): a refund recorded
+in CW never counts beside the chargeback's money until the nightly. A decision that cannot be made then (an order busy, the account's settings
+wrong) leaves them due, durable, for the next PayPal run; the snapshot is never refused for it. One indexed read per snapshot
+(ix_paypal_txn_shop_no).
+
+**PPF55. The run's time and PayPal's repeats (M2, F-L5; MEDIUM + LOW).** Each window stored is decided at once; a window is started only
+before the run's deadline less DECIDE_RESERVE_SEC (60 s; PaypalApi's own deadline is the same, bin/paypal_fees.php), so the decisions of what
+was stored always have their time, and a deadline that comes right after a window is stored still decides it (the run is failed all the
+same, covered_to kept). A row PayPal gives twice in one answer (its id AND event code): the window is read again (READS = 3 in all), then taken
+as it stands: the same content twice is kept once (counted in the run's summary and the CLI's line), two contents of one row keep the newer
+and the row is a look (`pp_conflict`) until a later read gives one; never the whole window refused night after night; the window proves
+none of its days (a repeat may stand for a row its moving pages left out), so the next run reads them again.
+
+**PPF56. The alerts (F-M2, F-L7; MEDIUM + LOW).** The rows that need a look are said at most ONCE A DAY (the problem's repeat_seconds, which
+AlertDispatch takes when longer than alerts.repeat_minutes), in words that say what they are: "N PayPal rows that need a look (reason count,
+...; the newest day). The money in doubt is not counted until the CW team looks at them." (never "does not understand"; staff closing a look
+is a later step, CW-1177). No "never read" alert while the account's newest run is still running within its time and a margin (the first
+backfill right after the switch-on); a run still "running" past its time (nightly 240 s, backfill 1,200 s) and RUN_MARGIN_SEC (10 min) died:
+the "failed" alert says so at once, not 26 hours later.
+
+**PPF57. The kit (M3, M4, M5, F-M3, F-L1, F-L8).** backfill-check compares the pins with the rows THE CERTIFIED RUN returned (last_run of it or
+later) and STOPs on any row of the backfill's days only an earlier run returned (a proven re-read no longer gives it); no refund offset may
+stand anywhere (0080's check: refund_offset_pence = 0; PP1; the gate) and Vape and Go's net must equal its gross; a part-applied 0080 is
+resumed only when its tables match the tip's SQL in column defaults and AUTO_INCREMENT too, and profit_day's two columns (when there) are the
+tip's signed BIGINT NOT NULL DEFAULT 0; the RUNBOOK says what to do when the gate STOPs for an honest reason after the switch-on (nothing is
+undone: the nightly keeps reading; PIN_EXPECT changed with its reason, make_kit_sha.sh, golive.sh check, golive.sh backfill again); the What's
+new draft says Electrofag's fees start by themselves on 1 December 2026, names no command in the staff text and takes its figure from the
+gate's "on its profit days of 1-23 Nov" line; the backfill's outer limits are above its own deadline (timeout 1500 > 1,200 s);
+`--apply-gate` (never read) is gone; the UNDO_INDEX line gives the undo order (this one first, then #622, #620, #619, #615, #614, #606).

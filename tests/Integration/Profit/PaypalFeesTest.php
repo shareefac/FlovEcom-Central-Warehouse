@@ -361,13 +361,15 @@ final class PaypalFeesTest extends StockTestCase
         self::assertSame('outside', $rows['1A0000000000000D2|T0006']['count_state'], 'Hayati Vapes still never counted');
         self::assertDaysRebuild($ch);
         self::assertDaysRebuild($this->ef);
-        // the account's shops changed (Electrofag taken off the list): every row decided again once; Electrofag's rows had a shop, so they need a
-        // look now, never Vape and Go's line (fix round 1, the lead's decision 2), and are back on Electrofag when it is put back
+        // the account's shops changed (Electrofag taken off the list): every row decided again once; a row whose captures were made under the
+        // shops and forms of then is held until it is read again (round 4, H3); Electrofag's rows had a shop, so they need a look, never Vape and
+        // Go's line (fix round 1, the lead's decision 2), and are back on Electrofag when it is put back
         $this->setting('profit.paypal_shops_vapeandgo', '"vapeandgo,hayati"');
         self::fees()->run(self::system(), self::api($http), '2026-11-20', '2026-11-24', 'nightly');
         self::assertSame([], self::days($this->ef));
-        self::assertSame($vpg, self::days($ch), 'nothing moved to Vape and Go');
-        self::assertSame(['look', 'form_lost'], [self::rows()['1A0000000000000L1|T0006']['count_state'], self::rows()['1A0000000000000L1|T0006']['look_reason']]);
+        self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM paypal_txn WHERE form_shop IN ('electrofag', 'hayati') AND alloc_channel = ?", [$ch]),
+            'nothing moved to Vape and Go');
+        self::assertSame(['look', 'form_unread'], [self::rows()['1A0000000000000L1|T0006']['count_state'], self::rows()['1A0000000000000L1|T0006']['look_reason']]);
         $this->setting('profit.paypal_shops_vapeandgo', '"vapeandgo,electrofag,hayati"');
         self::fees()->run(self::system(), self::api($http), '2026-11-20', '2026-11-24', 'nightly');
         self::assertSame(['2026-11-06|fee_cost' => 70, '2026-11-06|fee_other' => 90], self::days($this->ef));

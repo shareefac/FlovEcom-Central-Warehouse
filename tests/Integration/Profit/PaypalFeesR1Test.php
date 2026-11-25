@@ -172,12 +172,20 @@ final class PaypalFeesR1Test extends StockTestCase
         self::readPp($http);
         $vpg = self::days($this->vpg);
         self::assertSame(['2026-11-06|fee_cost' => 70], self::days($this->ef));
-        // Hayati Vapes and Electrofag taken off the account's shops: their rows need a look, never Vape and Go's line
+        // Hayati Vapes and Electrofag taken off the account's shops: their rows need a look, never Vape and Go's line (every row whose captures
+        // were made under the shops and forms of then is held until it is read again: round 4, H3)
         $this->setting('profit.paypal_shops_vapeandgo', '"vapeandgo"');
         self::decideAll();
-        self::assertSame(['look', 'form_lost', 'electrofag'], [self::row('2A0000000000000E1')['count_state'], self::row('2A0000000000000E1')['look_reason'],
+        self::assertSame(['look', 'form_unread', 'electrofag'], [self::row('2A0000000000000E1')['count_state'], self::row('2A0000000000000E1')['look_reason'],
             self::row('2A0000000000000E1')['form_shop']]);
-        self::assertSame(['look', 'form_lost'], [self::row('2A0000000000000H1')['count_state'], self::row('2A0000000000000H1')['look_reason']]);
+        self::assertSame(['look', 'form_unread'], [self::row('2A0000000000000H1')['count_state'], self::row('2A0000000000000H1')['look_reason']]);
+        self::assertSame([], self::days($this->vpg), 'nothing moved to Vape and Go (its own row is held until read again)');
+        // read again under the shops of now: Electrofag's and Hayati Vapes' rows had a shop, which no form of now takes: the capture of the forms
+        // that made it is kept as evidence with those forms (PPF36), so the row stays held as read under other forms, never Vape and Go's
+        self::readPp($http);
+        foreach (['2A0000000000000E1', '2A0000000000000H1'] as $id) {
+            self::assertSame(['look', 'form_unread', null], [self::row($id)['count_state'], self::row($id)['look_reason'], self::row($id)['alloc_dest']]);
+        }
         self::assertSame($vpg, self::days($this->vpg), 'nothing moved to Vape and Go');
         self::assertSame([], self::days($this->ef));
         // two shops' forms for one invoice: a row first read so needs a look, never a guess; a row whose shop was captured before needs a look
@@ -259,7 +267,8 @@ final class PaypalFeesR1Test extends StockTestCase
         $sigA = (string) self::row('2A0000000000000E1')['decided_sig'];
         $this->setting('profit.paypal_form_electrofag', '"^([0-9]{5})-[0-9]{10}$"');
         self::decideAll();
-        self::assertSame(['counts', '2001'], [self::row('2A0000000000000E1')['count_state'], self::row('2A0000000000000E1')['alloc_order_ref']]);
+        // round 4 (H3): read under other forms than now, so held until it is read again (never its old capture's shop by guess)
+        self::assertSame(['look', 'form_unread'], [self::row('2A0000000000000E1')['count_state'], self::row('2A0000000000000E1')['look_reason']]);
         self::assertNotSame($sigA, (string) self::row('2A0000000000000E1')['decided_sig']);
         $this->setting('profit.paypal_form_electrofag', '"^([0-9]{4,6})-[0-9]{10}$"');
         self::decideAll();
@@ -297,8 +306,8 @@ final class PaypalFeesR1Test extends StockTestCase
         $runId = self::$db->insert("INSERT INTO paypal_run (account, channel_id, kind, from_day, to_day, state, actor, started_at, finished_at) "
             . "VALUES ('vapeandgo', ?, 'nightly', '2026-11-05', '2026-11-12', 'ok', 'system:paypal_test', '2026-11-12 05:20:00', '2026-11-12 05:21:00')", [$this->vpg]);
         self::assertGreaterThan(0, $runId);
-        self::assertSame('2026-11-01', self::fees('2026-11-12 05:20:00')->nightlyFrom('vapeandgo'),
-            'read back from the last day covered without a gap (1 Nov, never before the first fee day)');
+        self::assertSame('2026-11-02', self::fees('2026-11-12 05:20:00')->nightlyFrom('vapeandgo'),
+            'read back from the first day not covered without a gap (2 Nov: round 4, H8)');
         self::assertContains('paypal_not_read', array_column(PaypalFees::health(self::$db, new \DateTimeImmutable('2026-11-12T06:00:00Z')), 'kind'),
             'a gap (2-4 Nov) keeps the alert');
     }

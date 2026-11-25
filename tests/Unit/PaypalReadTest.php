@@ -114,12 +114,13 @@ final class PaypalReadTest extends TestCase
 
     public function testTheKeyFileIsCheckedAndNeverQuoted(): void
     {
-        $ok = $this->keyFile(json_encode(self::KEY), 0640);
+        $ok = $this->keyFile(json_encode(self::KEY), 0600);
         $k = PaypalKey::load($ok, 'vapeandgo');
         self::assertSame(['vapeandgo', 'vapeandgo', 'https://api-m.paypal.com'], [$k->shop, $k->account, $k->apiBase]);
         self::assertStringNotContainsString('EsecretMadeUp', print_r($k, true));
         self::assertStringNotContainsString('EsecretMadeUp', (string) json_encode($k));
-        foreach ([0600, 0440, 0400] as $mode) {
+        // root's alone (round 4, F-M1): 0600 and 0400; no group read (0640, 0440) any more
+        foreach ([0600, 0400] as $mode) {
             chmod($ok, $mode);
             self::assertSame('vapeandgo', PaypalKey::load($ok, 'vapeandgo')->shop);
         }
@@ -128,10 +129,11 @@ final class PaypalReadTest extends TestCase
             'not set' => ['', null],
             'world readable' => [$this->keyFile(json_encode(self::KEY), 0644), 'mode'],
             'group writable' => [$this->keyFile(json_encode(self::KEY), 0660), 'mode'],
-            'not JSON' => [$this->keyFile('client_id=x', 0640), 'JSON'],
-            'a field more' => [$this->keyFile(json_encode(self::KEY + ['extra' => 'x']), 0640), 'exactly'],
-            'another account' => [$this->keyFile(json_encode(['account' => 'electrofag'] + self::KEY), 0640), 'another account'],
-            'not PayPal' => [$this->keyFile(json_encode(['api_base' => 'https://evil.example.com'] + self::KEY), 0640), 'api_base'],
+            'group readable' => [$this->keyFile(json_encode(self::KEY), 0640), 'mode'],
+            'not JSON' => [$this->keyFile('client_id=x', 0600), 'JSON'],
+            'a field more' => [$this->keyFile(json_encode(self::KEY + ['extra' => 'x']), 0600), 'exactly'],
+            'another account' => [$this->keyFile(json_encode(['account' => 'electrofag'] + self::KEY), 0600), 'another account'],
+            'not PayPal' => [$this->keyFile(json_encode(['api_base' => 'https://evil.example.com'] + self::KEY), 0600), 'api_base'],
         ];
         $refusals['missing'][0] = sys_get_temp_dir() . '/cw_pp_missing_' . bin2hex(random_bytes(4));
         $link = sys_get_temp_dir() . '/cw_pp_link_' . bin2hex(random_bytes(4));

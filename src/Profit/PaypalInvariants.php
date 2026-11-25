@@ -11,9 +11,11 @@ use CW\Db;
  * test run them). Read-only; at most MAX_PER_CHECK findings per check. The day figures they feed are held to their rows by the rebuild check
  * (bin/rebuild_profit_days.php: ProfitDays::compute works fee_cost and fee_other out from scratch with PaypalFees::dayFigures).
  *
- *  PP1. a decided row (not due) counts its whole cost (less a chargeback's refund offset, 0 since round 3: PPF43; only a row that counts has one) in exactly one place, or
- *       nowhere: counts with that not 0 = one place holding exactly it (an order, or the shop's "not on an order" line); anything else = no
- *       place and 0 (every penny once, none twice); the refund offset never below 0 nor above the money taken back.
+ *  PP1. a decided row (not due) counts its whole cost in exactly one place, or nowhere: counts with a cost not 0 = one place holding exactly
+ *       it (an order, or the shop's "not on an order" line); a chargeback whose MONEY is held for a look (its order's refunds not on PayPal, its
+ *       number of two orders: PaypalFees::HELD) = one place holding exactly its FEE, its money nowhere (H4, H5, round 4: both parts reconciled
+ *       on their own); anything else = no place and 0 (every penny once, none twice); no refund offset on any row (PPF43: none is ever made;
+ *       M4, round 4).
  *  PP2. a decided row counts only in its own shop (the shop of its invoice's form; with no shop's form, the account's main shop: never another
  *       shop's line, PPF21); on an order: one of that shop's orders that carries its number (never another number's), a sale's fee on the
  *       order's paid day (no day of its own), every other kind on its own UK day; on the shop's line: on its own day.
@@ -30,11 +32,12 @@ final class PaypalInvariants
     {
         $v = [];
         // decided rows only (a row due keeps its old place against its new facts until decided: PP4 times it; final review c4)
+        // the part of a row that counts: its cost when it counts; its fee alone when it is a chargeback whose money is held; else nothing
+        $part = "(CASE WHEN count_state = 'counts' THEN cost_pence WHEN count_state = 'look' AND kind = 'chargeback' AND look_reason IN ('"
+            . implode("', '", PaypalFees::HELD) . "') THEN -fee_pence ELSE 0 END)";
         foreach ($db->all("SELECT id, count_state, cost_pence, alloc_dest, alloc_pence FROM paypal_txn WHERE due = 0 AND (NOT ("
-            . "(count_state = 'counts' AND cost_pence - refund_offset_pence <> 0 AND alloc_dest IS NOT NULL AND alloc_pence = cost_pence - refund_offset_pence) "
-            . "OR (NOT (count_state = 'counts' AND cost_pence - refund_offset_pence <> 0) AND alloc_dest IS NULL AND alloc_pence = 0)) "
-            . "OR refund_offset_pence < 0 OR refund_offset_pence > GREATEST(0, -amount_pence) OR (refund_offset_pence > 0 AND count_state <> 'counts')) "
-            . "ORDER BY id LIMIT " . self::MAX_PER_CHECK) as $r) {
+            . "({$part} <> 0 AND alloc_dest IS NOT NULL AND alloc_pence = {$part}) OR ({$part} = 0 AND alloc_dest IS NULL AND alloc_pence = 0)) "
+            . "OR refund_offset_pence <> 0) ORDER BY id LIMIT " . self::MAX_PER_CHECK) as $r) {
             $v[] = "PP1 PayPal row {$r['id']}: {$r['count_state']} costing {$r['cost_pence']}p, counted " . ($r['alloc_dest'] === null ? 'nowhere' : "on its {$r['alloc_dest']}")
                 . " as {$r['alloc_pence']}p";
         }

@@ -229,13 +229,14 @@ final class PaypalFeesR2Test extends StockTestCase
         $this->shops();
         $http = new FakePaypalHttp([PaypalTx::sale('3A00000000000E01', '2026-11-06T09:00:00Z', '20.00', '-0.70', '5457')]);
         self::readPp($http);
-        // Electrofag's form narrowed to 5 digits, the same row read again: it keeps its shop and order (a7)
+        // Electrofag's form narrowed to 5 digits, the same row read again: it keeps its capture as evidence (a7), with the forms that made it,
+        // and is held until a read under the forms of now gives it (round 4, H3: never its old shop by guess)
         $this->setting('profit.paypal_form_electrofag', '"^([0-9]{5})-[0-9]{10}$"');
         $http->set([PaypalTx::sale('3A00000000000E01', '2026-11-06T09:00:00Z', '20.00', '-0.70', '5457'),
             PaypalTx::sale('3A00000000000E02', '2026-11-06T09:30:00Z', '20.00', '-0.70', '5458')]);
         self::readPp($http);
-        self::assertSame(['counts', '2001', 'order'], [self::row('3A00000000000E01')['count_state'], self::row('3A00000000000E01')['match_order_ref'],
-            self::row('3A00000000000E01')['invoice_state']]);
+        self::assertSame(['look', 'form_unread', 'order', 'electrofag', '5457'], [self::row('3A00000000000E01')['count_state'], self::row('3A00000000000E01')['look_reason'],
+            self::row('3A00000000000E01')['invoice_state'], self::row('3A00000000000E01')['invoice_shop'], self::row('3A00000000000E01')['invoice_no']]);
         // a row first read while the form was narrowed: its invoice is not kept (only that there was one); the form put back, the nightly reads
         // its day again and takes it to its order
         self::assertSame(['dropped', null, 'shop'], [self::row('3A00000000000E02')['invoice_state'], self::row('3A00000000000E02')['invoice_no'],
@@ -329,7 +330,7 @@ final class PaypalFeesR2Test extends StockTestCase
             self::assertSame('paypal_unreachable', $e->errorCode);
         }
         self::assertSame('2026-11-14', PaypalFees::coveredUntil(self::$db, 'vapeandgo', '2026-11-01'));
-        self::assertSame('2026-11-13', self::fees()->nightlyFrom('vapeandgo'));
+        self::assertSame('2026-11-15', self::fees()->nightlyFrom('vapeandgo'), 'the first day not proven (round 4, H8)');
         // a healthy read at 05:20 of data refreshed at 02:20: 26 hours after that refresh (04:20 the next day) is no stale alert (c3)
         $http = new FakePaypalHttp([], '', null, '2026-11-25T02:20:00Z');
         self::readPp($http, '2026-11-13', '2026-11-25', '2026-11-25 05:20:00');

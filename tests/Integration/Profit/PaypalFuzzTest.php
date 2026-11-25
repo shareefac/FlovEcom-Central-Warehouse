@@ -30,7 +30,8 @@ use CW\Tests\Support\StockTestCase;
  * row really is of (its invoice under the forms, else its reference to its sale or chargeback), whether it counts (status, the shop's first
  * fee day, Hayati outside, pending), where (its order, on the order's paid day for a sale's fee and its own day for the rest, or its shop's
  * "not on an order" line), what it costs, and a chargeback on an order whose refunds in CW (paid, not on a cancelled line) PayPal's own
- * refunds of it do not cover, or one paid before the first day read from PayPal with any refund in CW: a look (refund_not_on_paypal). After
+ * refunds of it do not cover, or one paid before the first day read from PayPal with ANY refund recorded in CW (a cancelled line's too: round
+ * 4): a look (refund_not_on_paypal) whose fee on its own row still counts on the order (round 4: chargebacks sometimes carry a fee). After
  * each sequence: every row = the truth; every day of both shops = the truth
  * of every sequence so far; converged (deciding again changes nothing); an older version read never changed a row; every 25th sequence and
  * the last: the PayPal checks (PP1-PP5) find nothing and the days are what a rebuild works out.
@@ -173,7 +174,9 @@ final class PaypalFuzzTest extends StockTestCase
                 $cday = $day('2026-11-26', 8);
                 $over = $byRef ? ['paypal_reference_id' => $id($sales[$target])] : $inv($target);
                 $amount = '-' . [10, 20, 30, 40, 60][mt_rand(0, 4)] . '.00';
-                $put('C' . $c, PaypalTx::row($id('C' . $c), 'T1201', $at($cday, 12), $amount, null, null, ['S', 'S', 'S', 'P', 'D'][mt_rand(0, 4)], $over));
+                // sometimes PayPal's fee on the chargeback's own row (round 4, H4: it counts even while the money is held for a look)
+                $put('C' . $c, PaypalTx::row($id('C' . $c), 'T1201', $at($cday, 12), $amount, mt_rand(0, 2) === 0 ? '-5.00' : null, null, ['S', 'S', 'S', 'P', 'D'][mt_rand(0, 4)],
+                    $over));
                 $cbs[] = 'C' . $c;
                 if (mt_rand(0, 3) === 0) {
                     // its reversal (money back), as it is targeted
@@ -321,8 +324,9 @@ final class PaypalFuzzTest extends StockTestCase
                     $e['count_state'] = 'counts';
                     if ($kind === 'chargeback' && $ok !== null) {
                         $cw = $orders[$ok]['paid'] === null ? 0 : $orders[$ok]['refund'];
-                        // paid before the first day read from PayPal (1 Nov): any refund in CW is not known to be on PayPal (PPF43)
-                        $early = $orders[$ok]['paid'] !== null && $orders[$ok]['paid'] < self::VPG_FROM && $cw > 0;
+                        // paid before the first day read from PayPal (1 Nov): ANY refund recorded in CW (a cancelled line's too: round 4, H6) is not
+                        // known to be on PayPal (PPF43)
+                        $early = $orders[$ok]['paid'] !== null && $orders[$ok]['paid'] < self::VPG_FROM && ($orders[$ok]['refund'] > 0 || $orders[$ok]['decoy']);
                         $pp = 0;
                         foreach ($pool as $k2 => $r2) {
                             $s2 = (string) $r2['transaction_status'];
@@ -332,7 +336,14 @@ final class PaypalFuzzTest extends StockTestCase
                             }
                         }
                         if ($early || $cw - $pp > 0) {
+                            // its money held for a look; its fee on the same row counts on the order on its day (round 4, H4)
                             $e = ['count_state' => 'look', 'look_reason' => 'refund_not_on_paypal'] + $e;
+                            if ($fee !== 0) {
+                                $ch = $chOf[$shop];
+                                $e = ['alloc_dest' => 'order', 'alloc_channel' => $ch, 'alloc_order_ref' => $orders[$ok]['ref'], 'alloc_day' => $rday, 'alloc_pence' => -$fee] + $e;
+                                $contrib[$ch . '|' . $rday] ??= [0, 0];
+                                $contrib[$ch . '|' . $rday][0] += -$fee;
+                            }
                             $expected[$k] = $e;
                             continue;
                         }
@@ -366,7 +377,18 @@ final class PaypalFuzzTest extends StockTestCase
                     'alloc_day' => $got['alloc_day'], 'alloc_pence' => (int) $got['alloc_pence']];
                 ksort($e);
                 ksort($got);
-                self::assertSame($e, $got, "{$tag}: {$k} is where its truth says");
+                if ($e !== $got) {
+                    // the sequence's rows as CW holds them, for the failure's message (made-up rows: their CW states only)
+                    $dump = array_map(static fn (array $r): string => implode(' ', array_map(static fn (mixed $v): string => $v === null ? '-' : (string) $v, $r)),
+                        self::$db->all('SELECT SUBSTRING(txn_id, 8) AS k, event_code, status, count_state, look_reason, form_shop, order_no, matched_by, invoice_state, '
+                        . 'read_sig, decided_sig, due, pp_conflict, alloc_dest, alloc_pence, version FROM paypal_txn WHERE account = ? ORDER BY id', [$account]));
+                    $hist = array_map(static fn (array $r): string => implode(' ', array_map(static fn (mixed $v): string => $v === null ? '-' : (string) $v, $r)),
+                        self::$db->all("SELECT SUBSTRING(t.txn_id, 8), h.version, h.what, h.run_id, JSON_UNQUOTE(JSON_EXTRACT(h.after_json, '$.count_state')), "
+                        . "JSON_UNQUOTE(JSON_EXTRACT(h.after_json, '$.look_reason')), JSON_UNQUOTE(JSON_EXTRACT(h.after_json, '$.read_sig')) FROM paypal_txn_history h "
+                        . 'JOIN paypal_txn t ON t.id = h.txn_row WHERE t.account = ? ORDER BY h.id', [$account]));
+                    self::fail("{$tag}: {$k} is where its truth says: want " . json_encode($e) . ' got ' . json_encode($got) . "\nrows:\n" . implode("\n", $dump)
+                        . "\nhistory:\n" . implode("\n", $hist) . "\nsig now " . PaypalFees::formsSig(PaypalFees::accountShops(self::$db, $account)));
+                }
             }
             // every day of both shops: the truth of every sequence so far
             $touched = [];

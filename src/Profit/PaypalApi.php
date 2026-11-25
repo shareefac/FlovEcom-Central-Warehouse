@@ -37,10 +37,11 @@ final class PaypalApi
     /** @var \Closure(int): void */
     private readonly \Closure $sleep;
 
-    /** How many times a window is read again when a row comes twice in it (PayPal's pages moved while read), before it is refused. */
+    /**
+     * How many times a window is read when a row comes twice in it (PayPal's pages moved while read): then it is given back as it stands, with
+     * the count of repeats (F-L5, round 4: the caller keeps one of each, holds two contents for a look and proves nothing of the window).
+     */
     public const READS = 3;
-    /** The start_date / end_date an answer says it covers may differ from the times asked for by this many seconds (rounding): no shorter. */
-    public const TIME_SLACK_SEC = 60;
 
     /**
      * @param (\Closure(int): void)|null $sleep waits this many seconds (tests: no wait)
@@ -78,40 +79,39 @@ final class PaypalApi
 
     /**
      * Every row of the window [$from, $to] (UTC instants, at most MAX_WINDOW_DAYS apart): PayPal's transaction_info objects as decoded, the
-     * pages read, and what the answer PROVES of the window (final review c1, round 3; PPF41): `refreshed` = the LEAST fresh
+     * pages read, and what the answer PROVES of the window (final review c1, round 3; PPF41; H7, round 4): `refreshed` = the LEAST fresh
      * last_refreshed_datetime of its pages (null when any page gave none: its completeness unknown, so nothing is proven), `returned_to` =
-     * the earliest end of the interval its pages say they cover (null when no page said one; a page that says it covers less than was asked
-     * proves only that much), `short_start` = a page said it starts later than asked (the window proves nothing). A page that names another
-     * page number than the one asked for is refused (the window whole).
+     * the earliest end of the interval its pages say they cover when it is before the end asked for (by a second or more: no slack below it;
+     * a later end is PayPal's own and proves the whole), `short_start` = a page said it starts later than asked, `unproven` = a page did not
+     * say its start or its end (either: the window proves nothing), `repeated` = rows given more than once (after READS reads: F-L5). A page
+     * that names another page number than the one asked for is refused (the window whole).
      *
-     * @return array{rows: list<mixed>, pages: int, refreshed: ?string, returned_to: ?string, short_start: bool}
+     * @return array{rows: list<mixed>, pages: int, refreshed: ?string, returned_to: ?string, short_start: bool, unproven: bool, repeated: int}
      */
     public function window(\DateTimeImmutable $from, \DateTimeImmutable $to): array
     {
-        // a row twice in one window (by its id and event code) means PayPal's pages moved while they were read (a row of one page again on the
-        // next, another one missed): the whole window is read again, READS times, then refused (fix round 1)
+        // a row twice in one window (by its id and event code) may mean PayPal's pages moved while they were read (a row of one page again on the
+        // next, another one missed): the whole window is read again, READS times in all (fix round 1); then it is given back as it stands with
+        // the count of repeats, never refused night after night (F-L5, round 4): the caller keeps one of each, holds a row of two contents for a
+        // look, and proves none of the window's days (a row may be missing), so the next run reads them again
         for ($read = 1; ; $read++) {
             $w = $this->readWindow($from, $to);
             $keys = [];
-            $twice = false;
+            $repeated = 0;
             foreach ($w['rows'] as $ti) {
                 $k = is_array($ti) ? (($ti['transaction_id'] ?? '') . '|' . ($ti['transaction_event_code'] ?? '')) : '';
                 if (isset($keys[$k])) {
-                    $twice = true;
-                    break;
+                    $repeated++;
                 }
                 $keys[$k] = true;
             }
-            if (!$twice) {
-                return $w;
-            }
-            if ($read >= self::READS) {
-                throw new CwException('paypal_moved', "PayPal gave a row twice in one window {$read} times (its pages moved while read): nothing of it was stored; the next run reads it again", 502);
+            if ($repeated === 0 || $read >= self::READS) {
+                return $w + ['repeated' => $repeated];
             }
         }
     }
 
-    /** @return array{rows: list<mixed>, pages: int, refreshed: ?string, returned_to: ?string, short_start: bool} one read of every page of a window */
+    /** @return array{rows: list<mixed>, pages: int, refreshed: ?string, returned_to: ?string, short_start: bool, unproven: bool} one read of every page of a window */
     private function readWindow(\DateTimeImmutable $from, \DateTimeImmutable $to): array
     {
         if ($to < $from || $to->getTimestamp() - $from->getTimestamp() > self::MAX_WINDOW_DAYS * 86400) {
@@ -127,6 +127,7 @@ final class PaypalApi
         $undated = false;
         $returnedTo = null;
         $shortStart = false;
+        $unproven = false;
         $askedFrom = $from->setTimezone($utc)->format('Y-m-d H:i:s');
         $askedTo = $to->setTimezone($utc)->format('Y-m-d H:i:s');
         for ($page = 1; $page <= $pages; $page++) {
@@ -164,23 +165,24 @@ final class PaypalApi
             } elseif ($refreshed === null || $r < $refreshed) {
                 $refreshed = $r;
             }
-            // the interval the page says it covers (when it says one): a start later than asked proves nothing of the window, an end earlier than
-            // asked proves only up to it; one that is not a time is not PayPal's shape
+            // the interval the page says it covers (H7, round 4): EVERY page must say its start and its end (one that does not: nothing of the
+            // window proven); a start later than asked proves nothing, an end earlier than asked (by a second or more: no slack below it) proves
+            // only up to it, a later end is PayPal's own (the whole asked for); one that is not a time is not PayPal's shape
             foreach (['start_date', 'end_date'] as $f) {
                 if (!array_key_exists($f, $j) || $j[$f] === null) {
+                    $unproven = true;
                     continue;
                 }
                 $t = self::time($j[$f]);
                 if ($t === null) {
                     throw new CwException('paypal_bad_answer', "PayPal's answer to page {$page} has a {$f} that is not a time: nothing of this window was stored", 502);
                 }
-                // a minute either way is PayPal's own rounding of the times asked for (never a day short)
                 $t = substr($t, 0, 19);
                 $secs = (new \DateTimeImmutable($t, $utc))->getTimestamp();
-                if ($f === 'start_date' && $secs > (new \DateTimeImmutable($askedFrom, $utc))->getTimestamp() + self::TIME_SLACK_SEC) {
+                if ($f === 'start_date' && $secs > (new \DateTimeImmutable($askedFrom, $utc))->getTimestamp()) {
                     $shortStart = true;
                 }
-                if ($f === 'end_date' && $secs < (new \DateTimeImmutable($askedTo, $utc))->getTimestamp() - self::TIME_SLACK_SEC && ($returnedTo === null || $t < $returnedTo)) {
+                if ($f === 'end_date' && $secs < (new \DateTimeImmutable($askedTo, $utc))->getTimestamp() && ($returnedTo === null || $t < $returnedTo)) {
                     $returnedTo = $t;
                 }
             }
@@ -195,7 +197,8 @@ final class PaypalApi
             throw new CwException('paypal_moved', sprintf("PayPal said %d rows for this window and gave %d: nothing of it was stored; the next run reads it again",
                 (int) $total, count($rows)), 502);
         }
-        return ['rows' => $rows, 'pages' => $pages, 'refreshed' => $undated ? null : $refreshed, 'returned_to' => $returnedTo, 'short_start' => $shortStart];
+        return ['rows' => $rows, 'pages' => $pages, 'refreshed' => $undated ? null : $refreshed, 'returned_to' => $returnedTo, 'short_start' => $shortStart,
+            'unproven' => $unproven];
     }
 
     /** @return array<string, mixed> one page of the search, decoded */

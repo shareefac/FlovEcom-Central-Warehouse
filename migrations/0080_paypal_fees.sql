@@ -94,15 +94,15 @@ CREATE TABLE IF NOT EXISTS paypal_txn (
   cost_pence      BIGINT            NOT NULL DEFAULT 0 COMMENT 'what it costs the shop (PPF4): sale and refund: the fee; chargeback and fee: the money and the fee; money back below 0',
   count_state     ENUM('counts','pending','not_counted','before_start','outside','look') NOT NULL
                   COMMENT 'counts; pending (status P, read again); not_counted (ignored kind, denied); before_start (before its shop''s first fee day, or its shop not switched on); outside (a shop CW does not hold: Hayati Vapes; kept, never counted); look (needs a look: never counted)',
-  look_reason     VARCHAR(32)       NULL COMMENT 'look: why (unknown_code, status, fee_on_ignored, currency, sign, pp_conflict, ref_conflict, form_overlap, ref_unresolved, ref_missing, form_lost)',
-  match_state     ENUM('order','no_order','ambiguous','no_number') NULL COMMENT 'counts: on a CW order, a number no CW order has (yet), a number of two or more, or no number',
+  look_reason     VARCHAR(32)       NULL COMMENT 'look: why (unknown_code, status, pp_conflict, fee_on_ignored, currency, sign, form_unread, field_conflict, ref_conflict, form_overlap, ref_unresolved, ref_missing, form_lost; a chargeback whose money is held, its fee counted: refund_not_on_paypal, order_ambiguous)',
+  match_state     ENUM('order','no_order','ambiguous','no_number') NULL COMMENT 'counts (or a chargeback whose money is held): on a CW order, a number no CW order has (yet), a number of two or more, or no number',
   matched_by      ENUM('reference','invoice','custom','none') NULL COMMENT 'how its shop and number were found: PayPal''s reference to its sale first, then its invoice, then its custom field (PPF24)',
   match_order_ref VARCHAR(64)       NULL COMMENT 'order: the order of its shop with its number (also when nothing of it counts: a chargeback all refunded)',
-  refund_offset_pence BIGINT        NOT NULL DEFAULT 0 COMMENT 'a chargeback on an order: the money taken back CW already holds as the order''s refund, not counted again (PPF23)',
+  refund_offset_pence BIGINT        NOT NULL DEFAULT 0 COMMENT 'always 0: no offset is ever made (PPF43; a chargeback CW cannot place surely is held for a look instead)',
   refund_seen_pence BIGINT          NULL COMMENT 'a chargeback that counts on an order: the order''s refund budget its decision was made with (the refunds CW counts in profit, less PayPal''s own refunds of it: PPF34; another later: decided again)',
   decided_sig     CHAR(16)          NULL COMMENT 'the account''s shops and forms its decision was made by (another now: decided again, PPF26)',
   candidates      TINYINT UNSIGNED  NOT NULL DEFAULT 0 COMMENT 'ambiguous: how many orders have its number',
-  shop_channel    SMALLINT UNSIGNED NULL COMMENT 'counts, pending, before_start: the CW shop it belongs to (its form''s, else the account''s main shop; PPF21)',
+  shop_channel    SMALLINT UNSIGNED NULL COMMENT 'counts, pending, before_start (and a chargeback whose money is held): the CW shop it belongs to (its form''s, else the account''s main shop; PPF21)',
   alloc_dest      ENUM('order','shop') NULL COMMENT 'where its cost counts: on an order, on the shop''s "not on an order" line; NULL: nowhere',
   alloc_channel   SMALLINT UNSIGNED NULL COMMENT 'the shop it counts in',
   alloc_order_ref VARCHAR(64)       NULL COMMENT 'order: the order',
@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS paypal_txn (
   KEY ix_paypal_txn_account_day (account, day),
   KEY ix_paypal_txn_channel (channel_id),
   KEY ix_paypal_txn_shop (account, shop_channel, count_state, day),
-  KEY ix_paypal_txn_shop_channel (shop_channel),
+  KEY ix_paypal_txn_shop_no (shop_channel, order_no, kind),
   KEY ix_paypal_txn_first_run (first_run),
   KEY ix_paypal_txn_last_run (last_run),
   KEY ix_paypal_txn_sig (account, decided_sig),
@@ -153,11 +153,15 @@ CREATE TABLE IF NOT EXISTS paypal_txn (
     (alloc_dest IS NULL AND alloc_channel IS NULL AND alloc_order_ref IS NULL AND alloc_day IS NULL AND alloc_pence = 0)
     OR (alloc_dest = 'order' AND alloc_channel IS NOT NULL AND alloc_order_ref IS NOT NULL)
     OR (alloc_dest = 'shop' AND alloc_channel IS NOT NULL AND alloc_order_ref IS NULL AND alloc_day IS NOT NULL)),
-  CONSTRAINT ck_paypal_txn_state CHECK ((count_state = 'look') = (look_reason IS NOT NULL) AND (count_state = 'counts' OR match_state IS NULL)
+  CONSTRAINT ck_paypal_txn_state CHECK ((count_state = 'look') = (look_reason IS NOT NULL)
+    AND (count_state = 'counts' OR (kind = 'chargeback' AND IFNULL(look_reason, '') IN ('refund_not_on_paypal', 'order_ambiguous')) OR match_state IS NULL)
     AND (match_state = 'ambiguous') = (candidates >= 2) AND due IN (0, 1) AND version >= 1
-    AND (count_state IN ('counts', 'pending', 'before_start') OR shop_channel IS NULL) AND (alloc_channel IS NULL OR alloc_channel = shop_channel)
+    AND (count_state IN ('counts', 'pending', 'before_start') OR (kind = 'chargeback' AND IFNULL(look_reason, '') IN ('refund_not_on_paypal', 'order_ambiguous'))
+      OR shop_channel IS NULL)
+    AND (alloc_dest IS NULL OR count_state = 'counts' OR (kind = 'chargeback' AND IFNULL(look_reason, '') IN ('refund_not_on_paypal', 'order_ambiguous')))
+    AND (alloc_channel IS NULL OR alloc_channel = shop_channel)
     AND (match_state = 'order') = (match_order_ref IS NOT NULL) AND (alloc_order_ref IS NULL OR alloc_order_ref = match_order_ref)
-    AND refund_offset_pence >= 0 AND (refund_offset_pence = 0 OR kind = 'chargeback') AND (due = 1 OR due_since IS NULL))
+    AND refund_offset_pence = 0 AND (due = 1 OR due_since IS NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='a PayPal transaction read from the API (docs/decisions.md PPF1-PPF9): nothing personal; changed in place with history, never deleted';
 

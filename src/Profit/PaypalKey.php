@@ -11,18 +11,16 @@ use CW\CwException;
  * shop's existing key). The file's path is app.env's `paypal_key_file_<account>` (or CW_PAYPAL_KEY_FILE_<ACCOUNT>); it is a JSON object of
  * exactly client_id, client_secret, api_base, shop (the account's main shop: PaypalFees::run refuses a key whose shop is not the account's
  * main shop), account and merchant_id (PayPal's account number of the merchant: every page PayPal gives must name it, PaypalApi; the
- * lead's decision 4, fix round 1), owned by root, readable by its owner and group only and written by nobody
- * else (root:www-data 0640 as the go-live kit places it; 0600, 0440 and 0400 pass too). It is never in git, never printed, never logged: a
- * refusal names what is wrong with the file, never what it holds. CW calls only POST /v1/oauth2/token and GET /v1/reporting/transactions
- * with it (PaypalApi::PATHS).
+ * lead's decision 4, fix round 1), owned by root and readable by root ALONE (root:root 0600 as the go-live kit places it; 0400 passes too:
+ * the Fable final review F-M1, round 4: no group may read it, so nothing the web app runs as can; only the nightly job, which runs as root,
+ * reads it). It is never in git, never printed, never logged: a refusal names what is wrong with the file, never what it holds. CW calls only
+ * POST /v1/oauth2/token and GET /v1/reporting/transactions with it (PaypalApi::PATHS).
  */
 final class PaypalKey
 {
     /** PayPal's REST hosts (live and sandbox): any other api_base is refused. */
     public const HOSTS = ['https://api-m.paypal.com', 'https://api.paypal.com', 'https://api-m.sandbox.paypal.com', 'https://api.sandbox.paypal.com'];
     public const FIELDS = ['client_id', 'client_secret', 'api_base', 'shop', 'account', 'merchant_id'];
-    /** The group a group-readable key file may have (the go-live kit: root:www-data 0640); root's own group passes too. */
-    public const GROUPS = ['www-data', 'root'];
     public const MAX_BYTES = 4096;
 
     private function __construct(
@@ -42,8 +40,8 @@ final class PaypalKey
     }
 
     /**
-     * The key of $account from its file. Refused (403 paypal_key_refused) when the file is missing, not a plain file, has another owner or a
-     * mode others can read or anyone but its owner can write, is not the JSON above, or is for another account.
+     * The key of $account from its file. Refused (403 paypal_key_refused) when the file is missing, not a plain file, has another owner than
+     * root or a mode anyone but root can read (or anyone run), is not the JSON above, or is for another account.
      */
     public static function load(?string $path, string $account): self
     {
@@ -73,15 +71,8 @@ final class PaypalKey
             if ((int) $fs['uid'] !== 0) {
                 throw $no('is not owned by root');
             }
-            if (($fs['mode'] & 0137) !== 0) {
-                throw $no(sprintf('has mode %04o: others may not read it, only its owner may write it, nobody may run it (0640)', $fs['mode'] & 07777));
-            }
-            if (($fs['mode'] & 0040) !== 0) {
-                $g = function_exists('posix_getgrgid') ? posix_getgrgid((int) $fs['gid']) : false;
-                $name = is_array($g) ? (string) $g['name'] : (string) $fs['gid'];
-                if ((int) $fs['gid'] !== 0 && !in_array($name, self::GROUPS, true)) {
-                    throw $no("is readable by its group {$name}: only www-data (or root) may be its group (0640 root:www-data)");
-                }
+            if (($fs['mode'] & 0177) !== 0) {
+                throw $no(sprintf('has mode %04o: only root may read it (0600; no group, no others, nobody may run it)', $fs['mode'] & 07777));
             }
             if ((int) $fs['size'] > self::MAX_BYTES) {
                 throw $no('is too large to be a key file');

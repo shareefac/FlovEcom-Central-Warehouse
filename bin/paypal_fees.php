@@ -80,8 +80,9 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
             $cli->log('another run of this job holds its lock: nothing done' . (isset($opts['from']) || isset($opts['decide']) ? '; run it again' : ''));
             return isset($opts['from']) || isset($opts['decide']) ? Cli::BUSY : Cli::OK;
         }
-        // the overall deadline (below the installer's 6-minute drain for the nightly; fix round 1)
-        $deadline = microtime(true) + (isset($opts['from']) ? 1200 : 240);
+        // the overall deadline (below the installer's 6-minute drain for the nightly; fix round 1); of it, the decisions keep their reserve: no
+        // PayPal request starts after the deadline less it (M2, round 4)
+        $deadline = microtime(true) + (isset($opts['from']) ? PaypalFees::BACKFILL_SEC : PaypalFees::NIGHTLY_SEC);
         if (isset($opts['decide'])) {
             // no PayPal call (no key needed): the rows a stopped run left due, decided under the account's lock
             $n = $fees->locked($account, static fn (): int => $fees->decideAll($caller, $account, null, $deadline));
@@ -133,7 +134,7 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
         if ($to > $today) {
             $to = $today;
         }
-        $api = new PaypalApi($key, new CurlPaypalHttp(), null, $deadline);
+        $api = new PaypalApi($key, new CurlPaypalHttp(), null, $deadline - PaypalFees::DECIDE_RESERVE_SEC);
         $t = microtime(true);
         try {
             $r = $fees->run($caller, $api, $from, $to, $kind, $deadline, $extra);
@@ -146,9 +147,10 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
                 default => Cli::PROBLEM,
             };
         }
-        $cli->log(sprintf('%s %s %s..%s: RUN=%d ok, %d windows (%d of old days read again), %d pages, %d rows (%d new, %d changed), %d decided (+%d before reading), '
+        $cli->log(sprintf('%s %s %s..%s: RUN=%d ok, %d windows (%d of old days read again), %d pages, %d rows (%d new, %d changed%s), %d decided (+%d before reading), '
             . 'PayPal complete to %s, proven read to %s, %.1f s (%s)',
-            $account, $kind, $from, $to, $r['run'], $r['windows'], $r['extra_windows'], $r['pages'], $r['read'], $r['new'], $r['changed'], $r['allocated'], $local,
+            $account, $kind, $from, $to, $r['run'], $r['windows'], $r['extra_windows'], $r['pages'], $r['read'], $r['new'], $r['changed'],
+            $r['repeated'] > 0 ? sprintf('; %d given twice by PayPal: kept once, or held for a look; their windows not proven', $r['repeated']) : '', $r['allocated'], $local,
             $r['refreshed'] ?? '-', $r['covered'] ?? '-', microtime(true) - $t,
             implode(', ', array_map(static fn (string $k, float $v): string => "{$k} {$v} s", array_keys($r['seconds']), array_values($r['seconds'])))));
         return Cli::OK;

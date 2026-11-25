@@ -73,21 +73,22 @@ final class PaypalReadR1Test extends TestCase
         file_put_contents($f, json_encode(self::KEY));
         $this->files[] = $f;
         chmod($f, 0640);
-        chgrp($f, 'bin');
-        try {
-            PaypalKey::load($f, 'vapeandgo');
-            self::fail('root:bin 0640 is refused');
-        } catch (CwException $e) {
-            self::assertStringContainsString('group', $e->getMessage());
+        // round 4 (F-M1): no group may read it, www-data's neither (the key file is root:root 0600)
+        foreach (['bin', 'www-data'] as $group) {
+            chgrp($f, $group);
+            try {
+                PaypalKey::load($f, 'vapeandgo');
+                self::fail("root:{$group} 0640 is refused");
+            } catch (CwException $e) {
+                self::assertStringContainsString('only root may read it', $e->getMessage());
+            }
         }
-        chgrp($f, 'www-data');
-        self::assertSame('TESTACCOUNT', PaypalKey::load($f, 'vapeandgo')->merchantId);
         chgrp($f, 'bin');
         chmod($f, 0600);
         self::assertSame('vapeandgo', PaypalKey::load($f, 'vapeandgo')->account, 'no group read: its group does not matter');
     }
 
-    public function testARepeatedRowAcrossPagesReadsTheWindowAgainThenRefusesIt(): void
+    public function testARepeatedRowAcrossPagesReadsTheWindowAgainThenGivesItBackWithItsRepeats(): void
     {
         $rows = self::rows(501);
         $dup = static function (int $n, string $p, array $q) use ($rows): ?array {
@@ -109,12 +110,11 @@ final class PaypalReadR1Test extends TestCase
         $w = self::api($http)->window(new \DateTimeImmutable('2026-11-21T00:00:00Z'), new \DateTimeImmutable('2026-11-21T23:59:59Z'));
         self::assertCount(501, $w['rows']);
         self::assertCount(501, array_unique(array_map(static fn (array $r): string => $r['transaction_id'], $w['rows'])), 'read again whole: every row once');
-        try {
-            self::api(new FakePaypalHttp($rows, '', $dup))->window(new \DateTimeImmutable('2026-11-21T00:00:00Z'), new \DateTimeImmutable('2026-11-21T23:59:59Z'));
-            self::fail('a window that keeps repeating a row is refused');
-        } catch (CwException $e) {
-            self::assertSame('paypal_moved', $e->errorCode);
-        }
+        // a window that keeps repeating a row: read READS times, then given back as it stands with the count of repeats (round 4, F-L5: never
+        // refused night after night; the caller keeps one of each and proves none of its days, so a row its moving pages left out is read again)
+        $w = self::api(new FakePaypalHttp($rows, '', $dup))->window(new \DateTimeImmutable('2026-11-21T00:00:00Z'), new \DateTimeImmutable('2026-11-21T23:59:59Z'));
+        self::assertSame([501, 500, 1], [count($w['rows']), count(array_unique(array_map(static fn (array $r): string => $r['transaction_id'], $w['rows']))),
+            $w['repeated']]);
     }
 
     public function testRefreshTimeReadStrictlyAndTheDeadlineKept(): void

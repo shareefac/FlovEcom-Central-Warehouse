@@ -22,7 +22,7 @@ use CW\Tests\Support\StockTestCase;
 
 /**
  * CW-1172 round 4, the last fix round (the Codex astra final of df9b8d3, runs/codex_25nov/paypal_final2_astra_final.md: NO GO, 8 High + 5
- * Medium; the Fable final review; the lead's decisions; docs/decisions.md PPF47-PPF56): MADE-UP rows. A form change holds every row read under
+ * Medium; the Fable final review; the lead's decisions; docs/decisions.md PPF47-PPF57): MADE-UP rows. A form change holds every row read under
  * other forms whatever its age, and its children with it; an invoice and a custom field of two shops, or a row's own overlap, are a look, never
  * "the first field wins" nor its reference; a chargeback whose money is held still counts its fee; an order number of two orders holds a
  * chargeback's money; an order paid before the first day with ANY refund recorded in CW makes its chargeback a look; a day is proven only by
@@ -513,7 +513,15 @@ final class PaypalFeesR4Test extends StockTestCase
         self::assertNotContains('paypal_not_read', self::alerts($now));
         // the same run still "running" 40 minutes later (it died: past its 20 minutes and the margin): failed, said at once
         self::assertContains('paypal_failed', self::alerts($now->modify('+40 minutes')));
-        self::$db->exec("UPDATE paypal_run SET state = 'failed', error = 'the test', finished_at = ?", [Clock::db($now)]);
+        // switched on 5 minutes ago (the first fee day set, with its history) and no run yet: its backfill follows, no "never read" for an hour
+        self::$db->exec('DELETE FROM paypal_run');
+        self::assertContains('paypal_not_read', self::alerts($now));
+        $cc = self::$db->insert("INSERT INTO config_change (subject_type, subject_key, version, action, state, before_state, reason, actor, created_at) VALUES ('setting', "
+            . "'profit.paypal_from_vapeandgo', 99, 'change', JSON_OBJECT('value', '\"2026-11-01\"'), JSON_OBJECT('value', '\"\"'), 'the switch-on', 'system:paypal_test', ?)",
+            [Clock::db($now->modify('-5 minutes'))]);
+        self::assertNotContains('paypal_not_read', self::alerts($now));
+        self::assertContains('paypal_not_read', self::alerts($now->modify('+2 hours')), 'never read an hour after the switch-on: said');
+        self::$db->exec('DELETE FROM config_change WHERE id = ?', [$cc]);
     }
 
     // ---- M4: no refund offset can stand ----------------------------------------------------------------------------------------------

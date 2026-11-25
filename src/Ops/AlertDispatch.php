@@ -16,7 +16,8 @@ use CW\Ui\Words;
  *    alerts.email_to (a plain-text e-mail). Both EMPTY by default: then nothing is sent and no transport is called (the run still
  *    records what it saw, so the first run after an address is set sends what is open);
  *  - once per window: a problem is sent when it is new, when it came back after it cleared, or when it was last sent
- *    alerts.repeat_minutes ago or more; otherwise it is only recorded (last seen, its words);
+ *    alerts.repeat_minutes ago or more (or its own repeat_seconds, when longer: PayPal's rows that need a look, once a day); otherwise it is only
+ *    recorded (last seen, its words);
  *  - a problem that has gone is marked cleared, and a "back to normal" line is sent for it when it had been sent; one that could not
  *    be sent (every destination failed, or none was set) is owed and sent on a later run, once (clear_sent_at; review finding 8);
  *  - one message per run with every line; a destination that fails is reported (never its address: a web address can hold a token),
@@ -68,7 +69,8 @@ final class AlertDispatch
                 $this->db->exec('UPDATE alert_state SET detail = ?, last_seen_at = ? WHERE alert_key = ?', [mb_substr($words, 0, 1000), $at, $key]);
             }
             $lastSent = $newEpisode || $row['last_sent_at'] === null ? null : Clock::fromDb((string) $row['last_sent_at']);
-            $due = $lastSent === null || Clock::diff($lastSent, $now) >= $window;
+            // a problem may ask to be said less often than the window (repeat_seconds: PayPal's rows that need a look, once a day; 0080, PPF56)
+            $due = $lastSent === null || Clock::diff($lastSent, $now) >= max($window, (int) ($p['repeat_seconds'] ?? 0));
             if ($due && $destinations > 0) {
                 $send[$key] = $words;
             } else {
@@ -172,7 +174,7 @@ final class AlertDispatch
                 : Words::say('ALERT', 'paypal_not_read', $store, $n('hours')),
             'paypal_failed' => Words::say('ALERT', 'paypal_failed', $store, (string) ($d['error'] ?? '')),
             'paypal_stale' => Words::say('ALERT', 'paypal_stale', $store, (string) ($d['to'] ?? '')),
-            'paypal_needs_look' => Words::say('ALERT', 'paypal_needs_look', $store, $n('count'), (string) ($d['newest'] ?? '')),
+            'paypal_needs_look' => Words::say('ALERT', 'paypal_needs_look', $store, $n('count'), (string) ($d['reasons'] ?? ''), (string) ($d['newest'] ?? '')),
             'paypal_not_on_order' => Words::say('ALERT', 'paypal_not_on_order', $store, $n('days'), (string) ($d['limit'] ?? ''), (string) ($d['day'] ?? ''),
                 (string) ($d['pence'] ?? '')),
             default => (string) ($p['detail'] ?? $p['kind']),
