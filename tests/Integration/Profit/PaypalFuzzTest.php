@@ -198,7 +198,11 @@ final class PaypalFuzzTest extends StockTestCase
                 $http->set(array_values($served));
                 $fees->run($caller, $api, '2026-11-14', '2026-12-05', 'nightly');
                 foreach ($before as $k => $b) {
-                    if ($b !== null) {
+                    // a version older than the one CW keeps never changes it (PPF37, PPF42: one of no update time is older than any dated one); a
+                    // row CW first kept from an older version itself (an undated one) may be replaced by a dated one, which is newer than it
+                    $at = isset($older[$k]['transaction_updated_date'])
+                        ? (new \DateTimeImmutable((string) $older[$k]['transaction_updated_date']))->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s.u') : null;
+                    if ($b !== null && $b['pp_updated_at'] !== null && ($at === null || (string) $b['pp_updated_at'] > $at)) {
                         self::assertSame($b, self::$db->one('SELECT status, pp_updated_at, amount_pence FROM paypal_txn WHERE account = ? AND txn_id = ?',
                             [$api->account(), $id($k)]), "{$tag}: an older version changed {$k}");
                     }
