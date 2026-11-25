@@ -21487,3 +21487,81 @@ become an amount ("8,47", "8,", three decimals, a letter, "20,000,000.") says so
 never one typed by hand; which boxes it filled goes with the form in the hidden "hand" (fnet, fvat), so a refused form empties them too
 (Codex's final of 332aba7). A comma is read only as a thousands mark of three figures, so "8,4" says "not an
 amount" at once (a total is seldom typed with thousands commas). The server refuses both on save, as before.
+
+## CW-1180 "don't restock" = written off at once (branch `no-restock`, 25 Nov 2026; NR1-NR8; migration 0081)
+
+The owner (CW chat, 25 Nov 2026 ~15:15-16:45 UK): "if the staff said dont restock then dont reestock", then "Yes, build it" (a test copy;
+live only on his word, never on Black Friday). Until now a paid unit a store cancelled and marked not restockable went to VERIFY ("Doubtful
+cancels awaiting recount") with a recount task (D37) that nobody did: 1,238 units, £2,435, piled up from 28 Oct to 25 Nov and were cleared by
+hand (What's new #625). Code: `src/Reservations.php` (cancel, uncancel, uncancelFromWriteOff, lastCancels, notRestockableMode),
+`src/Invariants.php` (12-13), `src/Ui/SalesViews.php`, the Sales returns, order and movements pages, `Ui\Words` (SALE_RESTOCK_TEXT,
+SALE_ORDER, SETTING_CHOICE, LEDGER_NOTE). Tests: `tests/Integration/Stock/CancelWriteOffTest.php`, `CancelWriteOffInvariantsTest.php`,
+`tests/Integration/UiKernel/NoRestockScreensTest.php`, `tests/Integration/Migration0081Test.php`.
+
+**NR1. A setting, `stock.cancel_not_restockable` (amends D37).** Two choices, shown in words on Settings > Stock records ("Write it off at
+once (at its cost)", "Move it to Doubtful cancels for a recount (the way before)"), changed with a reason and kept in the setting's History
+by those words, like every setting (config_change version, audit row). 0081 seeds `write_off`, the owner's rule (provisional, as every new
+setting, until he ticks "agreed"). The cancel reads it in its transaction, once per call, so a change applies to the next cancel. While the
+row is missing (a release running a moment before 0081) or holds anything else (only by hand in the database), CW keeps the way before
+(`verify`): a release alone changes nothing; 0081 switches it on.
+
+**NR2. The write-off.** Under `write_off`, a cancel with `restockable = false` of an ALLOCATED unit books allocated −u (the `cancel` row, as
+before), then ONE `write_off` row of on_hand −u at the unit's sale warehouse (its snapshot, D44), noted `cancel_not_restockable` (the same
+system note as the VERIFY move of the way before: one name for "not restockable"; the movement type tells the two apart), with the channel,
+order ref and unit id on it, at booking time (D45), in the same transaction under the same locks (reservation → the unit's balances, sorted →
+value clock → feed clock: today's order, the VERIFY balance simply not locked). Result `cancelled_written_off`. No VERIFY move, no recount,
+no document: the order flow's own movements (cancel, ship, return, the VERIFY move) never had one, and a document (number series, approvals,
+reviews) inside an order's transaction would break its lock order (I21) for nothing a person decides. A held unit (never paid, never
+picked) is only freed, as before; a restockable cancel is unchanged. allocated −u and on_hand −u together leave availability where it was:
+no feed row, never an oversell; a shelf already below zero opens the usual negative_on_hand review.
+- *Example:* an Elf Bar, 10 on the shelf, 2 paid (available 8). One cancelled not restockable: shelf 9, allocated 1, available still 8; one
+  write-off of £2.04 at MAIN. Before: shelf 9, VERIFY 1, an open recount.
+
+**NR3. "At its cost" = the item's average cost so far.** The write-off row carries `unit_cost` = CostHints::average (every unit that came in
+with a cost, weighted: the stock value's own rule, the same figure Reports values the unit at), `cost_source` `estimate` (a cost CW worked
+out itself, as the opening loads' are; 0006's ENUM has no other fitting value and widening it would copy the whole ledger table). None
+when no unit of the item ever came in with a cost (the stock value already counts that item at £0). The average is read before any balance
+is locked (a plain read; no other order waits on it). A cost on a fall moves no average: every average CW keeps (CostHints, report_item,
+CostEngine's start price) counts only rises with a cost. So the stored cost is the record of what left (the pages show it), never an input.
+- *Example:* 10 in at £2.00 and 10 at £3.00: average £2.50; a pack of two cancelled not restockable: one write-off of 2 at £2.50 = £5.00.
+
+**NR4. Uncancel of a written-off unit: the exact inverse (amends D46).** A unit whose LAST cancel wrote it off (lastCancels: the newest
+`cancel` row and a `write_off` of on_hand down noted cancel_not_restockable after it) comes back with on_hand +u at the same warehouse, a
+`write_off` row noted `uncancel_from_write_off`, at booking time, then allocated +u: availability does not move (never an oversell). Result
+`uncancelled_from_write_off`. The take-back carries NO cost of its own: a rise with a cost is a purchase to every average (NR3), so a
+take-back at £2.04 would move the average the cancel never moved; without one the unit comes back at exactly the value it left at (on hand ×
+the same average), and the record pairs it with the write-off (same unit, the uncancel's key, invariants 12-13). What the last cancel did
+decides, whatever the setting says now: a unit parked under `verify` comes back from VERIFY (D46) after a switch to `write_off`, and the
+other way round.
+- *Example:* the Elf Bar above taken back: shelf 10, allocated 2, available 8, average still £2.04: as before the cancel.
+
+**NR5. Counted since: allocated and a review, never a guess.** When the item was counted at that warehouse after the write-off (a `count`
+row of the balance booked after it, whatever its counted_at: the count replaced the figure the write-off was part of, as D46's
+verify_counted; ledger ids of one balance follow its lock), or the write-off is not the unit's own figure (another balance or size than its
+snapshot), CW leaves on_hand alone, allocates +u and opens a count_review `uncancel_after_write_off` at the unit's warehouse (dedupe
+`uncancel_write_off:<channel>:<cancel id>`; detail: the reason `counted_since` / `not_its_figure`, the write-off's ledger id and cost, the
+count's ledger id). Availability is then lower than the shelf until a person acts, never higher; a strict/stopped item left below zero gets
+`uncancel_short` (D46). Result `uncancelled_after_write_off`. A hand correction (an adjustment) of the item since is not such a signal: at a
+selling warehouse stock moves all day, and CW cannot tell whose unit a correction was about (at VERIFY it could: D46). Like
+`uncancel_after_verify`, no page lists this review source yet (an existing gap: the review is in count_review for a person; tracker).
+- *Example:* written off (shelf 9), the shelf counted at 9, the cancel taken back: shelf 9, allocated 2, available 7 and a review.
+
+**NR6. Invariants 12-13.** 12: each write-off by a not-restockable cancel and each take-back is ONE on_hand row of the unit's own item,
+warehouse and size (−u / +u), under the key of that same cancel / uncancel of the unit (its allocated row −u / +u), and a take-back has no
+cost. 13: per unit and item those rows never net above 0 (only what was written off is taken back; below −u is right after NR5 and a later
+cancel). Read from the channels' write_off rows through ix_stock_ledger_store_type (staff write-offs have no channel).
+
+**NR7. Words and pages.** Sales returns: "Written off at Main warehouse: not restockable (£2.04)" (what the unit's write-off was worth, its
+units × the cost it took, to the penny; "(no cost known)" when none); a unit parked the way before keeps "Not on sale: moved to Doubtful
+cancels awaiting recount, waiting for a recount" and its recount's words; the CSV says the same. The order page's steps: "Written off: not
+restockable (£2.04)" and "Write-off taken back: the cancel was undone". Stock movements: the system notes in words ("Cancelled by the store,
+not restockable", ...), never their codes. No new page.
+
+**NR8. Profit and the reports (no rule changed).** An Elf Bar cancelled not restockable: stock value −£2.04 (on hand −1 at the average; the
+VERIFY park kept it in our stock until the hand clear); order profit unchanged (a cancelled line counts no units, sale or cost: PR4); Real
+profit unchanged (it never held stock losses); the stock movement reports show one write-off; the moving buying price (CostEngine, PR13)
+weighs the next delivery against one unit fewer on hand (100 at £2.00 and 100 more at £2.20 give £2.1000 a unit; with the unit written off,
+99 + 100 give £2.1005); the report job's sales figures (cancel/uncancel of the allocated figure) are unchanged; the ERPNext way-back file
+leaves it out like every row a website booked (RB2: `from_website`). 0081 does not need 0080: the Migrator applies whatever file is pending in
+name order, so either may go live first (Migration0081Test); but a release must hold every file its schema has applied, so whichever goes
+second is built on the first (the kit's re-pin).

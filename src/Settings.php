@@ -264,6 +264,9 @@ final class Settings
         // ---- The reason a new adjustment opens on (0065; docs/decisions.md AJ9-AJ11): one of the reasons offered on stock corrections
         // (Settings > Reasons), or empty: the person chooses each time.
         'stock.adjust_opens_on' => ['reason_use' => 'adjustment'],
+        // ---- CW-1180 (0081; docs/decisions.md NR1): a cancelled paid unit the store marked "don't restock": written off at once (the owner's rule)
+        // or moved to VERIFY for a recount (the way before, D37); the screens show the two choices in words (Ui\Words::SETTING_CHOICE).
+        'stock.cancel_not_restockable' => ['in' => Reservations::NOT_RESTOCKABLE_MODES],
         // ---- Who is here on a draft order (0070; docs/decisions.md LV9; Live\Presence): off, presence or on (on = presence until saving each box by
         // itself is built); the seconds between two polls while someone else is here and while alone; the seconds after which a person whose page
         // stopped polling is no longer shown (never fewer than the default: an active person is never called gone before their next poll).

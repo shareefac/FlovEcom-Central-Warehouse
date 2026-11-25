@@ -80,6 +80,9 @@ final class SettingsController
             // A choice, not a box to type in: the hint says where the choices come from (AJ10).
             return sprintf(Words::SETTING_EDIT['reason_use'], Words::REASON_USE[$rule['reason_use']] ?? (string) $rule['reason_use']);
         }
+        if (isset(Words::SETTING_CHOICE[$key])) {
+            return Words::SETTING_EDIT['choice']; // one of a few fixed choices, each in words (NR1)
+        }
         if (isset($rule['min'], $rule['max'])) {
             $parts[] = sprintf(Words::SETTING_EDIT['range'], is_int($rule['min']) ? number_format($rule['min']) : $rule['min'],
                 is_int($rule['max']) ? number_format($rule['max']) : $rule['max']);
@@ -128,6 +131,12 @@ final class SettingsController
      */
     public static function choices(Context $ctx, string $key, string $held): ?array
     {
+        // A setting of a few fixed choices with words (Words::SETTING_CHOICE; CW-1180, NR1): those, in their order; a value held that is none
+        // of them (only by hand in the database) last, marked "(not offered now)", so the page shows what is stored and never drops it.
+        $fixed = Words::SETTING_CHOICE[$key] ?? null;
+        if ($fixed !== null) {
+            return $held === '' || isset($fixed[$held]) ? $fixed : $fixed + [$held => sprintf(Words::SETTING_EDIT['reason_gone'], $held)];
+        }
         $use = Settings::RULES[$key]['reason_use'] ?? null;
         if ($use === null) {
             return null;

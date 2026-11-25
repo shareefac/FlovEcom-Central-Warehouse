@@ -19,8 +19,10 @@ use DateTimeImmutable;
  *             a strict/stopped item pushed below zero -> oversell_event. Body lines win.
  *   release   held -> released; stale attempt ignored; committed -> 409 use_cancel;
  *             unknown ref -> released tombstone.
- *   cancel    allocated (or held) -> cancelled; restockable=false moves the units to VERIFY
- *             and opens a recount (never a write-off).
+ *   cancel    allocated (or held) -> cancelled; restockable=false on an allocated unit: under the setting
+ *             stock.cancel_not_restockable = write_off (the owner's rule, CW-1180, NR1-NR3) ONE write-off of the
+ *             unit at its warehouse at the item's average cost, no VERIFY move, no recount; under `verify` (the
+ *             way before, D37) the units move to VERIFY and a recount opens.
  *   ship      allocated -> shipped: allocated -u, on_hand -u; dispatched at/before the last
  *             count's counted_at: allocated -u only ("pre_count"); within ±10 min: count review.
  *   unship    shipped -> allocated: allocated +u, on_hand +u; a reset at/before the last
@@ -29,7 +31,10 @@ use DateTimeImmutable;
  *   uncancel  cancelled -> allocated (D46): allocated +u under the unit's snapshot; a unit its last
  *             cancel parked in VERIFY and nobody has touched since comes back with the paired
  *             movement (availability unchanged); one a person already dealt with is allocated and
- *             a count review opened; a strict/stopped item left below zero -> oversell_event.
+ *             a count review opened; a unit its last cancel wrote off comes back with that write-off
+ *             taken back (NR4: availability unchanged), unless its item was counted at its warehouse
+ *             since (allocated and a count review, NR5); a strict/stopped item left below zero ->
+ *             oversell_event.
  *             ship / unship / return / uncancel need a committed order; before the commit they
  *             throw 409 not_committed, which is not stored (the site retries the same key).
  *   expire    held past expires_at -> expired (cron; no idempotency key needed).
@@ -64,6 +69,17 @@ final class Reservations
     /** attempt is INT UNSIGNED. */
     public const MAX_ATTEMPT = 4_294_967_295;
     private const ER_DUP_ENTRY = 1062;
+    /**
+     * CW-1180 (0081; docs/decisions.md NR1): what a not-restockable cancel of a paid unit does, a setting on the Settings page: `write_off`
+     * (the owner's rule, seeded: the unit leaves stock at once at its cost) or `verify` (the way before, D37: parked in VERIFY for a recount).
+     */
+    public const NOT_RESTOCKABLE_SETTING = 'stock.cancel_not_restockable';
+    public const NOT_RESTOCKABLE_MODES = ['write_off', 'verify'];
+    /** What CW does while the setting is missing (a release running a moment before 0081) or holds anything else: the way before (NR1). */
+    public const NOT_RESTOCKABLE_FALLBACK = 'verify';
+    /** The ledger note of a cancel's write-off (NR2; the same words as the VERIFY move of the way before) and of its take-back (NR4). */
+    public const NOTE_NOT_RESTOCKABLE = 'cancel_not_restockable';
+    public const NOTE_WRITE_OFF_BACK = 'uncancel_from_write_off';
 
     private readonly Stock $stock;
     private readonly Idempotency $idem;
@@ -614,21 +630,41 @@ final class Reservations
     // cancel / ship / unship / return (per unit)
     // ==========================================================================================
 
-    /** @param list<string|int> $unitIds */
+    /**
+     * A cancel of units (D36, D37; CW-1180 NR1-NR3). A paid (allocated) unit the store marked not restockable is, under the setting
+     * stock.cancel_not_restockable:
+     *   - `write_off` (the owner's rule): written off at once at its sale warehouse, ONE `write_off` row of on_hand -u noted
+     *     cancel_not_restockable with the order and the unit on it, at booking time (D45), at the item's average cost so far (CostHints::average,
+     *     the stock value's own rule; none when no unit of it came in with a cost: NR3) -> "cancelled_written_off". No VERIFY move, no recount.
+     *     allocated -u and on_hand -u together: availability does not move (no feed row, never an oversell);
+     *   - `verify` (the way before, D37): moved to VERIFY with a recount -> "cancelled_to_verify".
+     * The setting is read in the transaction, once per call; missing or anything else: `verify` (NR1). The average costs are read before any
+     * balance is locked (a plain read: no balance lock waits on it, R6/NR3).
+     *
+     * @param list<string|int> $unitIds
+     */
     public function cancel(Caller $caller, string $orderRef, array $unitIds, bool $restockable, string $idemKey): OpResult
     {
         return $this->unitOperation($caller, 'cancel', $orderRef, $unitIds, ['restockable' => $restockable], $idemKey,
             function (string $orderRef, array $units, array $wanted, string $idemKey) use ($caller, $restockable): array {
                 $verify = $this->stock->warehouseId('VERIFY');
+                $writeOff = !$restockable && $this->notRestockableMode() === 'write_off';
                 $pairs = [];
+                $costOf = [];
                 foreach ($units as $u) {
                     if ($u['sku_id'] !== null && in_array($u['state'], ['held', 'allocated'], true)) {
                         $pairs[] = [$u['warehouse_id'], $u['sku_id']];
                         if (!$restockable && $u['state'] === 'allocated') {
-                            $pairs[] = [$verify, $u['sku_id']];
+                            if ($writeOff) {
+                                $costOf[$u['sku_id']] = true;
+                            } else {
+                                $pairs[] = [$verify, $u['sku_id']];
+                            }
                         }
                     }
                 }
+                // The unit's cost: the item's average so far, as the stock value takes it (NR3), read before the balances are locked.
+                $costs = $costOf === [] ? [] : (new StockOps\CostHints($this->db))->average(array_keys($costOf));
                 $this->stock->lock($pairs);
                 $out = [];
                 foreach ($wanted as $id) {
@@ -646,7 +682,15 @@ final class Reservations
                     if ($u['sku_id'] !== null) {
                         $m = $this->move('cancel', $caller, $orderRef, $id, $idemKey);
                         $this->stock->apply($u['warehouse_id'], $u['sku_id'], $u['state'], -$u['u'], $m);
-                        if (!$restockable && $u['state'] === 'allocated') {
+                        if ($writeOff && $u['state'] === 'allocated') {
+                            // The owner's rule (CW-1180, NR2): the store said it cannot go back on sale, so it leaves stock now, at its cost.
+                            $cost = $costs[$u['sku_id']] ?? null;
+                            $this->stock->apply($u['warehouse_id'], $u['sku_id'], 'on_hand', -$u['u'],
+                                $this->move('write_off', $caller, $orderRef, $id, $idemKey, self::NOTE_NOT_RESTOCKABLE)
+                                + ['effective_at' => Clock::db($this->now())] // booking time (D45)
+                                + ($cost === null ? [] : ['unit_cost' => $cost, 'cost_source' => 'estimate']));
+                            $result = 'cancelled_written_off';
+                        } elseif (!$restockable && $u['state'] === 'allocated') {
                             // Doubtful: the goods never left, but staff did not confirm they are back
                             // on the shelf. Park them in VERIFY for a recount; never a write-off here.
                             $booked = ['effective_at' => Clock::db($this->now())]; // booking time (D45)
@@ -851,6 +895,12 @@ final class Reservations
      *     tell where that unit is now, so VERIFY is left alone, the unit is allocated like a
      *     restockable one and a count_review `uncancel_after_verify` at its warehouse asks a person to
      *     reconcile ("uncancelled_after_verify");
+     *   - last cancel wrote the unit off (CW-1180, NR4-NR5: stock.cancel_not_restockable = write_off): the write-off
+     *     taken back at its warehouse (on_hand +u, a `write_off` noted uncancel_from_write_off, no cost of its own),
+     *     then allocated +u, so availability does not move ("uncancelled_from_write_off"); when the item was counted at
+     *     that warehouse since, on_hand is left alone, the unit is allocated and a count_review
+     *     `uncancel_after_write_off` asks a person to look ("uncancelled_after_write_off"). What the LAST cancel did
+     *     decides, whatever the setting says now;
      *   - sold while its listing was unlinked, linked since: adopted with today's link, as a commit
      *     without a hold would (R4: the listing rows are read FOR SHARE before any balance);
      *   - not cancelled: a stored per-unit result, nothing changes (not_cancelled, shipped, ...).
@@ -919,6 +969,9 @@ final class Reservations
                         if ($c !== null && $c['parked']) {
                             [$back, $result] = $this->uncancelFromVerify($caller, $orderRef, $u, $id, $c, $verify, $now, $idemKey);
                             $note = $back ? null : 'after_verify';
+                        } elseif ($c !== null && $c['written_off']) {
+                            [$back, $result] = $this->uncancelFromWriteOff($caller, $orderRef, $u, $id, $c, $now, $idemKey);
+                            $note = $back ? null : 'after_write_off';
                         }
                         $this->stock->apply($wh, $sku, 'allocated', $size, $this->move('uncancel', $caller, $orderRef, $id, $idemKey, $note));
                         if (!$back) {
@@ -996,6 +1049,47 @@ final class Reservations
                 'verify_review_id' => $review === null ? null : (int) $review['id'], 'verify_review_status' => $review['status'] ?? null],
             "uncancel_verify:{$u['channel_id']}:{$c['cancel_id']}");
         return [false, 'uncancelled_after_verify'];
+    }
+
+    /**
+     * One written-off unit of an uncancel (CW-1180, NR4-NR5), under the lock of its balance: the exact inverse of its cancel's write-off
+     * when nothing has replaced the figure since, else a count review. Returns [taken back, per-unit result].
+     *
+     *  - taken back ("uncancelled_from_write_off"): on_hand +u at the unit's warehouse, a `write_off` row noted uncancel_from_write_off, at
+     *    booking time (D45), WITHOUT a cost of its own: every average CW keeps (the stock value's, CostHints::average, CostEngine's start price)
+     *    counts each on-hand rise that carries a cost as a purchase, and a write-off (a fall) is in none of them, so a take-back with a cost
+     *    would move the average the cancel never moved. The unit comes back at the value it left at: on hand x the same average. The caller then
+     *    books allocated +u: availability does not move (never an oversell);
+     *  - not taken back ("uncancelled_after_write_off"): the item was counted at that warehouse after the write-off (a `count` row booked
+     *    after it, whatever its counted_at: the count replaced the figure the write-off was part of, as D46's verify_counted), or the
+     *    write-off is not the unit's own figure (another balance or size than its snapshot: never guessed at). CW leaves on_hand alone; the
+     *    caller allocates +u (availability lower than the shelf until a person acts, never higher) and a count_review
+     *    `uncancel_after_write_off` at the unit's warehouse asks a person to look (deduplicated per cancel).
+     *
+     * @param array{channel_id: int, unit_id: string, listing_id: int, sku_id: ?int, u: int, warehouse_id: int, state: string, dispatched_at: ?string} $u
+     * @param array{cancel_id: int, written_id: ?int, written_wh: ?int, written_sku: ?int, written_qty: ?int, written_cost: ?string} $c the unit's last cancel
+     * @return array{0: bool, 1: string}
+     */
+    private function uncancelFromWriteOff(Caller $caller, string $orderRef, array $u, string $id, array $c, string $now, string $idemKey): array
+    {
+        $sku = (int) $u['sku_id'];
+        $wh = $u['warehouse_id'];
+        $own = $c['written_wh'] === $wh && $c['written_sku'] === $sku && $c['written_qty'] === -$u['u'];
+        // A count booked at the unit's warehouse after the write-off: ledger ids of one balance follow its lock, so commit order (as D46).
+        $counted = !$own ? null : $this->db->value(
+            "SELECT id FROM stock_ledger WHERE warehouse_id = ? AND sku_id = ? AND id > ? AND movement_type = 'count' ORDER BY id LIMIT 1",
+            [$wh, $sku, (int) $c['written_id']],
+        );
+        if ($own && $counted === null) {
+            $this->stock->apply($wh, $sku, 'on_hand', $u['u'],
+                $this->move('write_off', $caller, $orderRef, $id, $idemKey, self::NOTE_WRITE_OFF_BACK) + ['effective_at' => $now]);
+            return [true, 'uncancelled_from_write_off'];
+        }
+        $this->stock->openCountReview($wh, $sku, 'uncancel_after_write_off', null, "{$u['channel_id']}:{$orderRef}:{$id}",
+            ['order_ref' => $orderRef, 'unit_id' => $id, 'units' => $u['u'], 'reason' => $own ? 'counted_since' : 'not_its_figure',
+                'write_off_ledger_id' => $c['written_id'], 'write_off_cost' => $c['written_cost'], 'count_ledger_id' => $counted === null ? null : (int) $counted],
+            "uncancel_write_off:{$u['channel_id']}:{$c['cancel_id']}");
+        return [false, 'uncancelled_after_write_off'];
     }
 
     /**
@@ -1431,6 +1525,18 @@ final class Reservations
         return ($this->clock)()->setTimezone(Clock::utc());
     }
 
+    /**
+     * stock.cancel_not_restockable as it is now (CW-1180, NR1): `write_off` or `verify`, read on every call (a change on the Settings page
+     * applies to the next cancel), without a lock (a plain read of a seed table; the cancel holds no lock on it). Missing (a release running a
+     * moment before 0081) or anything else: `verify`, the way before.
+     */
+    public function notRestockableMode(): string
+    {
+        $raw = $this->db->value('SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ?', [self::NOT_RESTOCKABLE_SETTING]);
+        $v = is_string($raw) ? json_decode($raw, false, 2) : null;
+        return is_string($v) && in_array($v, self::NOT_RESTOCKABLE_MODES, true) ? $v : self::NOT_RESTOCKABLE_FALLBACK;
+    }
+
     /** @return array{id: int, status: string, attempt: int, lines_hash: ?string, origin: string, is_tombstone: bool, expires_at: ?string}|null */
     private function lockReservation(int $channelId, string $orderRef): ?array
     {
@@ -1518,29 +1624,40 @@ final class Reservations
     /**
      * Each unit's last cancel, from the ledger (D46): the id of its newest `cancel` row and whether
      * that cancel parked it in VERIFY (restockable = false: a transfer_in to VERIFY noted
-     * cancel_not_restockable after it), with the id of that arrival row. Units without a cancel row
-     * (cancelled while unlinked) are absent. Keyed by the lower-cased unit id (unit_id compares _ai_ci).
+     * cancel_not_restockable after it), with the id of that arrival row; or wrote it off (CW-1180, NR4:
+     * a `write_off` of on_hand down noted cancel_not_restockable after it), with that row's id, balance,
+     * units and cost. Units without a cancel row (cancelled while unlinked) are absent. Keyed by the
+     * lower-cased unit id (unit_id compares _ai_ci).
      *
      * @param list<string> $unitIds
-     * @return array<string, array{cancel_id: int, parked: bool, arrived_id: ?int}>
+     * @return array<string, array{cancel_id: int, parked: bool, arrived_id: ?int, written_off: bool, written_id: ?int, written_wh: ?int,
+     *         written_sku: ?int, written_qty: ?int, written_cost: ?string}>
      */
     private function lastCancels(int $channelId, int $verifyId, array $unitIds): array
     {
         $out = [];
         foreach (array_chunk($unitIds, 1000) as $chunk) {
             $rows = $this->db->all(
-                'SELECT id, unit_id, movement_type FROM stock_ledger WHERE channel_id = ? AND unit_id IN ('
-                . implode(',', array_fill(0, count($chunk), '?')) . ") AND (movement_type = 'cancel' "
-                . "OR (movement_type = 'transfer_in' AND warehouse_id = ? AND note = 'cancel_not_restockable')) ORDER BY id",
+                'SELECT id, unit_id, movement_type, warehouse_id, sku_id, qty_delta, CAST(unit_cost AS CHAR) AS unit_cost FROM stock_ledger '
+                . 'WHERE channel_id = ? AND unit_id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ") AND (movement_type = 'cancel' "
+                . "OR (movement_type = 'transfer_in' AND warehouse_id = ? AND note = 'cancel_not_restockable') "
+                . "OR (movement_type = 'write_off' AND bucket = 'on_hand' AND qty_delta < 0 AND note = 'cancel_not_restockable')) ORDER BY id",
                 [$channelId, ...$chunk, $verifyId],
             );
             foreach ($rows as $r) {
                 $k = strtolower((string) $r['unit_id']);
                 if ($r['movement_type'] === 'cancel') {
-                    $out[$k] = ['cancel_id' => (int) $r['id'], 'parked' => false, 'arrived_id' => null];
-                } elseif (isset($out[$k])) {
+                    $out[$k] = ['cancel_id' => (int) $r['id'], 'parked' => false, 'arrived_id' => null, 'written_off' => false, 'written_id' => null,
+                        'written_wh' => null, 'written_sku' => null, 'written_qty' => null, 'written_cost' => null];
+                } elseif (!isset($out[$k])) {
+                    continue;
+                } elseif ($r['movement_type'] === 'transfer_in') {
                     $out[$k]['parked'] = true;
                     $out[$k]['arrived_id'] = (int) $r['id'];
+                } else {
+                    $out[$k] = ['written_off' => true, 'written_id' => (int) $r['id'], 'written_wh' => (int) $r['warehouse_id'],
+                        'written_sku' => (int) $r['sku_id'], 'written_qty' => (int) $r['qty_delta'], 'written_cost' => $r['unit_cost'] === null ? null : (string) $r['unit_cost']]
+                        + $out[$k];
                 }
             }
         }

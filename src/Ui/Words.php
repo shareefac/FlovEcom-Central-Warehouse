@@ -1413,6 +1413,10 @@ final class Words
         's_open' => 'In Movements',
         's_open_link' => 'Open',
         's_cw' => 'CW, by itself',
+        // CW-1180 (NR7): a unit's steps that say more than their movement's name (%s: what the write-off was worth, like £2.04)
+        'step_written_off' => 'Written off: not restockable (%s)',
+        'step_written_off_nocost' => 'Written off: not restockable (no cost known)',
+        'step_write_off_back' => 'Write-off taken back: the cancel was undone',
         'late' => 'late',
         // The record page (wave w10, docs/decisions.md W10): its strip
         'figures' => 'What became of its units',
@@ -1527,6 +1531,9 @@ final class Words
         'verify_open' => 'Not on sale: moved to %s, waiting for a recount',
         'verify_resolved' => 'Moved to %s for a recount: the recount is done',
         'verify_dismissed' => 'Moved to %s for a recount: the recount was closed',
+        // CW-1180 (NR7): not restockable under the owner's rule: written off at once (%s: the warehouse; then what it was worth, like £2.04)
+        'written_off' => 'Written off at %s: not restockable (%s)',
+        'written_off_nocost' => 'Written off at %s: not restockable (no cost known)',
         'unlinked' => 'Not linked to a warehouse item at the sale: no stock was kept',
         'unknown' => 'No stock change was found for it',
     ];
@@ -2803,6 +2810,8 @@ final class Words
         'counts.time_window_max_minutes' => 'Share a count time within this many minutes',
         // The adjustment page (0065; docs/decisions.md AJ9).
         'stock.adjust_opens_on' => 'Reason a new adjustment opens on',
+        // CW-1180 (0081; docs/decisions.md NR1).
+        'stock.cancel_not_restockable' => 'A cancelled paid item the store marked "don\'t restock"',
         // Who is here on a draft order (0070; docs/decisions.md LV9).
         'live.mode' => 'Working together on a draft order',
         'live.poll_seconds' => 'Seconds between two checks while others have the draft open',
@@ -4280,6 +4289,10 @@ final class Words
             . 'earlier, when nothing moved in between: one record holds at most 20 count times. This is the most minutes a line\'s time may move back '
             . '(0 to 60). Up to 10, a parcel sent or brought back in that gap and reported late is flagged on Stock > Counts > Differences; above 10 '
             . 'it may not be. A sheet that needs more count times is refused, and the lines to count again are marked.',
+        'stock.cancel_not_restockable' => 'When a store cancels a paid item and ticks "don\'t restock" (opened or damaged). "Write it off at once": the '
+            . 'item leaves stock straight away, as a write-off at its average cost, and nobody has to count it again. "Move it to Doubtful cancels": the '
+            . 'way before: it waits in Doubtful cancels until someone counts it. Either way the shop\'s stock figure does not move. If the store takes '
+            . 'the cancel back, CW puts the item back exactly as it took it out.',
         'stock.adjust_opens_on' => 'A new adjustment (Stock > Adjustments) opens with this reason chosen for every line. The person can still choose another. '
             . 'Only a reason offered on stock corrections can be chosen here (Settings > Reasons). None: the person chooses each time. If the reason is '
             . 'switched off later, or is no longer offered on stock corrections, the page opens on Data correction again.',
@@ -10136,6 +10149,28 @@ final class Words
         'reason_none' => 'None: choose each time',
         'reason_gone' => '%s (not offered now)',
         'reason_coded' => '%s (%s)',
+        // A setting of a few fixed choices, each in words (SETTING_CHOICE; CW-1180, NR1)
+        'choice' => 'Choose one of the ways below.',
+    ];
+
+    /**
+     * CW-1180 (0081; docs/decisions.md NR1): a setting whose value is one of a few fixed choices (Settings::RULES `in`), each in words, as
+     * its row, its page and its History show it (SettingsController::choices, ConfigWords::history).
+     */
+    public const SETTING_CHOICE = [
+        'stock.cancel_not_restockable' => [
+            'write_off' => 'Write it off at once (at its cost)',
+            'verify' => 'Move it to Doubtful cancels for a recount (the way before)',
+        ],
+    ];
+
+    /** CW-1180 (NR7): the system notes of stock movements in words (Stock > Movements); another note is shown as it is. */
+    public const LEDGER_NOTE = [
+        'cancel_not_restockable' => 'Cancelled by the store, not restockable',
+        'uncancel_from_write_off' => 'Cancel taken back: the write-off undone',
+        'after_write_off' => 'Cancel taken back after a count: a person checks it',
+        'uncancel_from_verify' => 'Cancel taken back: moved back from Doubtful cancels',
+        'after_verify' => 'Cancel taken back after Doubtful cancels was dealt with: a person checks it',
     ];
 
     /** Notices after saving a setting (ReferenceController). */

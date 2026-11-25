@@ -17,8 +17,9 @@ use CW\Ui\Words;
  * Stock › Sales › Returns (pack D, docs/decisions.md PD7, PD9-PD12): the sold units the customers sent back and the paid units the
  * stores cancelled before sending, per store, newest order first, READ ONLY (sales.view). The owner's answer to Q12 (8 Oct 2026): no
  * new returns process: the store's own return page books a return, and CW puts the unit back in stock. So this is a list: each unit
- * with whether it went back on sale and where its stock is now; a cancel the store marked not restockable is in VERIFY, waiting for a
- * recount (the engine opens one), and the list says whether that recount is done. A board (docs/decisions.md W10): grouped by what happened,
+ * with whether it went back on sale and where its stock is now; a cancel the store marked not restockable is written off at once, with
+ * what it was worth (CW-1180, NR7), or, the way before (D37), in VERIFY waiting for a recount (the engine opens one), and the list says
+ * whether that recount is done. A board (docs/decisions.md W10): grouped by what happened,
  * the status cell whether the unit is back on sale; a unit's order opens its record page.
  *
  *   /ui/stock/sales/returns       for every store or one; returned, cancelled or both; `sales.page_size` units a page, older by key
@@ -125,12 +126,14 @@ final class SalesReturnsController
         $unit = SalesController::unitRow($u, $warehouses);
         $where = $u['where_id'] === null ? '' : ($warehouses[$u['where_id']]['name'] ?? '');
         $text = Words::SALE_RESTOCK_TEXT[$u['outcome']] ?? Words::SALE_RESTOCK_TEXT['unknown'];
+        // written off at once (CW-1180, NR7): where, and what it was worth when it was written off
+        $where = $u['outcome'] === 'written_off' ? [$where, Html::money($u['value'] ?? null)] : [$where];
         return [
             'href' => SalesController::PATH . '/' . (int) $u['reservation_id'], 'ref' => (string) $u['ref'], 'store' => (string) ($names[$u['channel_id']] ?? ''),
             'unit' => (string) $u['unit_id'], 'sku_id' => $u['sku_id'], 'name' => $unit['name'], 'sub' => $unit['sub'], 'kind' => (string) $u['state'],
             'what' => Words::of('SALE_RETURN_KIND', (string) $u['state']), 'when' => (string) $u['changed_at'],
             'restockTone' => Words::tone('SALE_RESTOCK', $u['restock']), 'restockWord' => Words::of('SALE_RESTOCK', $u['restock']),
-            'where' => str_contains($text, '%s') ? sprintf($text, $where) : $text,
+            'where' => str_contains($text, '%s') ? sprintf($text, ...$where) : $text,
         ];
     }
 

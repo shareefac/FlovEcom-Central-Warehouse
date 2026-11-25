@@ -30,6 +30,12 @@ namespace CW;
  * 11. per unit and item, those VERIFY rows never net below zero (an uncancel takes back from VERIFY
  *     only what a cancel parked there), and a unit whose newest such row is a move back has no open
  *     verify_recount under its key (the uncancel dismissed it and retired the key).
+ * 12. CW-1180 (NR6): each write-off of a unit by a not-restockable cancel (write_off noted cancel_not_restockable) and each
+ *     take-back of one by an uncancel (write_off noted uncancel_from_write_off) is ONE on_hand row of the unit's own item at its
+ *     own warehouse (its sale-time snapshot), -u for the cancel and +u for the take-back, under the key of that same cancel /
+ *     uncancel of the unit (its allocated row -u / +u); a take-back carries no cost.
+ * 13. per unit and item, those write-off rows never net above 0: an uncancel takes back only what a cancel wrote off. (Below -u
+ *     is possible and right: an uncancel after a count since the write-off takes nothing back, NR5, and a later cancel writes off again.)
  * D1-D7. the document base (0008): gapless numbers, reversal pairs, ledger rows naming posted documents by their
  *     number, review tasks on the right documents and never decided by their own people, line items, posted_hash
  *     (CW\Documents\DocumentInvariants, I17-I21).
@@ -189,6 +195,7 @@ final class Invariants
         }
 
         array_push($v, ...self::verifyMoves($db));
+        array_push($v, ...self::cancelWriteOffs($db));
         array_push($v, ...self::valueSequence($db));
         array_push($v, ...Documents\DocumentInvariants::check($db));
         array_push($v, ...Suppliers\SupplierInvariants::check($db));
@@ -256,6 +263,50 @@ final class Invariants
             . "WHERE l.note = 'uncancel_from_verify' ORDER BY l.channel_id, l.unit_id LIMIT " . self::MAX_PER_CHECK,
         ) as $r) {
             $v[] = "unit {$r['channel_id']}:{$r['unit_id']} was moved back from VERIFY but its recount {$r['review_id']} is still open under its key";
+        }
+        return $v;
+    }
+
+    /**
+     * Invariants 12-13 (CW-1180, NR6): the write-offs of not-restockable cancels and their take-backs by uncancels. Read from the
+     * channels' own ledger rows of type write_off (ix_stock_ledger_store_type: a staff write-off has no channel and is never read).
+     *
+     * @return list<string>
+     */
+    private static function cancelWriteOffs(Db $db): array
+    {
+        $v = [];
+        $notes = "('" . Reservations::NOTE_NOT_RESTOCKABLE . "', '" . Reservations::NOTE_WRITE_OFF_BACK . "')";
+        // 12. one row of the unit's own balance and size, with its own cancel / uncancel under the same key; a take-back without a cost
+        foreach ($db->all(
+            'SELECT w.channel_id, w.unit_id, w.idem_key, w.note, COUNT(*) AS n, SUM(w.qty_delta) AS net, '
+            . "SUM(w.bucket <> 'on_hand' OR w.warehouse_id <> u.warehouse_id OR w.sku_id <> u.sku_id) AS elsewhere, "
+            . 'SUM(w.unit_cost IS NOT NULL AND w.note = ?) AS costed_back, MAX(u.units_per_item) AS upi, '
+            . "(SELECT COALESCE(SUM(a.qty_delta), 0) FROM stock_ledger a WHERE a.channel_id = w.channel_id AND a.unit_id = w.unit_id "
+            . "  AND a.idem_key <=> w.idem_key AND a.bucket = 'allocated' AND a.movement_type = IF(w.note = ?, 'cancel', 'uncancel')) AS own_move "
+            . 'FROM channel c JOIN stock_ledger w FORCE INDEX (ix_stock_ledger_store_type) ON w.channel_id = c.id AND w.movement_type = \'write_off\' '
+            . "LEFT JOIN reservation_unit u ON u.channel_id = w.channel_id AND u.unit_id = w.unit_id "
+            . "WHERE w.note IN {$notes} "
+            . 'GROUP BY w.channel_id, w.unit_id, w.idem_key, w.note '
+            . 'HAVING n <> 1 OR upi IS NULL OR elsewhere <> 0 OR costed_back <> 0 '
+            . '   OR net <> IF(w.note = ?, -upi, upi) OR own_move <> IF(w.note = ?, -upi, upi) '
+            . 'ORDER BY w.channel_id, w.unit_id LIMIT ' . self::MAX_PER_CHECK,
+            [Reservations::NOTE_WRITE_OFF_BACK, Reservations::NOTE_NOT_RESTOCKABLE, Reservations::NOTE_NOT_RESTOCKABLE, Reservations::NOTE_NOT_RESTOCKABLE],
+        ) as $r) {
+            $v[] = sprintf('unit %s:%s: its %s write-off under key %s is not one on_hand row of its own item, warehouse and size with its own %s '
+                . '(%d rows, net %d, %d elsewhere, %d take-backs with a cost, its %s %d, u %s)',
+                $r['channel_id'], $r['unit_id'], $r['note'], $r['idem_key'] ?? 'NULL', $r['note'] === Reservations::NOTE_NOT_RESTOCKABLE ? 'cancel' : 'uncancel',
+                $r['n'], $r['net'], $r['elsewhere'], $r['costed_back'], $r['note'] === Reservations::NOTE_NOT_RESTOCKABLE ? 'cancel' : 'uncancel',
+                $r['own_move'], $r['upi'] ?? 'none');
+        }
+        // 13. an uncancel takes back only what a cancel wrote off
+        foreach ($db->all(
+            'SELECT w.channel_id, w.unit_id, w.sku_id, SUM(w.qty_delta) AS net '
+            . 'FROM channel c JOIN stock_ledger w FORCE INDEX (ix_stock_ledger_store_type) ON w.channel_id = c.id AND w.movement_type = \'write_off\' '
+            . "WHERE w.note IN {$notes} "
+            . 'GROUP BY w.channel_id, w.unit_id, w.sku_id HAVING net > 0 ORDER BY w.channel_id, w.unit_id LIMIT ' . self::MAX_PER_CHECK,
+        ) as $r) {
+            $v[] = "unit {$r['channel_id']}:{$r['unit_id']}: its write-offs of item {$r['sku_id']} net {$r['net']} (more taken back than written off)";
         }
         return $v;
     }
