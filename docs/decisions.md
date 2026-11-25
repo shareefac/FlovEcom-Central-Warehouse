@@ -21752,7 +21752,8 @@ HTTPS through the SDK itself (a request with NO key must answer 401: no token sp
 installed by install_cron.sh --migrate --expect-revision=<tip> --expect-active=<base> (the installer checks, under its own lock, that the
 copy it installs is the one the kit probed: AI18 H9); the feature lands OFF: the owner pastes the key on the Settings screen later and
 switches it on. The release is built ON the live commit: 86c21af (CW-1180, live 25 Nov 20:34), whose last migration is 0081; the plain
-rollback is 20c620a (86c21af + 0082 byte for byte). The undo (the owner's word only): the quick stop first (reading off AND the key emptied;
+rollback is the kit's aikit-rollback, PIN_RB in its vars.sh (86c21af + 0082 byte for byte; its id changes with each re-pin, as it is a
+child of the tip: 20c620a on the merge 86aebbd). The undo (the owner's word only): the quick stop first (reading off AND the key emptied;
 it needs only the box, the schema and the live release: never the rollback folder, AI18 M8); then, with the writers PAUSED as the installer
 pauses them (AI18 H6, H8): the key emptied and reading off again, the seven ai.* setting rows deleted (the history keeps fingerprints only),
 every job row and every spool file purged and checked gone, the switch to the plain rollback, its cron, the writers back; the app login's
@@ -21839,4 +21840,4 @@ seen and taken only at its own place's page (a bill's at Delivery bills, an invo
 when it is asked for, never taken. M7: the kit's smoke run of the reader waits out a cron run holding the lock (bounded). M8: the quick stop
 needs only the box, the schema and the live release. M9: an undo stopped after its switch resumes from its marker. M10: the app login writes
 only a job's lifecycle columns (and removes a finished job after a day) and only the reader row's run columns; a job's owner, place, file
-and context are frozen once made. Low: AI14 names the live base 86c21af, its last migration 0081 and the rollback 20c620a.
+and context are frozen once made. Low: AI14 names the live base 86c21af, its last migration 0081 and the rollback by its pin (PIN_RB).
