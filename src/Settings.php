@@ -37,7 +37,7 @@ final class Settings
      * values separated by commas, each once, in any order, or empty; `words` names the Ui\Words group the screens show them in),
      * `reason_use` (the code of a reason in use that is offered on that use, reason_code.applies_to, and is not one CW sets itself, or
      * empty; the screens show it as a choice of those reasons, by name: reasonChoices()), `sales_from` (a date setting: a day from the first
-     * day CW holds the sales of the shop of that code, profit_day, to 2099-12-31; EX63).
+     * day CW holds the sales of the shop of that code, profit_day, to 2099-12-31; EX63), `required` (never empty: "not set" is refused; NR1).
      * Every key ending in `_days` is a day count from 0 to 120 unless listed here.
      */
     public const RULES = [
@@ -266,7 +266,7 @@ final class Settings
         'stock.adjust_opens_on' => ['reason_use' => 'adjustment'],
         // ---- CW-1180 (0081; docs/decisions.md NR1): a cancelled paid unit the store marked "don't restock": written off at once (the owner's rule)
         // or moved to VERIFY for a recount (the way before, D37); the screens show the two choices in words (Ui\Words::SETTING_CHOICE).
-        'stock.cancel_not_restockable' => ['in' => Reservations::NOT_RESTOCKABLE_MODES],
+        'stock.cancel_not_restockable' => ['in' => Reservations::NOT_RESTOCKABLE_MODES, 'required' => true],
         // ---- Who is here on a draft order (0070; docs/decisions.md LV9; Live\Presence): off, presence or on (on = presence until saving each box by
         // itself is built); the seconds between two polls while someone else is here and while alone; the seconds after which a person whose page
         // stopped polling is no longer shown (never fewer than the default: an active person is never called gone before their next poll).
@@ -503,6 +503,10 @@ final class Settings
     public function checkRule(string $key, mixed $value): void
     {
         $rule = self::RULES[$key] ?? (str_ends_with($key, '_days') ? self::DAYS_RULE : []);
+        if (($rule['required'] ?? false) === true && ($value === null || $value === '')) {
+            // a setting that is never "not set" (CW-1180, NR1: one of its choices, always)
+            throw new CwException('bad_value', "{$key}: must be set", 400, ['key' => $key]);
+        }
         if ($rule === [] || $value === null || $value === '') {
             return;
         }

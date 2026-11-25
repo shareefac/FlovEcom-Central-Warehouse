@@ -100,7 +100,7 @@ final class CancelWriteOffTest extends StockTestCase
             . "AND action = 'baseline' AND actor = 'system:migrate'", [self::KEY]));
         $s = new Settings(self::$db);
         self::assertSame('write_off', $s->get(self::KEY));
-        self::assertSame(['in' => ['write_off', 'verify']], Settings::RULES[self::KEY]);
+        self::assertSame(['in' => ['write_off', 'verify'], 'required' => true], Settings::RULES[self::KEY]);
         $s->checkRule(self::KEY, 'verify');
         foreach (['', 'write-off', 'VERIFY', 'park'] as $bad) {
             try {
@@ -167,7 +167,7 @@ final class CancelWriteOffTest extends StockTestCase
 
         // replayed under its key: the stored answer, nothing booked twice
         $again = $this->cancel($site, '1', ['a', 'p'], false, 'cnl-w');
-        self::assertSame($r->body, $again->body);
+        self::assertEquals($r->body, $again->body, 'the stored answer (its keys in the stored JSON\'s order)');
         self::assertCount(2, $this->writeOffs('cnl-w'));
         // cancelled again under another key: already cancelled, nothing booked
         self::assertSame(['a' => 'already_cancelled'], self::results($this->cancel($site, '1', ['a'], false)));
@@ -310,7 +310,7 @@ final class CancelWriteOffTest extends StockTestCase
         $this->assertBal(8, 0, 0, $sku);
         self::assertSame(0, self::reviews());
         // replayed under its key: nothing booked twice
-        self::assertSame($r->body, $this->uncancel($site, '1', ['a'], 'unc-1')->body);
+        self::assertEquals($r->body, $this->uncancel($site, '1', ['a'], 'unc-1')->body);
         self::assertCount(1, $this->writeOffs('unc-1'));
     }
 
@@ -338,11 +338,13 @@ final class CancelWriteOffTest extends StockTestCase
         self::assertNotNull($review);
         self::assertSame([self::warehouseId('MAIN'), $sku, 'open', "{$site->channelId}:1:a", "uncancel_write_off:{$site->channelId}:{$cancelId}"],
             [(int) $review['warehouse_id'], (int) $review['sku_id'], $review['status'], $review['ref'], $review['dedupe_key']]);
-        self::assertSame(['order_ref' => '1', 'unit_id' => 'a', 'units' => 1, 'reason' => 'counted_since', 'write_off_ledger_id' => $wo,
-            'write_off_cost' => '2.040000', 'count_ledger_id' => $count], json_decode((string) $review['detail'], true));
+        $detail = json_decode((string) $review['detail'], true);
+        ksort($detail);
+        self::assertSame(['count_ledger_id' => $count, 'order_ref' => '1', 'reason' => 'counted_since', 'unit_id' => 'a', 'units' => 1,
+            'write_off_cost' => '2.040000', 'write_off_ledger_id' => $wo], $detail);
         self::assertSame(1, self::reviews(), 'one review, nothing else');
         // replayed: the stored answer, no second review
-        self::assertSame($r->body, $this->uncancel($site, '1', ['a'], 'unc-c')->body);
+        self::assertEquals($r->body, $this->uncancel($site, '1', ['a'], 'unc-c')->body);
         self::assertSame(1, self::reviews('uncancel_after_write_off'));
     }
 

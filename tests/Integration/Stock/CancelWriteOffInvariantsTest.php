@@ -44,6 +44,7 @@ final class CancelWriteOffInvariantsTest extends StockTestCase
 
     public function testAWriteOffAtAnotherWarehouseIsReported(): void
     {
+        self::$db->exec('INSERT IGNORE INTO stock_balance (warehouse_id, sku_id) VALUES (?, ?)', [self::warehouseId('VERIFY'), $this->sku]);
         self::$db->exec("UPDATE stock_ledger SET warehouse_id = ? WHERE idem_key = 'cnl' AND unit_id = 'b' AND movement_type = 'write_off'", [self::warehouseId('VERIFY')]);
         self::$db->exec('UPDATE stock_balance SET on_hand = on_hand + 1 WHERE warehouse_id = ? AND sku_id = ?', [self::warehouseId('MAIN'), $this->sku]);
         self::$db->exec('UPDATE stock_balance SET on_hand = on_hand - 1 WHERE warehouse_id = ? AND sku_id = ?', [self::warehouseId('VERIFY'), $this->sku]);
