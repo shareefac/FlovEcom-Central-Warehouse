@@ -214,7 +214,9 @@ final class ExpenseTotalVatScreensTest extends KernelUiTestCase
             // A box typed by hand wins over the choice, whenever it was typed (Codex final M1): the choice shows Different VAT.
             "if (hand.net || hand.vat) {\n        setWay('other');",
             // Which boxes were typed by hand goes with the form and comes back with a refusal (Codex final H1).
-            "querySelector('input[name=\"hand\"]')", 'handBox.value = (hand.net ? \'net \' : \'\') + (hand.vat ? \'vat \' : \'\') + (summed ? \'sum\' : \'\');',
+            "querySelector('input[name=\"hand\"]')", 'handBox.value = (hand.net ? \'net \' : \'\') + (hand.vat ? \'vat \' : \'\') + (summed ? \'sum \' : \'\') + (filled.net ? \'fnet \' : \'\') + (filled.vat ? \'fvat\' : \'\');',
+            // The boxes the script filled from the total come back with a refusal too (Codex final of 332aba7, M1).
+            'filled.net = /\\bfnet\\b/.test(handBox.value);', 'filled.vat = /\\bfvat\\b/.test(handBox.value);',
             'summed = /\\bsum\\b/.test(handBox.value);',
             "hand.net = /\\bnet\\b/.test(handBox.value);",
             // One money rule (Codex final L1): the same spaces as the server, the same caps (a total up to two boxes' worth).
@@ -244,9 +246,16 @@ final class ExpenseTotalVatScreensTest extends KernelUiTestCase
         $back = $r->form('/ui/profit/expenses/new');
         self::assertSame(['120.00', '90.00', '30.00', 'other', 'net'], [$back['total'] ?? null, $back['net'] ?? null, $back['vat'] ?? null, $back['vat_way'] ?? null, $back['hand'] ?? null]);
         self::assertSame(1, (new \DOMXPath($r->dom()))->query('//input[@name="total"][@data-expense-anchor]')?->length);
-        // Only the words it knows, once each, in one order.
+        // Only the words it knows, once each, in one order (fnet / fvat: the boxes the script filled from the total, Codex final of 332aba7).
         $r = $this->add($job, ['shop' => '', 'hand' => 'vat x net vat <b>']);
         self::assertSame('net vat', $r->form('/ui/profit/expenses/new')['hand'] ?? null);
+        $r = $this->add($job, ['shop' => '', 'hand' => 'fvat x fnet sum fvat net']);
+        self::assertSame('net sum fnet fvat', $r->form('/ui/profit/expenses/new')['hand'] ?? null);
+        // 8.47 typed, made "8." and sent: refused, and the boxes the script filled come back marked as such (then "8,47" empties them).
+        $r = $this->add($job, ['total' => '8.', 'net' => '7.06', 'vat' => '1.41', 'hand' => 'fnet fvat']);
+        self::assertSame('bad_total', $r->errorCode(), $r->describe());
+        self::assertSame(['fnet fvat', '8.', '7.06', '1.41'], [$r->form('/ui/profit/expenses/new')['hand'] ?? null, $r->form('/ui/profit/expenses/new')['total'] ?? null,
+            $r->form('/ui/profit/expenses/new')['net'] ?? null, $r->form('/ui/profit/expenses/new')['vat'] ?? null]);
         // A total box holding the sum the script wrote (the old way: sum) does not lead when it comes back; a total the person typed does.
         $r = $this->add($job, ['shop' => '', 'total' => '120.00', 'net' => '90.00', 'vat' => '30.00', 'hand' => 'sum net vat']);
         self::assertSame('net vat sum', $r->form('/ui/profit/expenses/new')['hand'] ?? null);
@@ -395,12 +404,18 @@ final class ExpenseTotalVatScreensTest extends KernelUiTestCase
             // The server's rule without its cap (the script caps after reading, as the server does).
             self::assertSame(ExpenseMoney::pence($v, PHP_INT_MAX) !== null, preg_match($money, $v) === 1, 'the script reads ' . json_encode($v) . ' as the server does');
         }
-        foreach (['8.' => true, '£' => true, '' => true, ' £ ' => true, '1,234.' => true, '8,47' => false, '8,' => false, '8.475' => false,
+        // Only "8." (an amount and its point) or the £ alone is still being typed; "8.4" is an amount already (840p: 7.00 + 1.40 at 20%), so the
+        // pattern no longer takes a figure after the point, and a total that can only end above two boxes' worth is not "being typed".
+        foreach (['8.' => true, '£' => true, '' => true, ' £ ' => true, '1,234.' => true, '20,000,000.0' => false, '8,47' => false, '8,' => false, '8.475' => false,
             'abc' => false, '8.4x' => false, '1,23' => false, "8.\n" => false] as $v => $still) {
             self::assertSame($still, preg_match($typing, (string) $v) === 1, json_encode($v) . ($still ? ' is still being typed' : ' is not an amount'));
             self::assertNull(ExpenseMoney::pence((string) $v, ExpenseMoney::MAX_TOTAL_PENCE), json_encode($v) . ': the server refuses it on save, as before');
         }
-        foreach (['!blank(gross.value) && !typing(gross.value)', 'var unfill = function () {', 'filled.net = true;', 'filled.vat = true;',
+        self::assertSame(1, preg_match($typing, '20,000,000.'), 'the pattern alone takes it: the script checks its lowest end against the cap');
+        self::assertNull(ExpenseMoney::pence('20,000,000', ExpenseMoney::MAX_TOTAL_PENCE), '... which is above two boxes\' worth: not an amount');
+        self::assertSame(1_999_999_900, ExpenseMoney::pence('19,999,999', ExpenseMoney::MAX_TOTAL_PENCE), '"19,999,999." can still end as an amount');
+        foreach (["pence(v.replace(/\\.(?=[ \\t\\u00A0\\u202F\\u2007]*$)/, ''), MAX_TOTAL) !== null", "filled.vat = false;\n      }\n      keepHand();",
+            '!blank(gross.value) && !typing(gross.value)', 'var unfill = function () {', 'filled.net = true;', 'filled.vat = true;',
             "if (filled.net && !hand.net) {\n        netBox.value = '';", "if (filled.vat && !hand.vat) {\n        vatBox.value = '';", 'filled[which] = false;',
             "if (gross && t === null && !typing(gross.value)) {\n          unfill();"] as $piece) {
             self::assertStringContainsString($piece, $part, $piece);
