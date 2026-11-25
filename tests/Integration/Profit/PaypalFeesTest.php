@@ -225,6 +225,14 @@ final class PaypalFeesTest extends StockTestCase
         self::assertSame(['P', 'S'], [json_decode((string) $h['before_json'], true)['status'], json_decode((string) $h['after_json'], true)['status']]);
         self::assertSame(50, self::days($ch)['2026-11-08|fee_cost'] ?? null);
         self::assertSame(18, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn'), 'never a second row');
+        // a row whose stored kind the running rules make otherwise (a release that classes a code anew): read again, it is a change and is
+        // decided again (its history says so)
+        self::$db->exec("UPDATE paypal_txn SET kind = 'ignore', cost_pence = 0 WHERE txn_id = '1A0000000000000B1'");
+        $r = self::fees()->run(self::system(), self::api($http), '2026-11-02', '2026-11-24', 'nightly');
+        self::assertSame([0, 1], [$r['new'], $r['changed']]);
+        $b1 = self::rows()['1A0000000000000B1|T0005'];
+        self::assertSame(['sale', '80', 'order', '80'], [$b1['kind'], (string) $b1['cost_pence'], $b1['alloc_dest'], (string) $b1['alloc_pence']]);
+        self::assertSame('changed', (string) self::$db->value('SELECT what FROM paypal_txn_history WHERE txn_row = ? ORDER BY version DESC LIMIT 1', [(int) $b1['id']]));
         self::assertDaysRebuild($ch);
     }
 
