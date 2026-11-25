@@ -8753,6 +8753,12 @@
   //    Pressing "Includes" or "No VAT" (again) works both out afresh.
   //  - One money rule with the server (ExpenseMoney::pence; L1): spaces, tabs and the no-break spaces around, an optional £, pounds (with
   //    thousands commas, or up to 8 figures) and pence; at most a box's worth, a total two boxes' worth (M2); anything else is not an amount.
+  //  - A total still being typed - an amount and its point ("8.", whose lowest end is within two boxes' worth) or the £ alone - says nothing
+  //    and leaves the boxes as they are ("8.4" is an amount already: 840p, 7.00 + 1.40 at 20%); one that cannot become an amount ("8,47": a
+  //    comma for the pence; "8,": a thousands group of fewer than three figures; three decimals; a letter; "20,000,000." above two boxes'
+  //    worth) says so under the boxes and empties the boxes this script filled from the total, never one typed by hand, so no split of an
+  //    old total is shown (CW-1176, the lead's browser test of 27dea71; Codex's final of 332aba7). Which boxes it filled goes with the form
+  //    in "hand" too (fnet, fvat), so a refused form empties them as well; the server refuses all of these on save, as before.
   // Values set here raise no input event, so only the person's own typing marks a box. CW saves the two boxes as they are; the server
   // refuses a total that is not their sum.
   each(document.querySelectorAll('form.expense-form'), function (form) {
@@ -8772,6 +8778,7 @@
     var MAX = 999999999;
     var MAX_TOTAL = 1999999998;
     var hand = { net: false, vat: false };
+    var filled = { net: false, vat: false };
     var led = false;
     var summed = false;
     var pence = function (v, max) {
@@ -8781,6 +8788,10 @@
     };
     var blank = function (v) {
       return /^[ \t\u00A0\u202F\u2007]*$/.test(v);
+    };
+    var typing = function (v) {
+      var m = /^[ \t\u00A0\u202F\u2007]*£?[ \t\u00A0\u202F\u2007]*((\d{1,3}(?:,\d{3}){1,2}|\d{1,8})\.)?[ \t\u00A0\u202F\u2007]*$/.exec(v);
+      return !!m && (!m[1] || pence(v.replace(/\.(?=[ \t\u00A0\u202F\u2007]*$)/, ''), MAX_TOTAL) !== null);
     };
     var total = function () {
       return gross ? pence(gross.value, MAX_TOTAL) : null;
@@ -8810,7 +8821,7 @@
     };
     var keepHand = function () {
       if (handBox) {
-        handBox.value = (hand.net ? 'net ' : '') + (hand.vat ? 'vat ' : '') + (summed ? 'sum' : '');
+        handBox.value = (hand.net ? 'net ' : '') + (hand.vat ? 'vat ' : '') + (summed ? 'sum ' : '') + (filled.net ? 'fnet ' : '') + (filled.vat ? 'fvat' : '');
       }
     };
     var show = function () {
@@ -8819,7 +8830,7 @@
       var t = total();
       if (warn) {
         // A total that is not an amount ("8,47", "8.475") is said so, never written over (Fable's L2); one that is, when the boxes disagree.
-        warn.textContent = gross && t === null && !blank(gross.value) ? (warn.getAttribute('data-words-bad') || '')
+        warn.textContent = gross && t === null && !blank(gross.value) && !typing(gross.value) ? (warn.getAttribute('data-words-bad') || '')
           : t !== null && a !== null && b !== null && a + b !== t
             ? (warn.getAttribute('data-words') || '%s / %s').replace('%s', money(a + b)).replace('%s', money(t)) : '';
       }
@@ -8829,10 +8840,25 @@
       }
       out.textContent = (credit && credit.checked && a + b > 0 ? '-' : '') + money(a + b);
     };
+    // The boxes this script filled from the total, emptied when the total cannot become an amount (a box typed by hand stays).
+    var unfill = function () {
+      if (filled.net && !hand.net) {
+        netBox.value = '';
+        filled.net = false;
+      }
+      if (filled.vat && !hand.vat) {
+        vatBox.value = '';
+        filled.vat = false;
+      }
+      keepHand();
+    };
     // The two boxes from the total, by the VAT choice; a box typed by hand stays as it is and shows "Different VAT".
     var fill = function () {
       var t = total();
       if (t === null || isNaN(bp)) {
+        if (gross && t === null && !typing(gross.value)) {
+          unfill();
+        }
         show();
         return;
       }
@@ -8851,24 +8877,32 @@
       if (hand.net) {
         if (n !== null && n <= t) {
           vatBox.value = plain(t - n);
+          filled.vat = true;
         }
       } else if (hand.vat || way() === 'other') {
         if (v !== null && v < t) {
           netBox.value = plain(t - v);
+          filled.net = true;
         }
       } else if (way() === 'none') {
         netBox.value = plain(t);
         vatBox.value = plain(0);
+        filled.net = true;
+        filled.vat = true;
       } else {
         var net = Math.floor((2 * t * 10000 + (10000 + bp)) / (2 * (10000 + bp)));
         netBox.value = plain(net);
         vatBox.value = plain(t - net);
+        filled.net = true;
+        filled.vat = true;
       }
+      keepHand();
       show();
     };
     var byHand = function (which) {
       return function () {
         hand[which] = true;
+        filled[which] = false;
         keepHand();
         if (led) {
           fill();
@@ -8894,6 +8928,8 @@
       hand.net = /\bnet\b/.test(handBox.value);
       hand.vat = /\bvat\b/.test(handBox.value);
       summed = /\bsum\b/.test(handBox.value);
+      filled.net = /\bfnet\b/.test(handBox.value);
+      filled.vat = /\bfvat\b/.test(handBox.value);
     }
     netBox.addEventListener('input', byHand('net'));
     vatBox.addEventListener('input', byHand('vat'));
