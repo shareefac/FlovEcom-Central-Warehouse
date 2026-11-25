@@ -291,11 +291,22 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         self::assertSame(1, $xp->query('//details[@id="change"][@open]//input[@name="vat"][@aria-invalid="true"]')?->length);
         self::assertSame(['summary', 'p.error', 'form.record.expense-form'], array_map(self::sig(...), self::kids(self::fold($r, 'change'))));
         self::assertSame(1, $xp->query('//p[contains(@class, "error")][@role="alert"]')?->length, 'said once');
+        self::focused($r, 'change');
         // Refused deletes say so in their fold too (the box not ticked).
         $d = $job->post("/ui/profit/expenses/{$id}/delete", ['reason' => 'put in twice'] + $one->form("/ui/profit/expenses/{$id}/delete"));
         self::assertSame(422, $d->status, $d->describe());
         self::assertSame(['summary', 'p.error', 'form.record'], array_map(self::sig(...), self::kids(self::fold($d, 'delete'))));
         self::assertSame(1, (new \DOMXPath($d->dom()))->query('//p[contains(@class, "error")][@role="alert"]')?->length);
+        self::focused($d, 'delete');
+        // A form that came incomplete (no version it was shown at: 400 bad_form) is either form's: said at the top, as before (Codex final L1:
+        // never in Change for a Delete sent).
+        $bad = $job->post("/ui/profit/expenses/{$id}/delete", ['reason' => 'put in twice', 'sure' => '1', 'seen' => 'x'] + $one->form("/ui/profit/expenses/{$id}/delete"));
+        self::assertSame(400, $bad->status, $bad->describe());
+        $bx = new \DOMXPath($bad->dom());
+        self::assertSame('bad_form', $bad->errorCode());
+        self::assertSame(1, $bx->query('//div[@class="page"]/p[contains(@class, "error")][@role="alert"]')?->length, $bad->describe());
+        self::assertSame(1, $bx->query('//p[contains(@class, "error")][@role="alert"]')?->length, 'said once');
+        self::assertSame(0, $bx->query('//details//p[contains(@class, "error")]')?->length);
         // The same invoice asked on a change: the list and the refusal in the Change fold.
         $job->postMultipart('/ui/profit/expenses/new', $this->fields(['invoice_no' => 'B-2', 'new_supplier' => '']) + $job->get('/ui/profit/expenses/new')->form('/ui/profit/expenses/new'), []);
         $s = $job->postMultipart("/ui/profit/expenses/{$id}/change", ['invoice_no' => 'B-2'] + $job->get("/ui/profit/expenses/{$id}")->form("/ui/profit/expenses/{$id}/change"), []);
@@ -308,8 +319,23 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         self::assertSame(409, $late->status, $late->describe());
         self::assertSame(1, (new \DOMXPath($late->dom()))->query('//div[@class="page"]/p[contains(@class, "error")][@role="alert"]')?->length, $late->describe());
         self::assertSame(1, (new \DOMXPath($late->dom()))->query('//p[contains(@class, "error")][@role="alert"]')?->length);
+        self::assertSame(0, (new \DOMXPath($late->dom()))->query('//*[@autofocus]')?->length, 'the top of the page is in sight already');
         // Delete keeps its own plain form.
         self::assertSame('form.record', self::sig(self::form($one, "/ui/profit/expenses/{$id}/delete")));
+    }
+
+    /**
+     * A refusal in a fold takes the focus when the page opens (Codex final M1: on a phone the fold sits below the facts, so the words would be
+     * off the first screen): the fold's alert is focusable by script only (tabindex -1, never in the Tab order) and the page's one autofocus.
+     */
+    private static function focused(UiResponse $r, string $fold): void
+    {
+        $xp = new \DOMXPath($r->dom());
+        $p = ($xp->query('//details[@id="' . $fold . '"]/p[contains(@class, "error")][@role="alert"]') ?: null)?->item(0);
+        self::assertInstanceOf(\DOMElement::class, $p, "#{$fold}: its refusal");
+        self::assertSame('-1', $p->getAttribute('tabindex'), "#{$fold}: focusable by script only");
+        self::assertTrue($p->hasAttribute('autofocus'), "#{$fold}: brought into sight and read out when the page opens");
+        self::assertSame(1, $xp->query('//*[@autofocus]')?->length, 'one autofocus on the page');
     }
 
     /** A page's fold (details) by its id. */
@@ -364,9 +390,14 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         self::assertSame(422, $r->status, $r->describe());
         self::assertSame(['summary', 'p.error', 'form.record.regular-form'], array_map(self::sig(...), self::kids(self::fold($r, 'change'))));
         self::assertSame(1, (new \DOMXPath($r->dom()))->query('//p[contains(@class, "error")][@role="alert"]')?->length, 'said once');
+        self::focused($r, 'change');
         $r = $job->post("/ui/profit/regular/{$rid}/amount", ['amount' => '2x', 'from' => '2026-11-11'] + $one->form("/ui/profit/regular/{$rid}/amount"));
         self::assertSame(422, $r->status, $r->describe());
         self::assertSame(['summary', 'p.error', 'form.record'], array_map(self::sig(...), self::kids(self::fold($r, 'amount'))));
+        self::focused($r, 'amount');
+        $r = $job->post("/ui/profit/regular/{$rid}/delete", ['reason' => 'put in by mistake'] + $one->form("/ui/profit/regular/{$rid}/delete"));
+        self::assertSame(422, $r->status, $r->describe());
+        self::focused($r, 'delete');
         // The same one again: the tick just above Save.
         $same = $job->post('/ui/profit/regular/new', $rf + $job->get('/ui/profit/regular/new')->form('/ui/profit/regular/new'));
         self::assertSame(409, $same->status, $same->describe());
@@ -377,16 +408,21 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
     }
 
     /**
-     * A selector of the expenses' block is in scope when it STARTS with one of these forms (or their folds, their notices on the add pages, the
-     * Expenses list's figures): whatever follows is inside them. Mentioning a form somewhere is not enough (Codex r1 L4:
+     * A selector of the expenses' block is in scope when it STARTS with one of these forms (or their folds, their notices on the add pages) and
+     * never steps out of it to a sibling (a "+" or "~" outside brackets: Codex final L4, "section.expense-figs ~ .table-wrap" reached the list's
+     * table); the Expenses list's figures only as their one rule. Mentioning a form somewhere is not enough (Codex r1 L4:
      * "form.record :is(.expense-form, .field)" reaches every record form's .field).
      */
     private static function inScope(string $selector): bool
     {
+        $outside = (string) preg_replace('/\((?:[^()]|(?R))*\)/', '()', $selector);
+        if (preg_match('/[+~]/', $outside) === 1) {
+            return false;
+        }
         return preg_match('/^(?:form\.record(?::is\(\.expense-form, \.regular-form\)|\.expense-form|\.regular-form)'
             . '|details(?:\.(?:expense-change|expense-delete|regular-amount|regular-change|regular-delete)|:is\(\.expense-delete, \.regular-amount, \.regular-delete\))'
             . '|\.page > :is\(p\.error, div\.same-list\):has\(~ form\.record\.(?:expense|regular)-form\)$'
-            . '|section\.expense-figs)(?![\w-])/', $selector) === 1;
+            . '|section\.expense-figs \.doc-step-big$)(?![\w-])/', $selector) === 1;
     }
 
     /** @return list<string> a selector list split at the commas outside brackets (":is(.expense-form, .regular-form)" is one) */
@@ -413,7 +449,9 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
     {
         // The lint itself: what it must refuse and what it must let through.
         foreach (['form.record :is(.expense-form, .field)', 'p.expense-total', 'fieldset.shop-pick', 'form.record:is(.expense-form, .field) label',
-            'form.record .expense-form', 'details > p.error', 'form.record.expense-formx .a', '.page > p.error:has(~ form.record.expense-form) + x'] as $bad) {
+            'form.record .expense-form', 'details > p.error', 'form.record.expense-formx .a', '.page > p.error:has(~ form.record.expense-form) + x',
+            'section.expense-figs ~ .table-wrap', 'section.expense-figs .other', 'form.record.expense-form ~ form.record', 'form.record.expense-form + p',
+            'details.expense-change ~ details', 'form.record:is(.expense-form, .regular-form) > .ex-main + .x'] as $bad) {
             self::assertFalse(self::inScope($bad), "the lint refuses {$bad}");
         }
         foreach (['form.record:is(.expense-form, .regular-form) .ex-row > .field', 'form.record.expense-form::before', 'form.record.regular-form',
@@ -439,9 +477,16 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         self::assertStringContainsString('grid-template-rows: subgrid;', $block);
         self::assertSame(1, substr_count($block, 'repeat(2, minmax(0, 1fr))'));
         self::assertMatchesRegularExpression('/@container ex-main \(min-width: 400px\) \{\s*@supports \(grid-template-rows: subgrid\) \{\s*[^{}]+\.ex-row \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/', $block);
-        // The drawing's drop place on a wide page (Codex r1 L3): 300 px high (172 + 38 + 86 + its 2 px edges), its words over the box.
-        self::assertStringContainsString('form.record.expense-form .ex-drop > input[type="file"] { padding: 172px 16px 86px; }', $block);
+        // The drawing's drop place on a wide page (Codex r1 L3): about 300 px high (136 + two lines of words + 12, the button's 38, 71 and its
+        // 2 px edges), its words over the box; the words wrap and keep two lines of room above "Choose file" at any text size (Codex final
+        // L3: at 390 px with a 24 px smallest font they were cut).
+        self::assertStringContainsString('form.record.expense-form .ex-drop > input[type="file"] { padding: calc(136px + 2.8em + 12px) 16px 71px; }', $block);
+        self::assertStringContainsString('padding: calc(22px + 2.8em + 12px) 16px 24px;', $block);
         self::assertStringContainsString('pointer-events: none;', $block, 'a drop on the words lands on the box under them');
+        self::assertDoesNotMatchRegularExpression('/\.ex-drop-words \{[^}]*(nowrap|ellipsis)/', $block, 'the words wrap, never cut');
+        self::assertMatchesRegularExpression('/\.ex-drop-words \{[^}]*font: 400 14px\/1\.4 /', $block, 'their lines grow with the text (2 lines = 2.8em)');
+        // Equal buttons in a row (Codex final L2: "Vape and Go" wrapping at 540 px left its bottom lower than the other two).
+        self::assertMatchesRegularExpression('/fieldset:is\(\.shop-pick, \.vat-pick\) \{[^}]*align-items: stretch;/', $block);
         self::assertStringContainsString('grid-template-areas: "main side" "ask side" "acts side";', $block, 'the file panel beside the card on a wide screen');
         self::assertStringContainsString('grid-column: auto;', $block, 'the shop buttons in a row, not one line each');
     }
