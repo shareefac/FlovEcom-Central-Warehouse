@@ -108,7 +108,7 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
 
     /**
      * One cell: its label (for = the control's id, holding only words), the control (the file box: inside its drop place, div.ex-drop, with
-     * the drawing's "Drop the PDF or photo here" over it), then nothing, a hint or the slot under it (div.ex-under: the hint and a tick);
+     * the drawing's "Drop the PDF or photo here" laid on it, under its button), then nothing, a hint or the slot under it (div.ex-under: the hint and a tick);
      * every hint's id named by the control's aria-describedby. Returns the control's name.
      */
     private static function cell(\DOMElement $field, bool $hint): string
@@ -407,32 +407,122 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         self::idsHold($same);
     }
 
+    /** The roots a selector of the expenses' block may start from: these forms and their folds. */
+    private const ROOTS = ['form.record:is(.expense-form, .regular-form)', 'form.record.expense-form', 'form.record.regular-form',
+        'details.expense-change', 'details.expense-delete', 'details.regular-amount', 'details.regular-change', 'details.regular-delete',
+        'details:is(.expense-delete, .regular-amount, .regular-delete)'];
+    /** Whole selectors allowed as they are: the add pages' notices above their form, the Expenses list's figures' one rule. */
+    private const WHOLE = ['.page > :is(p.error, div.same-list):has(~ form.record.expense-form)',
+        '.page > :is(p.error, div.same-list):has(~ form.record.regular-form)', 'section.expense-figs .doc-step-big'];
+
     /**
-     * A selector of the expenses' block is in scope when it STARTS with one of these forms (or their folds, their notices on the add pages) and
-     * never steps out of it to a sibling (a "+" or "~" outside brackets: Codex final L4, "section.expense-figs ~ .table-wrap" reached the list's
-     * table); the Expenses list's figures only as their one rule. Mentioning a form somewhere is not enough (Codex r1 L4:
-     * "form.record :is(.expense-form, .field)" reaches every record form's .field).
+     * A selector's top-level compounds and the combinators between them, read token by token: brackets, parentheses and quoted strings are
+     * read whole (a "(" inside [title="("] opens nothing; "~=" inside brackets is no combinator; ":has(~ x)" steps nowhere). Null when
+     * a bracket or a quote is left open.
+     *
+     * @return array{0: list<string>, 1: list<string>}|null
+     */
+    private static function parts(string $selector): ?array
+    {
+        $compounds = [];
+        $combinators = [];
+        $cur = '';
+        $depth = 0;
+        $quote = null;
+        $pending = null;
+        $n = strlen($selector);
+        for ($i = 0; $i < $n; $i++) {
+            $ch = $selector[$i];
+            if ($quote !== null) {
+                $cur .= $ch;
+                if ($ch === '\\' && $i + 1 < $n) {
+                    $cur .= $selector[++$i];
+                } elseif ($ch === $quote) {
+                    $quote = null;
+                }
+                continue;
+            }
+            if ($ch === '"' || $ch === "'") {
+                $quote = $ch;
+            } elseif ($ch === '(' || $ch === '[') {
+                $depth++;
+            } elseif ($ch === ')' || $ch === ']') {
+                $depth--;
+            } elseif ($depth === 0 && (ctype_space($ch) || in_array($ch, ['>', '+', '~'], true))) {
+                if ($cur !== '') {
+                    $compounds[] = $cur;
+                    $cur = '';
+                    $pending = ' ';
+                }
+                if (!ctype_space($ch)) {
+                    $pending = $ch;
+                }
+                continue;
+            }
+            if ($pending !== null) {
+                $combinators[] = $pending;
+                $pending = null;
+            }
+            $cur .= $ch;
+        }
+        if ($quote !== null || $depth !== 0 || $pending !== null) {
+            return null;
+        }
+        if ($cur !== '') {
+            $compounds[] = $cur;
+        }
+        return [$compounds, $combinators];
+    }
+
+    /**
+     * A selector of the expenses' block is in scope when its first compound IS one of these forms or folds (the same, or narrowed by a class,
+     * an attribute or a pseudo-class) and its first step goes INTO it (a descendant or a child): after that a sibling step stays inside the
+     * root; a sibling step from the root itself leaves it (Codex final L4 and its re-check: "section.expense-figs ~ .table-wrap",
+     * 'details.expense-delete:not([title="("]) + h2:not([title=")"])'). Mentioning a form somewhere is not enough (Codex r1 L4:
+     * "form.record :is(.expense-form, .field)").
      */
     private static function inScope(string $selector): bool
     {
-        $outside = (string) preg_replace('/\((?:[^()]|(?R))*\)/', '()', $selector);
-        if (preg_match('/[+~]/', $outside) === 1) {
+        if (in_array($selector, self::WHOLE, true)) {
+            return true;
+        }
+        $p = self::parts($selector);
+        if ($p === null || $p[0] === [] || count($p[1]) !== count($p[0]) - 1) {
             return false;
         }
-        return preg_match('/^(?:form\.record(?::is\(\.expense-form, \.regular-form\)|\.expense-form|\.regular-form)'
-            . '|details(?:\.(?:expense-change|expense-delete|regular-amount|regular-change|regular-delete)|:is\(\.expense-delete, \.regular-amount, \.regular-delete\))'
-            . '|\.page > :is\(p\.error, div\.same-list\):has\(~ form\.record\.(?:expense|regular)-form\)$'
-            . '|section\.expense-figs \.doc-step-big$)(?![\w-])/', $selector) === 1;
+        [$compounds, $combinators] = $p;
+        $root = $compounds[0];
+        foreach (self::ROOTS as $r) {
+            if ($root === $r || (str_starts_with($root, $r) && in_array($root[strlen($r)], ['.', '[', ':'], true))) {
+                return !in_array($combinators[0] ?? ' ', ['+', '~'], true);
+            }
+        }
+        return false;
     }
 
-    /** @return list<string> a selector list split at the commas outside brackets (":is(.expense-form, .regular-form)" is one) */
+    /** @return list<string> a selector list split at the commas outside brackets and quotes (":is(.expense-form, .regular-form)" is one) */
     private static function selectors(string $list): array
     {
         $out = [];
         $depth = 0;
+        $quote = null;
         $cur = '';
-        foreach (str_split($list) as $ch) {
-            $depth += $ch === '(' ? 1 : ($ch === ')' ? -1 : 0);
+        $n = strlen($list);
+        for ($i = 0; $i < $n; $i++) {
+            $ch = $list[$i];
+            if ($quote !== null) {
+                $cur .= $ch;
+                if ($ch === '\\' && $i + 1 < $n) {
+                    $cur .= $list[++$i];
+                } elseif ($ch === $quote) {
+                    $quote = null;
+                }
+                continue;
+            }
+            if ($ch === '"' || $ch === "'") {
+                $quote = $ch;
+            }
+            $depth += ($ch === '(' || $ch === '[') ? 1 : (($ch === ')' || $ch === ']') ? -1 : 0);
             if ($ch === ',' && $depth === 0) {
                 $out[] = trim($cur);
                 $cur = '';
@@ -451,14 +541,20 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         foreach (['form.record :is(.expense-form, .field)', 'p.expense-total', 'fieldset.shop-pick', 'form.record:is(.expense-form, .field) label',
             'form.record .expense-form', 'details > p.error', 'form.record.expense-formx .a', '.page > p.error:has(~ form.record.expense-form) + x',
             'section.expense-figs ~ .table-wrap', 'section.expense-figs .other', 'form.record.expense-form ~ form.record', 'form.record.expense-form + p',
-            'details.expense-change ~ details', 'form.record:is(.expense-form, .regular-form) > .ex-main + .x'] as $bad) {
+            'details.expense-change ~ details', 'details.expense-delete:not([title="("]) + h2:not([title=")"])', 'details.expense-delete:not([title=")"]) ~ h2',
+            'form.record:is(.expense-form, .regular-form, .x) a', 'form.record.expense-form-x a', 'form.record.expense-form [title="(" a',
+            'details.expense-changes > p', '> form.record.expense-form', 'section.expense-figs .doc-step-big + p'] as $bad) {
             self::assertFalse(self::inScope($bad), "the lint refuses {$bad}");
         }
         foreach (['form.record:is(.expense-form, .regular-form) .ex-row > .field', 'form.record.expense-form::before', 'form.record.regular-form',
-            'details.expense-change > :is(p.error, div.same-list)', 'section.expense-figs .doc-step-big'] as $good) {
+            'details.expense-change > :is(p.error, div.same-list)', 'section.expense-figs .doc-step-big', 'form.record.expense-form > .ex-main + .ex-side',
+            'form.record:is(.expense-form, .regular-form) > .ex-main ~ p.actions', 'form.record.expense-form input[aria-describedby~="ex-file-hint"]',
+            'form.record.expense-form:not([title="+"]) .a', 'details.expense-delete:not([title="("]) > p.error'] as $good) {
             self::assertTrue(self::inScope($good), "the lint lets {$good} through");
         }
         self::assertSame(['form.record:is(.expense-form, .regular-form) a', 'b'], self::selectors('form.record:is(.expense-form, .regular-form) a, b'));
+        self::assertSame(['form.record.expense-form [title="a,b"]', 'p'], self::selectors('form.record.expense-form [title="a,b"], p'));
+        self::assertSame([['details.expense-delete:not([title="("])', 'h2:not([title=")"])'], ['+']], self::parts('details.expense-delete:not([title="("]) + h2:not([title=")"])'));
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
         $start = strpos($css, '/* ==== Expenses and regular costs');
         $end = strpos($css, '/* ==== end expenses');
@@ -477,14 +573,16 @@ final class ExpenseLayoutScreensTest extends KernelUiTestCase
         self::assertStringContainsString('grid-template-rows: subgrid;', $block);
         self::assertSame(1, substr_count($block, 'repeat(2, minmax(0, 1fr))'));
         self::assertMatchesRegularExpression('/@container ex-main \(min-width: 400px\) \{\s*@supports \(grid-template-rows: subgrid\) \{\s*[^{}]+\.ex-row \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/', $block);
-        // The drawing's drop place on a wide page (Codex r1 L3): about 300 px high (136 + two lines of words + 12, the button's 38, 71 and its
-        // 2 px edges), its words over the box; the words wrap and keep two lines of room above "Choose file" at any text size (Codex final
-        // L3: at 390 px with a 24 px smallest font they were cut).
-        self::assertStringContainsString('form.record.expense-form .ex-drop > input[type="file"] { padding: calc(136px + 2.8em + 12px) 16px 71px; }', $block);
-        self::assertStringContainsString('padding: calc(22px + 2.8em + 12px) 16px 24px;', $block);
+        // The drop place (Codex r1 L3, final L3 and its re-check): the box spans both rows of div.ex-drop, so the whole dashed place is the box
+        // (a drop or a click anywhere reaches it); its button in the first row, the words in the second, IN FLOW: their real height, at any
+        // text size and width, sets the place's height, so they never run into "Choose file" (no room reserved by guess). 300 px on a wide page.
+        self::assertMatchesRegularExpression('/\.ex-drop > input\[type="file"\] \{[^}]*grid-row: 1 \/ 3;[^}]*align-self: stretch;/', $block);
+        self::assertMatchesRegularExpression('/\.ex-drop > \.ex-drop-words \{[^}]*grid-row: 2;/', $block);
+        self::assertDoesNotMatchRegularExpression('/\.ex-drop-words \{[^}]*(position: absolute|nowrap|ellipsis)/', $block, 'in flow, wrapping, never cut');
+        self::assertStringNotContainsString('2.8em', $block, 'no room reserved by guess');
+        self::assertStringContainsString('form.record.expense-form .ex-drop { grid-template-rows: 172px auto; }', $block);
+        self::assertStringContainsString('form.record.expense-form .ex-drop > input[type="file"] { min-height: 300px; padding-top: 116px; }', $block);
         self::assertStringContainsString('pointer-events: none;', $block, 'a drop on the words lands on the box under them');
-        self::assertDoesNotMatchRegularExpression('/\.ex-drop-words \{[^}]*(nowrap|ellipsis)/', $block, 'the words wrap, never cut');
-        self::assertMatchesRegularExpression('/\.ex-drop-words \{[^}]*font: 400 14px\/1\.4 /', $block, 'their lines grow with the text (2 lines = 2.8em)');
         // Equal buttons in a row (Codex final L2: "Vape and Go" wrapping at 540 px left its bottom lower than the other two).
         self::assertMatchesRegularExpression('/fieldset:is\(\.shop-pick, \.vat-pick\) \{[^}]*align-items: stretch;/', $block);
         self::assertStringContainsString('grid-template-areas: "main side" "ask side" "acts side";', $block, 'the file panel beside the card on a wide screen');
