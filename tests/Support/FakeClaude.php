@@ -23,6 +23,27 @@ final class FakeClaude implements ClientInterface
     public array $sent = [];
     /** @var (\Closure(): void)|null run when a request arrives, before it is answered (a test reads what CW wrote before it sent it) */
     public ?\Closure $onSend = null;
+    /** What the token-counting endpoint answers when nothing is queued for it (AI20: every reading asks it first). */
+    public const DEFAULT_COUNT = 1_000;
+    /** @var list<ResponseInterface|\Throwable> the token-counting endpoint's own answers */
+    private array $counts = [];
+    /** @var list<array{method: string, url: string, headers: array<string, string>, body: array<string, mixed>}> the count requests */
+    public array $counted = [];
+
+    /** The token-counting endpoint's next answers (a count, or a failure). */
+    public function pushCount(ResponseInterface|\Throwable ...$answers): self
+    {
+        foreach ($answers as $a) {
+            $this->counts[] = $a;
+        }
+        return $this;
+    }
+
+    /** The token-counting endpoint's answer: {"input_tokens": N}. */
+    public static function count(int $inputTokens): ResponseInterface
+    {
+        return new Response(200, ['Content-Type' => 'application/json', 'request-id' => 'req_01FakeCount'], json_encode(['input_tokens' => $inputTokens], JSON_THROW_ON_ERROR));
+    }
 
     public function push(ResponseInterface|\Throwable ...$answers): self
     {
@@ -39,8 +60,18 @@ final class FakeClaude implements ClientInterface
             $headers[strtolower($k)] = implode(', ', $v);
         }
         $raw = (string) $request->getBody();
-        $this->sent[] = ['method' => $request->getMethod(), 'url' => (string) $request->getUri(), 'headers' => $headers,
+        $seen = ['method' => $request->getMethod(), 'url' => (string) $request->getUri(), 'headers' => $headers,
             'body' => (array) json_decode($raw === '' ? '{}' : $raw, true, 64, JSON_THROW_ON_ERROR)];
+        if (str_ends_with($request->getUri()->getPath(), '/count_tokens')) {
+            // the token-counting endpoint (AI20): kept apart from the readings (`sent` stays the calls that may be billed)
+            $this->counted[] = $seen;
+            $next = array_shift($this->counts) ?? self::count(self::DEFAULT_COUNT);
+            if ($next instanceof \Throwable) {
+                throw $next;
+            }
+            return $next;
+        }
+        $this->sent[] = $seen;
         if ($this->onSend !== null) {
             ($this->onSend)();
         }

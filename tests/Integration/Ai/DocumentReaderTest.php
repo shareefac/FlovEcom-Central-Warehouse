@@ -138,7 +138,7 @@ final class DocumentReaderTest extends IntegrationTestCase
         $r = AiFixtures::reader(self::$db, $this->spool, $f);
         self::assertNull($r->runNext(), 'nothing waiting');
         $pdf = AiFixtures::pdf($this->files);
-        $most = DocumentReader::most(new RoyalMailBillKind(), (string) file_get_contents($pdf), 'application/pdf', '3.20', '16.00');
+        $most = DocumentReader::most(new RoyalMailBillKind(), FakeClaude::DEFAULT_COUNT, '3.20', '16.00');
         $id = $r->start($job, 'delivery_upload', $pdf, ['account' => 3]);
         self::assertSame('waiting', $r->view($job, $id, self::ALL)['state']);
         self::assertSame(['id' => $id, 'state' => 'done', 'reason' => 'ok'], $r->runNext());
@@ -209,11 +209,18 @@ final class DocumentReaderTest extends IntegrationTestCase
     {
         $job = self::person('expenses');
         AiFixtures::on(self::$db);
+        // the reader's own setup breaks before anything is counted or sent: no call, nothing reserved
         $r = new \CW\Ai\DocumentReader(self::$db, $this->spool, static function (): never {
             throw new \Error('made up');
         });
+        $id = $r->start($job, 'expense_new', AiFixtures::pdf($this->files, 'setup'), []);
+        self::assertSame(['id' => $id, 'state' => 'failed', 'reason' => 'error'], $r->runNext());
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM ai_call'));
+        // it breaks while the reading is sent (counted, reserved): the call counted at its most
+        $f = (new FakeClaude())->push(new \Error('made up'));
+        $r = AiFixtures::reader(self::$db, $this->spool, $f);
         $pdf = AiFixtures::pdf($this->files);
-        $most = DocumentReader::most(new ExpenseInvoiceKind(), (string) file_get_contents($pdf), 'application/pdf', '3.20', '16.00');
+        $most = DocumentReader::most(new ExpenseInvoiceKind(), FakeClaude::DEFAULT_COUNT, '3.20', '16.00');
         $id = $r->start($job, 'expense_new', $pdf, []);
         self::assertSame(['id' => $id, 'state' => 'failed', 'reason' => 'error'], $r->runNext());
         self::assertSame('Error', $r->view($job, $id, self::ALL)['detail']);
@@ -221,7 +228,7 @@ final class DocumentReaderTest extends IntegrationTestCase
             \CW\Ui\AiReadWords::failure('expense_invoice', 'error', 'Error'), 'said in words, never the class');
         self::assertSame(['failed', 'error', (string) $most, (string) $most], array_map('strval', array_values(self::$db->one('SELECT result, reason, cost_millipence, '
             . 'max_millipence FROM ai_call WHERE read_id = ?', [$id]) ?? [])), 'counted at its most');
-        self::assertCount(1, $this->spooled(), 'the invoice kept for its Save');
+        self::assertCount(2, $this->spooled(), 'the invoices kept for their Save');
         self::assertTrue($r->kept($job, $id));
         // a stream that breaks while it is read (Guzzle's read timeout): a connection failure, said as busy; what it used is not known: its most
         $f = (new FakeClaude())->push(new \RuntimeException('Read timed out (made up)'));
@@ -244,7 +251,7 @@ final class DocumentReaderTest extends IntegrationTestCase
         $f = new FakeClaude();
         $r = AiFixtures::reader(self::$db, $this->spool, $f);
         $png = AiFixtures::png($this->files);
-        $most = DocumentReader::most(new ExpenseInvoiceKind(), (string) file_get_contents($png), 'image/png', '3.20', '16.00');
+        $most = DocumentReader::most(new ExpenseInvoiceKind(), FakeClaude::DEFAULT_COUNT, '3.20', '16.00');
         $month = null;
         $f->onSend = static function () use (&$month): void {
             $month = AiUsage::month(self::$db)['pence'];
@@ -528,14 +535,14 @@ final class DocumentReaderTest extends IntegrationTestCase
     public function testTheLimitIsAHardCapAndPricesAreNeverZero(): void
     {
         $job = self::person('expenses');
-        AiFixtures::on(self::$db, [AiSettings::LIMIT => '"0.30"']);
+        AiFixtures::on(self::$db, [AiSettings::LIMIT => '"0.20"']);
         $f = new FakeClaude();
         $r = AiFixtures::reader(self::$db, $this->spool, $f);
         $png = AiFixtures::png($this->files);
-        $most = DocumentReader::most(new ExpenseInvoiceKind(), (string) file_get_contents($png), 'image/png', '3.20', '16.00');
-        self::assertGreaterThan(3_000 * 10, $most, 'a photo\'s most is above 30p');
+        $most = DocumentReader::most(new ExpenseInvoiceKind(), FakeClaude::DEFAULT_COUNT, '3.20', '16.00');
+        self::assertGreaterThan(2_000 * 10, $most, 'a photo\'s most (counted at 1,000 tokens in) is above 20p');
         $id = $r->start($job, 'expense_new', $png, []);
-        self::assertSame(['id' => $id, 'state' => 'failed', 'reason' => 'limit'], $r->runNext(), '0p + its most > 30p: not sent');
+        self::assertSame(['id' => $id, 'state' => 'failed', 'reason' => 'limit'], $r->runNext(), '0p + its most > 20p: not sent');
         self::assertSame([], $f->sent);
         AiFixtures::on(self::$db, [AiSettings::LIMIT => '"30"']);
         foreach ([AiSettings::PRICE_IN, AiSettings::PRICE_OUT] as $k) {
@@ -613,7 +620,7 @@ final class DocumentReaderTest extends IntegrationTestCase
         $f = new FakeClaude();
         $r = AiFixtures::reader(self::$db, $this->spool, $f);
         $png = AiFixtures::png($this->files);
-        $most = DocumentReader::most(new ExpenseInvoiceKind(), (string) file_get_contents($png), 'image/png', '3.20', '16.00');
+        $most = DocumentReader::most(new ExpenseInvoiceKind(), FakeClaude::DEFAULT_COUNT, '3.20', '16.00');
         $spent = static fn (int $mp) => self::$db->exec("INSERT INTO ai_call (read_id, created_at, staff_user_id, place, kind, model, media_type, file_bytes, "
             . "cost_millipence, max_millipence, result, reason) VALUES (NULL, NOW(6), ?, 'expense_new', 'expense_invoice', 'm', 'image/png', 1, ?, ?, 'ok', 'ok')",
             [$job->staffUserId, $mp, $mp]);
@@ -625,6 +632,45 @@ final class DocumentReaderTest extends IntegrationTestCase
         $id = $r->start($job, 'expense_new', $png, ['n' => 2]);
         self::assertSame('done', $r->runNext()['state'] ?? null, 'exactly at the limit with its most: sent');
         self::assertCount(1, $f->sent);
+    }
+
+    /**
+     * AI20 (the lead, 25 Nov ~22:15 UK): before each call the reader asks the API's token-counting endpoint for the very request it will send;
+     * the reservation is that count (x2 with max_tokens of output): a 694 KB 5-page bill reserves about £2.40, not the £24 of the byte rule.
+     * A count that fails sends nothing and reserves nothing (count_failed, said in words).
+     */
+    public function testTheReservationIsTheCountedInputAndAFailedCountSendsNothing(): void
+    {
+        $bills = self::person('delivery_bills');
+        AiFixtures::on(self::$db);
+        $pdf = $this->files . '/big.pdf';
+        $body = "%PDF-1.4\n1 0 obj << /Type /Pages /Count 5 >> endobj\n" . implode('', array_map(static fn (int $i): string => "{$i} 0 obj << /Type /Page >> endobj\n",
+            range(2, 6)));
+        file_put_contents($pdf, $body . '% ' . str_repeat('made up page content ', intdiv(694_000 - strlen($body), 21)) . "\n%%EOF\n");
+        self::assertGreaterThan(690_000, filesize($pdf));
+        $seen = null;
+        $f = (new FakeClaude())->pushCount(FakeClaude::count(54_321))->push(FakeClaude::answer(AiAnswers::royalMail([RmBill::line('2026-11-09', 'TPL', 2, 508, '943')]),
+            54_321, 9_000));
+        $f->onSend = static function () use (&$seen): void {
+            $seen = self::$db->one('SELECT cost_millipence, max_millipence FROM ai_call');
+        };
+        $r = AiFixtures::reader(self::$db, $this->spool, $f);
+        $id = $r->start($bills, 'delivery_upload', $pdf, []);
+        self::assertSame('done', $r->runNext()['state'] ?? null);
+        $most = DocumentReader::most(new RoyalMailBillKind(), 54_321, '3.20', '16.00');
+        self::assertSame([(string) $most, (string) $most], array_map('strval', array_values($seen ?? [])), 'reserved at the counted input');
+        self::assertLessThan(300_000, $most, 'about £2.40 (the byte rule reserved about £24)');
+        self::assertCount(1, $f->counted);
+        self::assertSame($f->sent[0]['body']['messages'], $f->counted[0]['body']['messages'], 'the count asked for the very blocks sent');
+        self::assertSame(['54321', 5], [(string) self::$db->value('SELECT input_tokens FROM ai_call WHERE read_id = ?', [$id]), $r->lastCount['pages'] ?? null],
+            'the page count kept as a note only');
+        // the count fails: the document is not sent, nothing reserved, said in words
+        $f->pushCount(FakeClaude::status(529, 'overloaded_error'));
+        $id = $r->start($bills, 'delivery_upload', AiFixtures::pdf($this->files, 'second'), []);
+        self::assertSame(['id' => $id, 'state' => 'failed', 'reason' => 'count_failed'], $r->runNext());
+        self::assertCount(1, $f->sent, 'not sent');
+        self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM ai_call'), 'no call row: nothing reserved');
+        self::assertStringContainsString(\CW\Ui\Words::AIREAD['why_count_failed'], \CW\Ui\AiReadWords::failure('royal_mail_bill', 'count_failed', null));
     }
 
     public function testTheMonthIsTheUkMonth(): void

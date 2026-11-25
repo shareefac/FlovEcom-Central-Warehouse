@@ -141,39 +141,44 @@ final class AiClaudeTest extends TestCase
         self::assertSame(0, \CW\Ai\AiSettings::pence('-1'));
     }
     /**
-     * AI16: the most a call may cost, counted BEFORE it is sent (its row is written first, so a reader that dies mid-call still counts): the
-     * request's own words at 2 characters a token, 2,000 tokens of framing, 10,000 tokens a page (a page's text and its picture: at most
-     * 4,784 visual tokens) and the kind's max_tokens of output. A PDF's pages counted from its page objects, else its page tree's /Count,
-     * else 100; a photo is one page.
+     * AI20 (the lead, 25 Nov ~22:15 UK): the most a call may cost is its EXACT input, counted by the API's token-counting endpoint for the very
+     * request it will send (the same document block, instructions, system and output schema), through the same guard and wall clock:
+     * reservation = counted input x the input price + max_tokens x the output price, x2 (the one named fallback). A count that fails sends
+     * nothing. A PDF's page objects and page-tree count stay a sanity note only, never the bound.
      */
-    public function testTheMostACallMayCostIsCountedFromItsPages(): void
+    public function testTheMostACallMayCostIsItsCountedInput(): void
     {
         $five = "%PDF-1.4\n1 0 obj << /Type /Pages /Kids [2 0 R 3 0 R 4 0 R 5 0 R 6 0 R] /Count 5 >> endobj\n"
             . implode('', array_map(static fn (int $i): string => "{$i} 0 obj << /Type /Page /Parent 1 0 R >> endobj\n", range(2, 6))) . "%%EOF\n";
         self::assertSame(5, Claude::pages($five), 'five page objects (the page tree itself is not a page)');
-        self::assertSame(12, Claude::pages("%PDF-1.5\n1 0 obj << /Type/Pages /Count 12 >> endobj\n%%EOF\n"), 'no page objects to read: the page tree\'s count');
-        // M2 (Codex final of 86aebbd): the larger of the two, never fewer than either (one page object visible, the other 19 packed away)
-        self::assertSame(20, Claude::pages("%PDF-1.5\n1 0 obj << /Type /Pages /Count 20 >> endobj\n2 0 obj << /Type /Page >> endobj\n%%EOF\n"));
-        // M2 (the re-check of ca8987b): never fewer than one page for every 2,000 bytes of the file (a PDF's pages packed in compressed streams)
-        self::assertSame(1, Claude::pages("%PDF-1.5\n(compressed object streams)\n%%EOF\n"), 'a tiny file: one page');
-        self::assertSame(50, Claude::pages("%PDF-1.5\n1 0 obj << /Type /Pages /Count 1 >> endobj\n2 0 obj << /Type /Page >> endobj\n" . str_repeat('x', 99_900)),
-            'a 100,000-byte PDF showing one page: 50 pages');
-        self::assertSame(2_000, Claude::BYTES_PER_PAGE);
+        self::assertSame(20, Claude::pages("%PDF-1.5\n1 0 obj << /Type /Pages /Count 20 >> endobj\n2 0 obj << /Type /Page >> endobj\n%%EOF\n"), 'the larger of the two');
+        self::assertSame(1, Claude::pages("%PDF-1.5\n(compressed object streams)\n" . str_repeat('x', 99_900)), 'no byte-based ceiling any more: a sanity note only');
         $bill = new RoyalMailBillKind();
-        $words = strlen(Claude::SYSTEM) + strlen($bill->instructions()) + strlen((string) json_encode($bill->schema()));
-        $in = Claude::maxInputTokens($bill, $five, 'application/pdf');
-        self::assertSame($words + Claude::FRAME_TOKENS + 5 * Claude::PAGE_TOKENS, $in, 'the request\'s own words at a token a byte (a token is never under a byte)');
-        self::assertSame([10_000, 2_000], [Claude::PAGE_TOKENS, Claude::FRAME_TOKENS]);
-        $invoice = new ExpenseInvoiceKind();
-        self::assertSame(strlen(Claude::SYSTEM) + strlen($invoice->instructions()) + strlen((string) json_encode($invoice->schema()))
-            + Claude::FRAME_TOKENS + Claude::PAGE_TOKENS, Claude::maxInputTokens($invoice, 'not read', 'image/png'), 'a photo: one page');
-        // £ example (docs/decisions.md AI16): a 5-page bill's most = its ~54,000 tokens in at £3.20 + 64,000 out at £16.00 a million = about £1.20
-        // an attempt; M2: every attempt that may be billed is reserved: the request and the server-side fallback's (no SDK retry: 0)
+        $f = (new FakeClaude())->pushCount(FakeClaude::count(54_321))->push(FakeClaude::answer(AiAnswers::invoice(), 54_321, 900));
+        $c = self::claude($f);
+        self::assertSame(['ok', 54_321], [($n = $c->count($bill, $five, 'application/pdf'))['reason'], $n['tokens']]);
+        $c->read($bill, $five, 'application/pdf');
+        [$count, $call] = [$f->counted[0], $f->sent[0]];
+        self::assertSame(['POST', 'https://api.anthropic.com/v1/messages/count_tokens'], [$count['method'], $count['url']]);
+        foreach (['messages', 'system', 'model'] as $k) {
+            self::assertSame($call['body'][$k], $count['body'][$k], "the count request carries the very {$k} the reading sends");
+        }
+        self::assertSame($call['body']['output_config'], $count['body']['output_config'], 'and the same output schema and effort');
+        self::assertSame('Bearer ' . self::KEY, $count['headers']['authorization'] ?? null);
+        // £ example (docs/decisions.md AI20): a 5-page bill counted at 54,321 tokens in reserves 2 x (54,321 at £3.20 + 64,000 at £16.00 a
+        // million) = about £2.40 (the byte rule of AI19 reserved about £24 for the real 694 KB bill)
         self::assertSame([2, 0, 300], [Claude::ATTEMPTS, Claude::MAX_RETRIES, Claude::DEADLINE_SEC]);
-        $most = \CW\Ai\DocumentReader::most($bill, $five, 'application/pdf', '3.20', '16.00');
-        self::assertSame(AiUsage::millipence(2 * $in, 2 * $bill->maxTokens(), '3.20', '16.00'), $most);
+        $most = \CW\Ai\DocumentReader::most($bill, 54_321, '3.20', '16.00');
+        self::assertSame(AiUsage::millipence(2 * 54_321, 2 * $bill->maxTokens(), '3.20', '16.00'), $most);
         self::assertGreaterThan(230_000, $most);
         self::assertLessThan(250_000, $most);
+        // a count that fails, is refused elsewhere, or says nothing usable: count_failed (the reading is never sent)
+        foreach ([FakeClaude::status(529, 'overloaded_error'), FakeClaude::redirect(307, 'https://elsewhere.example.invalid/v1/messages/count_tokens'),
+            new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], '{"input_tokens": "many"}')] as $bad) {
+            $f = (new FakeClaude())->pushCount($bad);
+            self::assertSame(['count_failed', null], array_values(array_intersect_key(self::claude($f)->count($bill, $five, 'application/pdf'), ['reason' => 1, 'tokens' => 1])));
+            self::assertSame([], $f->sent);
+        }
     }
 
     /**
