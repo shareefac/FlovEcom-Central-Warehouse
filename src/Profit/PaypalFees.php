@@ -543,8 +543,7 @@ final class PaypalFees
             if ($batch === []) {
                 return;
             }
-            $take = fn (): array => self::takeQueued($this->db, $batch, Clock::db(($this->clock)()), false);
-            $deadline === null ? $take() : self::bounded($this->db, $deadline, $take,
+            self::bounded($this->db, $deadline, fn (): array => self::takeQueued($this->db, $batch, Clock::db(($this->clock)()), false),
                 'taking the orders queued for their chargebacks: they stay queued; the next run takes them first');
             $after = (int) $batch[count($batch) - 1]['id'];
         }
@@ -850,23 +849,24 @@ final class PaypalFees
         foreach (array_chunk($ids, 1000) as $chunk) {
             $mark = fn (): int => $this->db->exec('UPDATE paypal_txn SET due = 1, due_since = ? WHERE due = 0 AND id IN ('
                 . implode(', ', array_fill(0, count($chunk), '?')) . ')', [$now, ...$chunk]);
-            $n += $deadline === null ? $mark() : self::bounded($this->db, $deadline, $mark, 'marking the rows whose decision may have changed: the next run marks them');
+            $n += self::bounded($this->db, $deadline, $mark, 'marking the rows whose decision may have changed: the next run marks them');
         }
         return $n;
     }
 
     /**
      * $fn with every row wait bounded by the time left until $deadline (Db::waitsUntil; round 6b): no time left, or a row held elsewhere past it,
-     * is the run's refusal (paypal_deadline 504, busy 503), what it did not do left for the next run.
+     * is the run's refusal (paypal_deadline 504, busy 503), what it did not do left for the next run. With no deadline, MySQL's own row wait, a
+     * row held elsewhere past it the same retryable busy (round 6c), never MySQL's own error.
      *
      * @template T
      * @param \Closure(): T $fn
      * @return T
      */
-    private static function bounded(Db $db, float $deadline, \Closure $fn, string $what): mixed
+    private static function bounded(Db $db, ?float $deadline, \Closure $fn, string $what): mixed
     {
         try {
-            return $db->waitsUntil($deadline, $fn);
+            return $deadline === null ? $fn() : $db->waitsUntil($deadline, $fn);
         } catch (CwException $e) {
             if ($e->errorCode !== 'out_of_time') {
                 throw $e;
@@ -1702,7 +1702,19 @@ final class PaypalFees
             $want = array_values(array_unique($next));
         }
         $rank = ['sale' => 0, 'chargeback' => 1, 'fee' => 2, 'refund' => 3];
-        $resolve = static function (array $r, int $depth) use (&$resolve, $byTxn, $rank, $shops, $sig): array {
+        // whether a row behind a reference was EVER decided with a shop, or with an order number (round 6c, the lead's decision of 25 Nov ~23:07,
+        // PPF81): its decisions' history (paypal_txn_history 'allocated': the place each decision set), read once a row and only when needed
+        $everMemo = [];
+        $ever = static function (array $p) use ($db, &$everMemo): array {
+            $id = (int) $p['id'];
+            if (!isset($everMemo[$id])) {
+                $h = $db->one("SELECT MAX(JSON_TYPE(JSON_EXTRACT(after_json, '\$.form_shop')) = 'STRING') AS shop, "
+                    . "MAX(JSON_TYPE(JSON_EXTRACT(after_json, '\$.order_no')) = 'STRING') AS num FROM paypal_txn_history WHERE txn_row = ? AND what = 'allocated'", [$id]) ?? [];
+                $everMemo[$id] = ['shop' => (int) ($h['shop'] ?? 0) === 1, 'no' => (int) ($h['num'] ?? 0) === 1];
+            }
+            return $everMemo[$id];
+        };
+        $resolve = static function (array $r, int $depth) use (&$resolve, $byTxn, $rank, $shops, $sig, $ever): array {
             $own = self::form($r, $shops);
             // its own fields name two shops, or two shops' forms take one of them: a look whatever its reference says (H2, round 4: never "the
             // first field wins", never a referenced sale over its own overlap)
@@ -1738,8 +1750,14 @@ final class PaypalFees
                 if (!in_array($x['state'], ['ok', 'none'], true)) {
                     return ['state' => 'unresolved'] + $own;
                 }
-                if ($x['state'] === 'none' && $top[$i]['form_shop'] !== null) {
-                    return ['state' => 'unresolved'] + $own; // it had a shop and lost it (form_lost): never another shop's line
+                // a row counts as "no shop", or "no order number", only when it NEVER had one (round 6c, PPF81): one that had a shop, or a number,
+                // and lost it (denied and its invoice gone, its invoice dropped) holds the row that refers to it, never lets it go to another
+                // row's shop or order, nor to its shop's line (form_lost: never another shop's line)
+                if ($x['state'] === 'none' && ($top[$i]['form_shop'] !== null || $ever($top[$i])['shop'])) {
+                    return ['state' => 'unresolved'] + $own;
+                }
+                if ($x['state'] === 'ok' && $x['no'] === null && ($top[$i]['order_no'] !== null || $ever($top[$i])['no'])) {
+                    return ['state' => 'unresolved'] + $own;
                 }
             }
             // their KNOWN shops and their KNOWN order numbers compared apart (round 6b, the lead's decision of 25 Nov ~22:55, PPF80): one with

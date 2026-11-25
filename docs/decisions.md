@@ -22120,6 +22120,18 @@ whole day (PPF70).
   decide` take `--release=<commit>` as return-decide does (a return from the rollback release to a later fixed release); golive.sh takes
   the hold away BEFORE it writes the success markers (the EXIT trap stays for a failure).
 
+### Round 6c: the Codex astra narrow review of 39cdba0 (`runs/codex_25nov/paypal_r6b_astra_final.md`: every earlier point closed, one new High), with the lead's decisions (25 Nov 2026 ~23:07), shown failing first on 39cdba0 (`runs/paypal_r6c_red.log`) and then green (PPF81)
+
+**PPF81. A row behind a reference counts as "no shop" or "no order number" only when it NEVER had one (the lead; Codex High of 39cdba0).**
+PPF80's agreement (a row with no shop agrees with one that has a shop; no number with a number) holds only for a row that never had a shop,
+or never had a number: whether it ever had one is read from its decisions' history (paypal_txn_history 'allocated': the place each decision
+set; its form_shop or order_no as kept now too). A row that had a shop, or a number, and lost it (a chargeback denied and its invoice gone;
+its invoice dropped to the custom field) holds the rows that refer to it (ref_unresolved), whatever the other rows of its id say: a £14 fee
+counted on Vape and Go's 1312001 never moves to Electrofag's 5457 (or Vape and Go's 1312002) because the chargeback it belonged to lost its
+invoice; one alone the same (held, never its shop's line). The history is read only for such a row, once a decision. Also (Lows): a row
+held elsewhere past MySQL's own wait is the retryable busy also when the run has no deadline (PaypalFees::bounded, PPF71); `box.sh
+return-decide` says `box.sh decide --release=<commit>` between the rebuild and reconcile-days (as the RUNBOOK).
+
 ## CW-1180 "don't restock" = written off at once (branch `no-restock`, 25 Nov 2026; NR1-NR8; migration 0081)
 
 The owner (CW chat, 25 Nov 2026 ~15:15-16:45 UK): "if the staff said dont restock then dont reestock", then "Yes, build it" (a test copy;
