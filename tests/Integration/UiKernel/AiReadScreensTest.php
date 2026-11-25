@@ -244,7 +244,8 @@ final class AiReadScreensTest extends KernelUiTestCase
     {
         $vpg = self::$db->insert("INSERT INTO channel (code, name, mode) VALUES ('vapeandgo', 'Vape and Go', 'off')");
         self::$db->insert("INSERT INTO channel (code, name, mode) VALUES ('electrofag', 'Electrofag', 'off')");
-        $sup = self::$db->insert("INSERT INTO expense_supplier (name, created_actor, created_at) VALUES ('Made Up Paper Ltd', 'system:test', NOW(6))");
+        // a supplier on CW's list, added as the Suppliers page adds one (with its history: the nightly checks read it)
+        $sup = (new \CW\Expenses\Expenses(self::$db))->addSupplier(\CW\Caller::system('test'), 'Made Up Paper Ltd');
         $type = (string) self::$db->value("SELECT id FROM expense_type WHERE kind = 'expense' AND name = 'Stationery and packaging'");
         $web = $this->signIn($this->uiUser('expenses'));
         self::assertFalse(str_contains($web->get('/ui/profit/expenses/new')->body, 'formaction="/ui/profit/expenses/read"'), 'no button while off');

@@ -100,7 +100,7 @@ final class Migration0082Test extends IntegrationTestCase
         }
         self::assertSame('"15"', (string) $db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'ai.monthly_limit_gbp'"));
         self::assertSame(7, (int) $db->value("SELECT COUNT(*) FROM config_change WHERE subject_type = 'setting' AND subject_key LIKE 'ai.%'"));
-        self::assertSame(3, (int) $db->value('SELECT COUNT(*) FROM ai_read'));
+        self::assertSame(2, (int) $db->value('SELECT COUNT(*) FROM ai_read'), 'the two rows the CHECKs let in');
         self::assertSame(1, (int) $db->value('SELECT COUNT(*) FROM ai_call'));
     }
 
