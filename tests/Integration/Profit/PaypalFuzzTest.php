@@ -23,7 +23,7 @@ use CW\Tests\Support\StockTestCase;
  * reversals, dispute fees referring to their chargeback, newer and older versions of a row, an invoice corrected to another order (another
  * shop's too), the orders' refunds (at order level, or on a cancelled line that takes nothing off) and payment changed in CW, Electrofag's form
  * narrowed and put back, decisions with no PayPal read, versions of no update time, a guarded write starting from 1, 2 or 200 due rows (a
- * correction spread over several writes). Each sequence is its own account (fz<seq>: the same shops, forms and rules), so its work stays its
+ * correction spread over several writes), the quick stop and the switch-on again (round 5: nothing of the account counts while it is off). Each sequence is its own account (fz<seq>: the same shops, forms and rules), so its work stays its
  * own size.
  *
  * The expected result is worked out INDEPENDENTLY of the code under test, from the generated truth alone (round 3): which order and shop each
@@ -213,7 +213,7 @@ final class PaypalFuzzTest extends StockTestCase
                 $older = [];
             };
             for ($op = 0, $ops = mt_rand(3, 6); $op < $ops; $op++) {
-                switch (mt_rand(0, 6)) {
+                switch (mt_rand(0, 7)) {
                     case 0: // a chargeback's status or amount changes (a newer version)
                         $k = $cbs[mt_rand(0, count($cbs) - 1)];
                         $pool[$k]['transaction_status'] = ['S', 'P', 'D'][mt_rand(0, 2)];
@@ -248,6 +248,17 @@ final class PaypalFuzzTest extends StockTestCase
                         $this->setting('profit.paypal_form_electrofag', $narrowed ? '"^([0-9]{6})-[0-9]{10}$"' : self::WIDE);
                         break;
                     case 5: // decided with no PayPal read (--decide)
+                        $fees->decideAll($caller, $account, null);
+                        break;
+                    case 7: // the quick stop (every shop of the shared account cleared, --decide), then switched on again (round 5, PPF66): while
+                        // it is off NOTHING of the account counts anywhere (a chargeback's fee held with its money too), and back on it counts again
+                        $this->setting('profit.paypal_from_vapeandgo', '""');
+                        $this->setting('profit.paypal_from_electrofag', '""');
+                        $fees->decideAll($caller, $account, null);
+                        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn WHERE account = ? AND alloc_dest IS NOT NULL', [$account]),
+                            "{$tag}: switched off, nothing of the account counts");
+                        $this->setting('profit.paypal_from_vapeandgo', '"' . self::VPG_FROM . '"');
+                        $this->setting('profit.paypal_from_electrofag', '"' . self::EF_FROM . '"');
                         $fees->decideAll($caller, $account, null);
                         break;
                     default: // a PayPal refund of an order (read again: a newer version of the same refund, its order corrected)

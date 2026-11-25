@@ -83,9 +83,17 @@ final class PaypalReadR1Test extends TestCase
                 self::assertStringContainsString('only root may read it', $e->getMessage());
             }
         }
+        // round 5 (the lead's decision 1): its group root's too, whatever the mode (the go-live gate's root:root)
         chgrp($f, 'bin');
         chmod($f, 0600);
-        self::assertSame('vapeandgo', PaypalKey::load($f, 'vapeandgo')->account, 'no group read: its group does not matter');
+        try {
+            PaypalKey::load($f, 'vapeandgo');
+            self::fail('root:bin 0600 is refused: the key is root:root');
+        } catch (CwException $e) {
+            self::assertStringContainsString('root:root', $e->getMessage());
+        }
+        chgrp($f, 'root');
+        self::assertSame('vapeandgo', PaypalKey::load($f, 'vapeandgo')->account, 'root:root 0600');
     }
 
     public function testARepeatedRowAcrossPagesReadsTheWindowAgainThenGivesItBackWithItsRepeats(): void

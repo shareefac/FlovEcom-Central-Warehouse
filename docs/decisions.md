@@ -21947,3 +21947,83 @@ undone: the nightly keeps reading; PIN_EXPECT changed with its reason, make_kit_
 new draft says Electrofag's fees start by themselves on 1 December 2026, names no command in the staff text and takes its figure from the
 gate's "on its profit days of 1-23 Nov" line; the backfill's outer limits are above its own deadline (timeout 1500 > 1,200 s);
 `--apply-gate` (never read) is gone; the UNDO_INDEX line gives the undo order (this one first, then #622, #620, #619, #615, #614, #606).
+
+### Round 5: the Codex astra final of 66b62d5 and the kit (`runs/codex_25nov/paypal_r4_final_astra_final.md`: NO GO, 3 High + Mediums + Lows), with the lead's 16 decisions (`runs/paypal_round5_brief.md`, 25 Nov 2026), each shown failing first on 66b62d5 (`runs/paypal_r5_red.log`) and then green (PPF58-PPF69)
+
+**PPF58. The looks alert: once a day across episodes, in staff words (the lead's decision 2).** The rows that need a look are said at most once a
+day (LOOK_REPEAT_SEC) and the account's last time is KEPT across episodes: a look said at 06:00 that clears at 07:00 and comes back at 08:00 is
+not said again before 06:00 the next day (AlertDispatch keeps last_sent_at of a problem that has its own repeat_seconds when it comes back; a
+"back to normal" for the cleared one is still sent). The reasons are said in staff words (Ui\Words::PAYPAL_LOOK, one for every look reason of
+PaypalFees::LOOK_REASONS; WordsTest holds every code to a word), never a code: "a chargeback on an order refunded outside PayPal (its fee is
+counted): 1". The health problem carries the reasons as data (reason => rows); its detail (the job's log) names none.
+
+**PPF59. An order snapshot queues its order; its chargebacks are decided after the OUTERMOST commit (the lead's decisions 7 and 13; Codex M1 and
+the PayPal row lock).** The snapshot writes no PayPal row: when the order has PayPal chargebacks (two plain indexed reads, nothing locked) it
+inserts one row of its own into paypal_order_due (0080's fourth table, keyed by an id with an index on the order; no unique key, no foreign
+key: an insert that waits for nobody) IN its transaction, so it never waits for a chargeback row a PayPal read or decision holds while it holds
+the order's guard and its profit days (proved: a test holds the chargeback's row FOR UPDATE while the snapshot of its order commits in well
+under the row wait). Right after the OUTERMOST commit (Db::afterCommit: at once when the snapshot's own transaction was the outermost, after
+its guards are let go; else after the caller's transaction commits, never before it, dropped on its rollback) PaypalFees::afterSnapshot takes
+the queue rows of that order (its chargebacks found again and marked due and the queue rows taken away in ONE short transaction, with NOWAIT:
+a row a PayPal read holds is never waited for) and decides them (decideRows, the orders' guards); what cannot be done then stays queued or
+due, durable: every decideAll (each PayPal run, `--decide`, the switch-off) takes the account's queue FIRST. A caller's transaction begun
+outside Db::transaction() is not seen (afterCommit returns false): the queue row stands for it. PP6: a queued order waiting 26 hours is a
+finding. `--status` says how many orders are queued.
+
+**PPF60. Two contents of a row in ONE answer, and repeats found before PayPal's count (the lead's decisions 11 and 12).** pp_conflict 2 is a row
+one answer gave two contents of (the newer kept, a look) apart from 1, two reads that disagree on one version (a look until a newer version):
+a later read that gives the row once says which version PayPal has (taken as a newer version would be: its facts, its captures; the look
+cleared), so £20 and £30 in one answer followed by £30 alone counts £30. PaypalApi counts the repeats of an answer BEFORE comparing its rows
+with PayPal's total_items: A, A, B for two declared rows is a repeat (read again, READS times, then given back as it stands: B's £60 fee is
+stored and counted, the window proves nothing); a count the rows do not make with no repeat at all is still refused (after the reads again).
+
+**PPF61. An older version with other money is said on its row (the lead's decision 9; Codex M3).** A run that reads an OLDER version of a row
+(by PayPal's update time) than the one kept keeps the newer, and when the older one says other money or another place (any of PayPal's facts
+but its update time; its captures when read under the forms of the kept ones) the row says so: older_run = that run (cleared by the next read
+that gives the kept version or one of the same money). The go-live gate STOPs on any row of the backfill's days whose older_run is the
+certified run or later (its pins are what that run returned, never a newer version it did not).
+
+**PPF62. A fee's own invoice number stands when its reference gives the same shop and no number (the lead's decision 4; H2).** The order numbers
+of a row and of the row its reference names are compared only when BOTH have one; a reference that gives the same shop and no number (a sale
+known by its custom field alone) leaves the row its own invoice number: the £14 dispute fee whose invoice is Vape and Go's order 1312001 counts
+on that order, never a conflict (matched_by stays `reference`: it was found through it).
+
+**PPF63. Captures of two forms are never mixed (the lead's decision 5; H3).** CW keeps no text, so a capture's forms are known only for a whole
+read. When the same version is read under other forms and a narrowed form no longer makes a capture the forms it was read by made, the row
+keeps ALL its captures with the forms that made them (never the old custom field's capture beside the invoice's of now): it is held
+(form_unread) until one read under the forms of now gives all of its captures, or those forms are put back. Codex's sequence: a form taking
+15... puts a custom-only £1.20 sale on Vape and Go's line; changed to 13... and read again: held, its captures the 15... form's; the 15... form
+put back: its line again, never order 1312001.
+
+**PPF64. A page's interval at PayPal's own precision (the lead's decision 6; H7).** PaypalApi::time keeps the fraction of a second PayPal gives
+(last_refreshed_datetime, start_date, end_date: CW's UTC time to the microsecond) and a page's start and end are compared with the bounds asked
+for (whole seconds, as sent) at that precision: a start of 00:00:00.900 is later than 00:00:00 (nothing proven), an end of 23:59:58.900 ends
+early. PayPal's real shapes (the lead's probe of 25 Nov: 2026-11-23T00:00:00Z .. 2026-11-24T23:59:59Z exact; today's end = its refresh time)
+prove as before.
+
+**PPF65. What a run could not decide by its deadline gets a budget of its own (the lead's decision 8; Codex M2).** When the deadline (or an order
+busy) stops the decisions of a window the run stored, the run decides what is left at once with LOCAL_DECIDE_SEC (30 s) of its own and no
+PayPal call, never with the deadline that has just run out (the nightly's 240 s + 30 s stays inside the cron's `timeout 300`; a backfill's
+1,200 + 30 s inside the kit's 1,500 s); the run is failed all the same and what is still left is decided by the next run first.
+
+**PPF66. A shop switched off takes its held chargebacks' fees with it (the lead's decision 10; HIGH).** A shop's first fee day set, moved or
+cleared re-decides, besides its rows that count, its chargebacks held for a look whose FEE counts (refund_not_on_paypal, order_ambiguous), so
+their fee leaves the profit with the switch-off (before_start); `--decide` and a rebuild of the days agree.
+
+**PPF67. A row that counts nothing whatever its shop is not marked again and again (the lead's decision 14).** An ignored or denied row
+(not_counted) whose captures were read under other forms is decided again once (its decided_sig differs) and then never marked again at every
+pass (beyond the days read again it would never be read again: a backlog decided four times a pass); the rows that refer to it are still due
+again whenever it is read (store) or moves (decide), so a fee follows its denied chargeback's sale once it is read under the forms of now.
+
+**PPF68. The key file root:root, mode 0600 or 0400 exactly (the lead's decision 1).** PaypalKey refuses a key file that is not owned by root,
+whose group is not root, or whose mode is anything but 0600 or 0400 (a write-only, a run bit, set-id or sticky: refused), the go-live gate's
+own rule, so the nightly never takes a key the gate refuses. The kit's key-place writes its temporary file in the key's own folder (one
+mount: the rename is atomic).
+
+**PPF69. The kit (the lead's decisions 3, 9, 15, 16).** A later day's backfill (the gate STOPped for an honest reason, the pins changed: RUNBOOK)
+needs no same-day key marker: `golive.sh check` of that day, then `golive.sh backfill` verifies the live release (the tip, 0080 whole, its cron)
+and the key (key-check) itself (box.sh resume-backfill). The gate says a held chargeback's money ("held for a look") and its fee ("counted")
+apart from the rows never counted, and STOPs on a row of the backfill's days the certified run returned in an older version with other money
+(PPF61). A part-applied 0080 is resumed only when its tables' CHECK constraints (as MySQL states them, compared after one normalisation on
+both sides) and ALL their indexes (the snapshot lookup index too) are the tip's, and paypal_order_due is one of its four tables. TARGET=test
+runs offline: the trial gives paypal-reach's answer itself (PPKIT_TRIAL_REACH, 401 by default; production keeps the real request).

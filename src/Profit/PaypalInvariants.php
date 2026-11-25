@@ -22,6 +22,8 @@ use CW\Db;
  *  PP3. kind and cost are what the event code and the amounts say (PaypalCodes): a stored row never disagrees with the rules it was read by.
  *  PP4. no row is due for more than STALE hours since it became due (due_since: a run that stopped half-way is finished by the next one).
  *  PP5. no run is still "running" STALE hours after it started (one that died: its rows stay due for the next one).
+ *  PP6. no order queued for its PayPal chargebacks (paypal_order_due: a snapshot changed its refunds or payment) waits STALE hours (the
+ *       next PayPal run takes the queue first: PPF59).
  */
 final class PaypalInvariants
 {
@@ -74,6 +76,11 @@ final class PaypalInvariants
         foreach ($db->all("SELECT id, account FROM paypal_run WHERE state = 'running' AND started_at < UTC_TIMESTAMP(6) - INTERVAL " . PaypalFees::STALE_HOURS . ' HOUR '
             . 'ORDER BY id LIMIT ' . self::MAX_PER_CHECK) as $r) {
             $v[] = "PP5 PayPal run {$r['id']} ({$r['account']}): still running " . PaypalFees::STALE_HOURS . ' hours after it started';
+        }
+        foreach ($db->all('SELECT id, channel_id FROM paypal_order_due WHERE queued_at < UTC_TIMESTAMP(6) - INTERVAL ' . PaypalFees::STALE_HOURS . ' HOUR ORDER BY id LIMIT '
+            . self::MAX_PER_CHECK) as $r) {
+            $v[] = "PP6 queued order {$r['id']} (shop {$r['channel_id']}): its PayPal chargebacks still wait " . PaypalFees::STALE_HOURS
+                . ' hours after its snapshot (the next PayPal run takes them first)';
         }
         return $v;
     }

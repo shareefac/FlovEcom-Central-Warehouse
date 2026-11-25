@@ -59,8 +59,11 @@ final class OrderSnapshots
     private readonly \Closure $clock;
     private readonly ProfitSettings $settings;
     private readonly ItemCosts $costs;
-    /** @var list<int> the PayPal chargebacks apply() marked due in its transaction, decided right after it commits (paypalAfter(); 0080, PPF54) */
-    private array $paypalDue = [];
+    /**
+     * @var list<array{0: int, 1: string}> the orders apply() queued for their PayPal chargebacks in its transaction (paypal_order_due), decided
+     *   right after the outermost commit (paypalAfter(); 0080, PPF54, PPF59)
+     */
+    private array $paypalOrders = [];
 
     /** How long a snapshot waits for another one of the same order (or of its first order) before it answers 503 busy. */
     public const LOCK_WAIT_SEC = 10;
@@ -347,7 +350,7 @@ final class OrderSnapshots
             $parent = $pre['parent'] === null || $pre['parent'] === 'null' ? null : (string) $pre['parent'];
             $seq = (int) $pre['seq'];
             $marked = false;
-            $this->paypalDue = [];
+            $this->paypalOrders = [];
             try {
                 $r = $this->guarded($channelId, $ref, $parent, function () use ($channelId, $ref, $seq, &$marked): string {
                     try {
@@ -540,7 +543,7 @@ final class OrderSnapshots
     {
         $this->deferred = false;
         $intake = null;
-        $this->paypalDue = [];
+        $this->paypalOrders = [];
         try {
             $done = $this->guarded($channelId, $ref, null, function () use ($channelId, $ref, $override, &$intake): bool {
                 return $this->db->transaction(function (Db $db) use ($channelId, $ref, $override, &$intake): bool {
@@ -810,30 +813,38 @@ final class OrderSnapshots
         // Its PayPal sale fees (0080, docs/decisions.md PPF7) go with it the same way (PaypalFees' write holds this order's guard while it changes them).
         $fee = $old === null ? 0 : PaypalFees::orderFee($db, $channelId, $ref);
         ProfitDays::change($db, $channelId, ProfitDays::orderShare($old, $oldLines, $delivery, $fee), ProfitDays::orderShare($order, $newLines, $delivery, $fee));
-        // Its PayPal chargebacks (0080, docs/decisions.md PPF54): whether each counts rests on this order's refunds and payment, so they are marked
-        // due in THIS transaction and decided again right after it commits (paypalAfter(): PaypalFees' guarded write, holding this order's guard),
-        // never the refund counted beside the chargeback's money until the nightly (M1, round 4).
-        $this->paypalDue = PaypalFees::markOrderChargebacks($db, $channelId, $ref, array_values(array_filter([(string) $body['order_no'],
-            $old === null ? null : (string) $old['order_no']], static fn (?string $n): bool => $n !== null)), $now);
+        // Its PayPal chargebacks (0080, docs/decisions.md PPF54, PPF59): whether each counts rests on this order's refunds and payment, so when it
+        // has any the order is queued in THIS transaction (paypal_order_due: durable with the snapshot; no PayPal row written or locked, so this
+        // snapshot never waits for one a PayPal read holds while it holds the order's guard and its days) and they are decided again right after
+        // the outermost commit (paypalAfter()), else by the next PayPal run first: never the refund counted beside the chargeback's money.
+        if (PaypalFees::queueOrder($db, $channelId, $ref, array_values(array_filter([(string) $body['order_no'], $old === null ? null : (string) $old['order_no']],
+            static fn (?string $n): bool => $n !== null)), $now)) {
+            $this->paypalOrders[] = [$channelId, $ref];
+        }
     }
 
     /**
-     * The PayPal chargebacks apply() marked due, decided now (its transaction committed; 0080, PPF54), with no PayPal call: PaypalFees::decideRows
-     * takes the guards of the orders they are on. Never fails the snapshot: a decision that cannot be made now (an order busy, the account's
-     * settings wrong) leaves them due, durable, for the next PayPal run. Not inside a caller's own transaction (nothing committed yet).
+     * The orders apply() queued for their PayPal chargebacks, decided once the OUTERMOST transaction commits (0080, PPF54, PPF59; the lead's
+     * decision 7 of round 5): at once when the snapshot's own transaction was the outermost (it has committed and the order's guards are let
+     * go), else right after the caller's transaction commits (Db::afterCommit), never before it and never dropped: PaypalFees::afterSnapshot
+     * marks their chargebacks due (never waiting for a PayPal row held elsewhere) and decides them with no PayPal call, its guarded write
+     * taking the orders' guards. Never fails the snapshot: what cannot be done now stays queued (or due), durable, for the next PayPal run, which
+     * takes the queue first; a caller's transaction begun outside Db::transaction() leaves it to that run.
      */
     private function paypalAfter(): void
     {
-        $ids = $this->paypalDue;
-        $this->paypalDue = [];
-        if ($ids === [] || $this->db->inTransaction()) {
+        $orders = $this->paypalOrders;
+        $this->paypalOrders = [];
+        if ($orders === []) {
             return;
         }
-        try {
-            (new PaypalFees($this->db, $this->clock))->decideRows(Caller::system('paypal_fees'), $ids);
-        } catch (\Throwable) {
-            // they stay due (marked in the snapshot's own transaction): the next PayPal run decides them first, before it reads
-        }
+        $this->db->afterCommit(function () use ($orders): void {
+            try {
+                (new PaypalFees($this->db, $this->clock))->afterSnapshot(Caller::system('paypal_fees'), $orders);
+            } catch (\Throwable) {
+                // queued or due, durable: the next PayPal run takes the queue first
+            }
+        });
     }
 
     /**

@@ -13,8 +13,9 @@ use CW\CwException;
  * main shop), account and merchant_id (PayPal's account number of the merchant: every page PayPal gives must name it, PaypalApi; the
  * lead's decision 4, fix round 1), owned by root and readable by root ALONE (root:root 0600 as the go-live kit places it; 0400 passes too:
  * the Fable final review F-M1, round 4: no group may read it, so nothing the web app runs as can; only the nightly job, which runs as root,
- * reads it). It is never in git, never printed, never logged: a refusal names what is wrong with the file, never what it holds. CW calls only
- * POST /v1/oauth2/token and GET /v1/reporting/transactions with it (PaypalApi::PATHS).
+ * reads it; round 5: its group root's too and its mode exactly 0600 or 0400, the go-live gate's own rule). It is never in git, never
+ * printed, never logged: a refusal names what is wrong with the file, never what it holds. CW calls only POST /v1/oauth2/token and GET
+ * /v1/reporting/transactions with it (PaypalApi::PATHS).
  */
 final class PaypalKey
 {
@@ -40,8 +41,8 @@ final class PaypalKey
     }
 
     /**
-     * The key of $account from its file. Refused (403 paypal_key_refused) when the file is missing, not a plain file, has another owner than
-     * root or a mode anyone but root can read (or anyone run), is not the JSON above, or is for another account.
+     * The key of $account from its file. Refused (403 paypal_key_refused) when the file is missing, not a plain file, is not root:root, has a
+     * mode other than 0600 or 0400, is not the JSON above, or is for another account.
      */
     public static function load(?string $path, string $account): self
     {
@@ -71,8 +72,14 @@ final class PaypalKey
             if ((int) $fs['uid'] !== 0) {
                 throw $no('is not owned by root');
             }
-            if (($fs['mode'] & 0177) !== 0) {
-                throw $no(sprintf('has mode %04o: only root may read it (0600; no group, no others, nobody may run it)', $fs['mode'] & 07777));
+            // exactly 0600 or 0400 (round 5, the lead's decision 1: the go-live gate's own rule, so the nightly never takes a key the gate refuses:
+            // never a write-only key, a run bit, a set-id or sticky bit), and its group root's too (root:root)
+            $mode = $fs['mode'] & 07777;
+            if ($mode !== 0600 && $mode !== 0400) {
+                throw $no(sprintf('has mode %04o: only root may read it (0600 or 0400 exactly; no group, no others, nobody may run it)', $mode));
+            }
+            if ((int) $fs['gid'] !== 0) {
+                throw $no('is not root:root (its group must be root too)');
             }
             if ((int) $fs['size'] > self::MAX_BYTES) {
                 throw $no('is too large to be a key file');

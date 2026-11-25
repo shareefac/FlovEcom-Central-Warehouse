@@ -13,8 +13,9 @@ use CW\CwException;
  *
  * window() reads every page of one window of at most 31 days (PayPal's limit; CW asks for WINDOW_DAYS at most) and gives all of its rows,
  * or nothing: a page that fails after its tries (a timeout, a refused connection, 429, 5xx: TRIES tries, waiting 2, 4, 8 s between), an answer
- * that is not PayPal's shape, a page count above MAX_PAGES, or rows that do not add up to PayPal's total_items is a refusal of the whole window
- * (nothing of it is stored by the caller). A 401 asks for a new token once. A refusal says the call, the page and the HTTP status, never
+ * that is not PayPal's shape, a page count above MAX_PAGES, or rows that do not add up to PayPal's total_items with no row repeated (after the
+ * reads again) is a refusal of the whole window (nothing of it is stored by the caller); rows that repeat are given back after the reads again
+ * whatever the count (round 5), the caller proving nothing of the window. A 401 asks for a new token once. A refusal says the call, the page and the HTTP status, never
  * PayPal's text (it may quote a request) and never the key or the token.
  */
 final class PaypalApi
@@ -83,8 +84,8 @@ final class PaypalApi
      * last_refreshed_datetime of its pages (null when any page gave none: its completeness unknown, so nothing is proven), `returned_to` =
      * the earliest end of the interval its pages say they cover when it is before the end asked for (by a second or more: no slack below it;
      * a later end is PayPal's own and proves the whole), `short_start` = a page said it starts later than asked, `unproven` = a page did not
-     * say its start or its end (either: the window proves nothing), `repeated` = rows given more than once (after READS reads: F-L5). A page
-     * that names another page number than the one asked for is refused (the window whole).
+     * say its start or its end (either: the window proves nothing), `repeated` = rows given more than once (after READS reads: F-L5; found
+     * BEFORE PayPal's count is compared, round 5). A page that names another page number than the one asked for is refused (the window whole).
      *
      * @return array{rows: list<mixed>, pages: int, refreshed: ?string, returned_to: ?string, short_start: bool, unproven: bool, repeated: int}
      */
@@ -94,6 +95,9 @@ final class PaypalApi
         // next, another one missed): the whole window is read again, READS times in all (fix round 1); then it is given back as it stands with
         // the count of repeats, never refused night after night (F-L5, round 4): the caller keeps one of each, holds a row of two contents for a
         // look, and proves none of the window's days (a row may be missing), so the next run reads them again
+        // the repeats are counted BEFORE PayPal's own count is compared (round 5, the lead's decision 12): A, A, B for two rows declared is a
+        // repeat (read again, then given back as it stands), never a whole window refused night after night; a count the rows do not make with
+        // no repeat at all is still not PayPal's whole window (refused after the reads again: the next run reads it again)
         for ($read = 1; ; $read++) {
             $w = $this->readWindow($from, $to);
             $keys = [];
@@ -105,13 +109,23 @@ final class PaypalApi
                 }
                 $keys[$k] = true;
             }
-            if ($repeated === 0 || $read >= self::READS) {
+            $counted = count($w['rows']) === $w['total'];
+            if (($repeated === 0 && $counted) || ($repeated > 0 && $read >= self::READS)) {
+                unset($w['total']);
                 return $w + ['repeated' => $repeated];
+            }
+            if ($read >= self::READS) {
+                throw new CwException('paypal_moved', sprintf("PayPal said %d rows for this window and gave %d: nothing of it was stored; the next run reads it again",
+                    $w['total'], count($w['rows'])), 502);
             }
         }
     }
 
-    /** @return array{rows: list<mixed>, pages: int, refreshed: ?string, returned_to: ?string, short_start: bool, unproven: bool} one read of every page of a window */
+    /**
+     * One read of every page of a window, with PayPal's own count of its rows (total: compared by window(), after the repeats are counted).
+     *
+     * @return array{rows: list<mixed>, total: int, pages: int, refreshed: ?string, returned_to: ?string, short_start: bool, unproven: bool}
+     */
     private function readWindow(\DateTimeImmutable $from, \DateTimeImmutable $to): array
     {
         if ($to < $from || $to->getTimestamp() - $from->getTimestamp() > self::MAX_WINDOW_DAYS * 86400) {
@@ -128,8 +142,9 @@ final class PaypalApi
         $returnedTo = null;
         $shortStart = false;
         $unproven = false;
-        $askedFrom = $from->setTimezone($utc)->format('Y-m-d H:i:s');
-        $askedTo = $to->setTimezone($utc)->format('Y-m-d H:i:s');
+        // the bounds asked for, as sent (whole seconds), at PayPal's own precision for the comparisons below (round 5, the lead's decision 6)
+        $askedFrom = $from->setTimezone($utc)->format('Y-m-d H:i:s') . '.000000';
+        $askedTo = $to->setTimezone($utc)->format('Y-m-d H:i:s') . '.000000';
         for ($page = 1; $page <= $pages; $page++) {
             $q = http_build_query(['start_date' => $from->setTimezone($utc)->format('Y-m-d\TH:i:sP'), 'end_date' => $to->setTimezone($utc)->format('Y-m-d\TH:i:sP'),
                 'fields' => 'transaction_info', 'page_size' => self::PAGE_SIZE, 'page' => $page]);
@@ -166,8 +181,9 @@ final class PaypalApi
                 $refreshed = $r;
             }
             // the interval the page says it covers (H7, round 4): EVERY page must say its start and its end (one that does not: nothing of the
-            // window proven); a start later than asked proves nothing, an end earlier than asked (by a second or more: no slack below it) proves
-            // only up to it, a later end is PayPal's own (the whole asked for); one that is not a time is not PayPal's shape
+            // window proven); a start later than asked proves nothing, an end earlier than asked (by any part of a second: no slack below it)
+            // proves only up to it, a later end is PayPal's own (the whole asked for); compared at the precision PayPal gives (round 5: a start of
+            // 00:00:00.900 is later than 00:00:00); one that is not a time is not PayPal's shape
             foreach (['start_date', 'end_date'] as $f) {
                 if (!array_key_exists($f, $j) || $j[$f] === null) {
                     $unproven = true;
@@ -177,12 +193,10 @@ final class PaypalApi
                 if ($t === null) {
                     throw new CwException('paypal_bad_answer', "PayPal's answer to page {$page} has a {$f} that is not a time: nothing of this window was stored", 502);
                 }
-                $t = substr($t, 0, 19);
-                $secs = (new \DateTimeImmutable($t, $utc))->getTimestamp();
-                if ($f === 'start_date' && $secs > (new \DateTimeImmutable($askedFrom, $utc))->getTimestamp()) {
+                if ($f === 'start_date' && $t > $askedFrom) {
                     $shortStart = true;
                 }
-                if ($f === 'end_date' && $secs < (new \DateTimeImmutable($askedTo, $utc))->getTimestamp() && ($returnedTo === null || $t < $returnedTo)) {
+                if ($f === 'end_date' && $t < $askedTo && ($returnedTo === null || $t < $returnedTo)) {
                     $returnedTo = $t;
                 }
             }
@@ -193,12 +207,8 @@ final class PaypalApi
                 $rows[] = $d['transaction_info'];
             }
         }
-        if (count($rows) !== $total) {
-            throw new CwException('paypal_moved', sprintf("PayPal said %d rows for this window and gave %d: nothing of it was stored; the next run reads it again",
-                (int) $total, count($rows)), 502);
-        }
-        return ['rows' => $rows, 'pages' => $pages, 'refreshed' => $undated ? null : $refreshed, 'returned_to' => $returnedTo, 'short_start' => $shortStart,
-            'unproven' => $unproven];
+        return ['rows' => $rows, 'total' => (int) $total, 'pages' => $pages, 'refreshed' => $undated ? null : $refreshed, 'returned_to' => $returnedTo,
+            'short_start' => $shortStart, 'unproven' => $unproven];
     }
 
     /** @return array<string, mixed> one page of the search, decoded */
@@ -281,14 +291,17 @@ final class PaypalApi
         return $this->deadline === null ? 1e9 : $this->deadline - microtime(true);
     }
 
-    /** PayPal's time (last_refreshed_datetime) as CW's UTC database time, or null when it is not one (never passed on as PayPal wrote it). */
+    /**
+     * PayPal's time (last_refreshed_datetime, a page's start_date and end_date) as CW's UTC database time to the microsecond, at the precision
+     * PayPal gave (round 5: a start of 00:00:00.900 is never taken for 00:00:00), or null when it is not one (never passed on as PayPal wrote it).
+     */
     public static function time(mixed $t): ?string
     {
         if (!is_string($t) || preg_match('/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(Z|[+-]\d{2}:?\d{2})$/D', $t, $m) !== 1
             || !checkdate((int) $m[2], (int) $m[3], (int) $m[1]) || (int) $m[4] > 23 || (int) $m[5] > 59 || (int) $m[6] > 59) {
             return null;
         }
-        return (new \DateTimeImmutable($t))->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s.000000');
+        return (new \DateTimeImmutable($t))->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s.u');
     }
 
     /** @return array<string, mixed> */

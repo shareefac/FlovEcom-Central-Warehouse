@@ -44,6 +44,12 @@ final class Db
     /** While set (readsUntil()): called before each statement, with no statement of its own run through run(). */
     private ?\Closure $before = null;
 
+    /** Whether the transaction open now was begun by transaction() (its commit is seen here: afterCommit()). */
+    private bool $owns = false;
+
+    /** @var list<\Closure(): void> work to run once the transaction transaction() began commits (afterCommit()) */
+    private array $afterCommit = [];
+
     private function __construct(private readonly PDO $pdo, public readonly DbSettings $settings)
     {
     }
@@ -258,11 +264,17 @@ final class Db
         for ($attempt = 0; ; $attempt++) {
             $this->pdo->beginTransaction();
             $this->txSerial++;
+            $this->owns = true;
+            $this->afterCommit = [];
             try {
                 $result = $fn($this);
                 $this->pdo->commit();
+                $this->owns = false;
+                $this->runAfterCommit();
                 return $result;
             } catch (\Throwable $e) {
+                $this->owns = false;
+                $this->afterCommit = [];
                 $this->rollBackQuietly();
                 if ($attempt < $retries && self::isDeadlock($e)) {
                     self::$deadlockRetries++;
@@ -270,6 +282,44 @@ final class Db
                     continue;
                 }
                 throw $e;
+            }
+        }
+    }
+
+    /**
+     * $fn run once the OUTERMOST transaction commits (docs/decisions.md PPF59: an order snapshot's PayPal chargebacks are decided right after
+     * the commit that recorded them, also when the snapshot ran inside a caller's transaction): at once when no transaction is open; queued while
+     * one transaction() began is open (whatever transaction() calls joined it), run right after its commit, in the order queued, and dropped
+     * when it rolls back (a deadlock retry runs $fn of the retry only). A transaction begun outside transaction() (PDO's own beginTransaction):
+     * its commit is not seen here, so nothing is queued (false): the work must have a durable record of its own (PPF59: the queue of orders the
+     * next PayPal run takes first). A queued $fn that fails never makes the committed transaction fail (what it does is durable before it).
+     *
+     * @param \Closure(): void $fn
+     * @return bool whether $fn ran or is queued
+     */
+    public function afterCommit(\Closure $fn): bool
+    {
+        if (!$this->pdo->inTransaction()) {
+            $fn();
+            return true;
+        }
+        if (!$this->owns) {
+            return false;
+        }
+        $this->afterCommit[] = $fn;
+        return true;
+    }
+
+    /** The work queued for after the commit (afterCommit()), each on its own: one that fails never stops the next, never the committed transaction. */
+    private function runAfterCommit(): void
+    {
+        $queued = $this->afterCommit;
+        $this->afterCommit = [];
+        foreach ($queued as $fn) {
+            try {
+                $fn();
+            } catch (\Throwable) {
+                // its durable record stands for it (the caller's own queue): the next run of its job does it
             }
         }
     }

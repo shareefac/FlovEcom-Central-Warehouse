@@ -64,8 +64,8 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
             foreach ($s['money'] as $r) {
                 $out[] = sprintf('    %-10s on %-5s %-9s %6d rows  %s', $r['kind'], $r['alloc_dest'], $r['match_state'], $r['n'], ProfitViews::gbp((int) $r['pence']));
             }
-            $out[] = sprintf('  waiting: %d due, %d pending (oldest %s), %d sale fees on orders not paid in CW (%s)', $s['due'], $s['pending'], $s['oldest_pending'] ?? '-',
-                $s['unpaid']['rows'], ProfitViews::gbp($s['unpaid']['pence']));
+            $out[] = sprintf('  waiting: %d due, %d pending (oldest %s), %d orders queued for their chargebacks, %d sale fees on orders not paid in CW (%s)', $s['due'],
+                $s['pending'], $s['oldest_pending'] ?? '-', $s['queued'], $s['unpaid']['rows'], ProfitViews::gbp($s['unpaid']['pence']));
             $out[] = sprintf('  needs a look: %d%s', $s['look_total'], $s['look_total'] > count($s['look']) ? sprintf(' (the newest %d shown)', count($s['look'])) : '');
             foreach ($s['look'] as $r) {
                 $out[] = sprintf('    row %d: %s %s status %s %s (%s): %s %s, fee %s', $r['id'], $r['day'], $r['event_code'], $r['status'], $r['kind'], $r['look_reason'],

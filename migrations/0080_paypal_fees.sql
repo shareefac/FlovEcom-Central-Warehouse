@@ -19,6 +19,10 @@
 --    `due` = 1 marks a row read or changed whose allocation is not decided yet (durable before acting: a run that stops half-way leaves it
 --    due, the next run decides it: PPF9). Never deleted (Grants: no DELETE).
 --  * paypal_txn_history: every change of a row (what PayPal says, or where its money is counted), before and after (append-only).
+--  * paypal_order_due: an order with PayPal chargebacks whose snapshot changed (its refunds, its payment): queued IN the snapshot's own
+--    transaction, which writes no PayPal row (so it never waits for one a PayPal read holds), taken right after the commit (the chargebacks
+--    marked due and decided again) or by the next PayPal run first (docs/decisions.md PPF59). Rows are taken away once their chargebacks are
+--    marked due.
 --  * profit_day gets two figures (ADD COLUMN, ALGORITHM = INSTANT: no copy): fee_cost (the PayPal money on the orders: a sale's fee on the
 --    order's paid day, a refund's fee back, a chargeback's money and fees on their own day) and fee_other (the PayPal money on no CW order,
 --    on its own day, in the shop the account is for).
@@ -28,7 +32,7 @@
 --    shop: the "not on an order" line of its money on no CW order; the owner, 25 Nov 2026: Electrofag and Hayati Vapes share one account,
 --    Vape and Go has its own: PPF21), how many days back the nightly reads again, and the "not on an order" alarm (pounds a day). PPF13.
 --
--- HOW IT IS APPLIED: three CREATE TABLE IF NOT EXISTS (new, empty), two columns added to profit_day only while they are not there (a prepared
+-- HOW IT IS APPLIED: four CREATE TABLE IF NOT EXISTS (new, empty), two columns added to profit_day only while they are not there (a prepared
 -- statement, as 0077 added its two), the settings ON DUPLICATE KEY with their baselines only when missing. No role, no permission (the fees
 -- show on Profit > Real profit and an order's page, under profit.view). Every statement can run again and changes nothing the second time.
 -- No undo release (the owner, 24 Nov 2026: CW is fixed forward; docs/decisions.md EX41, PPF20); RollbackReleaseTest keeps the old recipe's
@@ -87,7 +91,7 @@ CREATE TABLE IF NOT EXISTS paypal_txn (
   custom_shop     VARCHAR(32)       NULL,
   custom_no       VARCHAR(12)       NULL,
   read_sig        CHAR(16)          NULL COMMENT 'the account''s shops and forms it was last read with (another now: read again, PPF36)',
-  pp_conflict     TINYINT(1)        NOT NULL DEFAULT 0 COMMENT '1: PayPal gave other facts with the same updated time: a look until a newer version (PPF37)',
+  pp_conflict     TINYINT(1)        NOT NULL DEFAULT 0 COMMENT '1: two reads gave other facts with the same updated time: a look until a newer version (PPF37); 2: one answer gave two contents of it: a look until a read gives one (PPF60)',
   form_shop       VARCHAR(32)       NULL COMMENT 'the shop whose order-number form its invoice (else custom field) matches (profit.paypal_form_<shop>); NULL: none or two',
   order_no        VARCHAR(12)       NULL COMMENT 'the order number that form carries: digits only',
   kind            ENUM('sale','refund','chargeback','fee','ignore','unknown') NOT NULL COMMENT 'what it is, by its event code (PPF3)',
@@ -113,6 +117,7 @@ CREATE TABLE IF NOT EXISTS paypal_txn (
   version         INT UNSIGNED      NOT NULL DEFAULT 1 COMMENT 'its latest paypal_txn_history version',
   first_run       BIGINT UNSIGNED   NOT NULL,
   last_run        BIGINT UNSIGNED   NOT NULL COMMENT 'the last run that read it',
+  older_run       BIGINT UNSIGNED   NULL COMMENT 'the last run read it, and gave an OLDER version than kept with other money or place: that run (the go-live gate STOPs on it, PPF61); NULL: the last read gave the kept version or one of the same money',
   read_at         DATETIME(6)       NOT NULL COMMENT 'first read',
   changed_at      DATETIME(6)       NOT NULL COMMENT 'last changed (what PayPal says, or where it counts)',
   PRIMARY KEY (id),
@@ -148,7 +153,7 @@ CREATE TABLE IF NOT EXISTS paypal_txn (
     AND (invoice_state = 'order') = (invoice_no IS NOT NULL) AND (invoice_shop IS NULL) = (invoice_no IS NULL)
     AND (custom_state = 'order') = (custom_no IS NOT NULL) AND (custom_shop IS NULL) = (custom_no IS NULL)
     AND (invoice_no IS NULL OR REGEXP_LIKE(invoice_no, '^[0-9]{1,12}$', 'c')) AND (custom_no IS NULL OR REGEXP_LIKE(custom_no, '^[0-9]{1,12}$', 'c'))
-    AND pp_conflict IN (0, 1)),
+    AND pp_conflict IN (0, 1, 2)),
   CONSTRAINT ck_paypal_txn_alloc CHECK (
     (alloc_dest IS NULL AND alloc_channel IS NULL AND alloc_order_ref IS NULL AND alloc_day IS NULL AND alloc_pence = 0)
     OR (alloc_dest = 'order' AND alloc_channel IS NOT NULL AND alloc_order_ref IS NOT NULL)
@@ -183,6 +188,17 @@ CREATE TABLE IF NOT EXISTS paypal_txn_history (
   CONSTRAINT ck_paypal_txn_history_json CHECK (JSON_TYPE(after_json) = 'OBJECT' AND (before_json IS NULL OR JSON_TYPE(before_json) = 'OBJECT'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='every change of a PayPal transaction row, before and after (docs/decisions.md PPF8): append-only';
+
+CREATE TABLE IF NOT EXISTS paypal_order_due (
+  id          BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+  channel_id  SMALLINT UNSIGNED NOT NULL COMMENT 'the order''s shop',
+  order_ref   VARCHAR(64)       NOT NULL COMMENT 'the order whose snapshot changed: its PayPal chargebacks are decided again',
+  numbers     VARCHAR(64)       NOT NULL COMMENT 'its order numbers now and before that snapshot, separated by commas: the chargebacks of its shop with them',
+  queued_at   DATETIME(6)       NOT NULL,
+  PRIMARY KEY (id),
+  KEY ix_paypal_order_due_order (channel_id, order_ref)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='an order with PayPal chargebacks whose snapshot changed (docs/decisions.md PPF59): they are decided again right after its commit, else by the next PayPal run first';
 
 -- profit_day's two PayPal figures, added only while they are not there (INSTANT: the table is not copied; a run again does nothing).
 SET @cw_0080_profit_day = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'profit_day'

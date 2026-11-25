@@ -434,7 +434,8 @@ final class PaypalFeesR4Test extends StockTestCase
         self::assertSame([], self::days($this->vpg), 'never the refund AND the chargeback\'s money');
         self::assertDaysRebuild($this->vpg);
         // the refund taken back while the PayPal decision cannot be made (the account's settings wrong for a moment): the snapshot is stored and
-        // its chargeback is due (marked in the snapshot's own transaction), decided by the next run
+        // its chargeback is due (its order queued in the snapshot's own transaction, taken right after the commit: round 5, PPF59), decided by
+        // the next run
         $this->setting('profit.paypal_main_vapeandgo', '"electrofag"');
         self::order($this->vpg, '1001', '1312001', '2026-11-03T10:00:00Z', 3, 0);
         self::assertSame(0, (int) self::$db->value("SELECT order_refund_inc FROM sale_order WHERE channel_id = ? AND order_ref = '1001'", [$this->vpg]));
@@ -474,8 +475,10 @@ final class PaypalFeesR4Test extends StockTestCase
         self::assertCount(1, $look);
         $line = AlertDispatch::line($look[0]);
         self::assertStringContainsString('2 PayPal rows that need a look', $line);
-        self::assertStringContainsString('field_conflict 1', $line);
-        self::assertStringContainsString('refund_not_on_paypal 1', $line);
+        // round 5 (PPF58): the reasons in staff words, never a code
+        self::assertStringContainsString(\CW\Ui\Words::of('PAYPAL_LOOK', 'field_conflict') . ': 1', $line);
+        self::assertStringContainsString(\CW\Ui\Words::of('PAYPAL_LOOK', 'refund_not_on_paypal') . ': 1', $line);
+        self::assertStringNotContainsString('refund_not_on_paypal', $line);
         self::assertStringNotContainsString('understand', $line);
         // sent at most once a day, whatever the alerts' repeat window (an hour here)
         $this->setting('alerts.webhook_url', '"https://hooks.example.com/services/pp"');

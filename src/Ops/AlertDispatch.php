@@ -16,8 +16,9 @@ use CW\Ui\Words;
  *    alerts.email_to (a plain-text e-mail). Both EMPTY by default: then nothing is sent and no transport is called (the run still
  *    records what it saw, so the first run after an address is set sends what is open);
  *  - once per window: a problem is sent when it is new, when it came back after it cleared, or when it was last sent
- *    alerts.repeat_minutes ago or more (or its own repeat_seconds, when longer: PayPal's rows that need a look, once a day); otherwise it is only
- *    recorded (last seen, its words);
+ *    alerts.repeat_minutes ago or more (or its own repeat_seconds, when longer: PayPal's rows that need a look, once a day; such a problem keeps
+ *    its last send across episodes: back within that time, it is not said again before it, PPF58); otherwise it is only recorded (last seen,
+ *    its words);
  *  - a problem that has gone is marked cleared, and a "back to normal" line is sent for it when it had been sent; one that could not
  *    be sent (every destination failed, or none was set) is owed and sent on a later run, once (clear_sent_at; review finding 8);
  *  - one message per run with every line; a destination that fails is reported (never its address: a web address can hold a token),
@@ -57,18 +58,21 @@ final class AlertDispatch
             $words = self::line($p);
             $row = $state[$key] ?? null;
             $newEpisode = $row === null || $row['cleared_at'] !== null;
+            // a problem said at most every repeat_seconds (PayPal's rows that need a look: once a day) keeps its last send across episodes: one
+            // that clears and comes back within that time is not said again before it (0080, docs/decisions.md PPF58)
+            $keepsSent = (int) ($p['repeat_seconds'] ?? 0) > 0;
             if ($row === null) {
                 $this->db->exec('INSERT INTO alert_state (alert_key, kind, channel_id, detail, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)',
                     [$key, (string) $p['kind'], $p['channel_id'] ?? null, mb_substr($words, 0, 1000), $at, $at]);
             } elseif ($newEpisode) {
                 // It came back: a new episode (a "back to normal" still owed for the last one is moot now).
-                $this->db->exec('UPDATE alert_state SET detail = ?, first_seen_at = ?, last_seen_at = ?, last_sent_at = NULL, cleared_at = NULL, clear_sent_at = NULL '
-                    . 'WHERE alert_key = ?',
+                $this->db->exec('UPDATE alert_state SET detail = ?, first_seen_at = ?, last_seen_at = ?, last_sent_at = ' . ($keepsSent ? 'last_sent_at' : 'NULL')
+                    . ', cleared_at = NULL, clear_sent_at = NULL WHERE alert_key = ?',
                     [mb_substr($words, 0, 1000), $at, $at, $key]);
             } else {
                 $this->db->exec('UPDATE alert_state SET detail = ?, last_seen_at = ? WHERE alert_key = ?', [mb_substr($words, 0, 1000), $at, $key]);
             }
-            $lastSent = $newEpisode || $row['last_sent_at'] === null ? null : Clock::fromDb((string) $row['last_sent_at']);
+            $lastSent = $row === null || $row['last_sent_at'] === null || ($newEpisode && !$keepsSent) ? null : Clock::fromDb((string) $row['last_sent_at']);
             // a problem may ask to be said less often than the window (repeat_seconds: PayPal's rows that need a look, once a day; 0080, PPF56)
             $due = $lastSent === null || Clock::diff($lastSent, $now) >= max($window, (int) ($p['repeat_seconds'] ?? 0));
             if ($due && $destinations > 0) {
@@ -174,11 +178,29 @@ final class AlertDispatch
                 : Words::say('ALERT', 'paypal_not_read', $store, $n('hours')),
             'paypal_failed' => Words::say('ALERT', 'paypal_failed', $store, (string) ($d['error'] ?? '')),
             'paypal_stale' => Words::say('ALERT', 'paypal_stale', $store, (string) ($d['to'] ?? '')),
-            'paypal_needs_look' => Words::say('ALERT', 'paypal_needs_look', $store, $n('count'), (string) ($d['reasons'] ?? ''), (string) ($d['newest'] ?? '')),
+            // the reasons in staff words, never a code (PPF58)
+            'paypal_needs_look' => Words::say('ALERT', 'paypal_needs_look', $store, $n('count'), self::lookReasons($d['looks'] ?? []), (string) ($d['newest'] ?? '')),
             'paypal_not_on_order' => Words::say('ALERT', 'paypal_not_on_order', $store, $n('days'), (string) ($d['limit'] ?? ''), (string) ($d['day'] ?? ''),
                 (string) ($d['pence'] ?? '')),
             default => (string) ($p['detail'] ?? $p['kind']),
         };
+    }
+
+    /**
+     * Why PayPal's rows need a look, in staff words (Words::PAYPAL_LOOK; never the code): "<words>: <rows>; ...".
+     *
+     * @param mixed $looks look reason => rows
+     */
+    private static function lookReasons(mixed $looks): string
+    {
+        if (!is_array($looks)) {
+            return '';
+        }
+        $out = [];
+        foreach ($looks as $code => $rows) {
+            $out[] = Words::of('PAYPAL_LOOK', (string) $code) . ': ' . (int) $rows;
+        }
+        return implode('; ', $out);
     }
 
     /** "3 minutes", "2 hours", "45 seconds". */

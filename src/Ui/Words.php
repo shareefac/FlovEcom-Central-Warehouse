@@ -95,7 +95,9 @@ final class Words
         // --- Pack J (0041): goods on their way
         'ARRIVALS', 'ARRIVAL_STATE', 'RECEIVE_MODE', 'STAMP_ANSWER', 'ARRIVAL_ERROR',
         // --- Pack RB (0046): the rollback file
-        'ROLLBACK_REASON', 'ROLLBACK_SET'];
+        'ROLLBACK_REASON', 'ROLLBACK_SET',
+        // 0080 (docs/decisions.md PPF58): why a PayPal row needs a look, in staff words
+        'PAYPAL_LOOK'];
 
     // ------------------------------------------------------------------------------------------------------------------
     // 1.1 Products and websites
@@ -13625,6 +13627,28 @@ final class Words
     ];
 
     /** The alerts to a person (bin/health_alert.php, Ops\AlertDispatch): the message's lines. */
+    /**
+     * 0080 (docs/decisions.md PPF58; CW\Profit\PaypalFees::LOOK_REASONS): why a PayPal row needs a look, as the health alert says it to staff
+     * (never the code). The two chargebacks whose fee counts say so.
+     */
+    public const PAYPAL_LOOK = [
+        'unknown_code' => 'an entry of a kind CW does not know yet',
+        'status' => 'a PayPal status CW does not know',
+        'pp_conflict' => 'PayPal gave two different versions of it',
+        'fee_on_ignored' => 'a fee on an entry CW does not count',
+        'currency' => 'not in pounds',
+        'sign' => 'money going the wrong way for its kind',
+        'form_unread' => 'read before an order-number pattern was changed (it waits for PayPal to be read again)',
+        'field_conflict' => 'its invoice and its custom field name two different shops',
+        'ref_conflict' => 'it names another order than the payment it belongs to',
+        'form_overlap' => 'two shops\' order-number patterns fit it',
+        'ref_unresolved' => 'the payment it belongs to needs a look first',
+        'ref_missing' => 'the payment it belongs to was not read from PayPal',
+        'form_lost' => 'its shop\'s order-number pattern no longer fits it',
+        'refund_not_on_paypal' => 'a chargeback on an order refunded outside PayPal (its fee is counted)',
+        'order_ambiguous' => 'a chargeback whose order number two orders have (its fee is counted)',
+    ];
+
     public const ALERT = [
         'subject' => 'Warehouse system: %s to look at (%s)',
         'subject_clear' => 'Warehouse system: back to normal (%2$s)',
