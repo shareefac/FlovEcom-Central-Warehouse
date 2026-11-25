@@ -125,8 +125,9 @@ final class PaypalFeesR5Test extends StockTestCase
     private static function of(string $id, array $cols): array
     {
         $r = self::row($id);
-        return array_map(static fn (string $c): mixed => array_key_exists($c, $r) && in_array($c, ['alloc_pence', 'refund_seen_pence', 'candidates', 'alloc_channel', 'due',
-            'pp_conflict', 'last_run', 'older_run', 'fee_pence'], true) && $r[$c] !== null ? (int) $r[$c] : ($r[$c] ?? '(no column)'), $cols);
+        // a column the schema does not have reads '(no column)' (the red run on 66b62d5); a NULL reads null
+        return array_map(static fn (string $c): mixed => !array_key_exists($c, $r) ? '(no column)' : (in_array($c, ['alloc_pence', 'refund_seen_pence', 'candidates',
+            'alloc_channel', 'due', 'pp_conflict', 'last_run', 'older_run', 'fee_pence'], true) && $r[$c] !== null ? (int) $r[$c] : $r[$c]), $cols);
     }
 
     private static function cb(string $id, string $at, string $amount, ?string $no, string $status = 'S', array $over = []): array
