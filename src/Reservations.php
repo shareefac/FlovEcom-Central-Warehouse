@@ -647,10 +647,10 @@ final class Reservations
      *     a result the shops' connectors know, the precise outcome beside it). No VERIFY move, no recount.
      *     allocated -u and on_hand -u together: availability does not move (no feed row, never an oversell);
      *   - `verify` (the way before, D37): moved to VERIFY with a recount -> "cancelled_to_verify".
-     * The setting is read in the transaction, once per call; missing or anything else: `verify` (NR1). The average costs are read under the
-     * written-off items' value clocks, taken right after the balance locks (Stock::lockValueClocks, the documents' own pattern): no other
-     * on-hand change of the item can take a place in its value sequence before this write-off's once the cost is read, so the cost is the
-     * average of exactly what comes before the write-off in that sequence (the final review of f3a7ed0, M1; NR3).
+     * The setting is read in the transaction, once per call; missing or anything else: `verify` (NR1). The average costs are read before any
+     * lock with the items' value-clock versions, and checked under the balance locks and the items' value clocks (Stock::lockValueClocks, the
+     * documents' own pattern): a version that moved meanwhile has its cost read again there, once (NR11 M1, NR12). The cost is the average of
+     * exactly what comes before the write-off in the item's value sequence.
      *
      * @param list<string|int> $unitIds
      */
@@ -674,13 +674,32 @@ final class Reservations
                         }
                     }
                 }
-                $this->stock->lock($pairs);
-                // The unit's cost: the item's average so far, as the stock value takes it (NR3), read under the item's value clock (M1): a
-                // delivery committing meanwhile is either before this write-off in the item's value sequence and in the average, or after both.
+                // The unit's cost: the item's average so far, as the stock value takes it (NR3). Read BEFORE any lock (NR12: a scan of the
+                // item's value rows never runs under a balance lock), together with the item's value-clock version, read first; then, under the
+                // balance locks and the items' value clocks, the versions again: unchanged = nothing took a place in the item's value sequence
+                // since the read, the cost stands; changed (a delivery committed meanwhile) = read again there, once (the clocks are held: it
+                // cannot move again). So the cost is always the average of exactly what precedes the write-off in that sequence (NR11 M1).
                 $costs = [];
-                if ($costOf !== []) {
-                    $this->stock->lockValueClocks(array_keys($costOf));
-                    $costs = (new StockOps\CostHints($this->db))->average(array_keys($costOf));
+                $skuIds = array_keys($costOf);
+                $hints = new StockOps\CostHints($this->db);
+                $seen = $skuIds === [] ? [] : $this->valueVersions($skuIds);
+                if ($skuIds !== []) {
+                    $costs = $hints->average($skuIds);
+                }
+                $this->stock->lock($pairs);
+                if ($skuIds !== []) {
+                    $this->stock->lockValueClocks($skuIds);
+                    $held = $this->valueVersions($skuIds);
+                    $moved = array_values(array_filter($skuIds, static fn (int $s): bool => ($held[$s] ?? 0) !== ($seen[$s] ?? 0)));
+                    if ($moved !== []) {
+                        $again = $hints->average($moved);
+                        foreach ($moved as $s) {
+                            unset($costs[$s]);
+                            if (isset($again[$s])) {
+                                $costs[$s] = $again[$s];
+                            }
+                        }
+                    }
                 }
                 $out = [];
                 foreach ($wanted as $id) {
@@ -1562,6 +1581,24 @@ final class Reservations
     private function now(): DateTimeImmutable
     {
         return ($this->clock)()->setTimezone(Clock::utc());
+    }
+
+    /**
+     * Each item's value-clock version (stock_value_clock.last_seq; 0 when it has no clock row yet): it moves with every on-hand change of the
+     * item that takes a place in its value sequence (NR12: the write-off's cost is read before the locks and checked against it under them).
+     *
+     * @param list<int> $skuIds
+     * @return array<int, int>
+     */
+    private function valueVersions(array $skuIds): array
+    {
+        $out = array_fill_keys($skuIds, 0);
+        foreach (array_chunk($skuIds, 1000) as $chunk) {
+            foreach ($this->db->all('SELECT sku_id, last_seq FROM stock_value_clock WHERE sku_id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')', $chunk) as $r) {
+                $out[(int) $r['sku_id']] = (int) $r['last_seq'];
+            }
+        }
+        return $out;
     }
 
     /**

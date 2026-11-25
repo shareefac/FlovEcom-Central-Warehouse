@@ -21521,7 +21521,8 @@ no feed row, never an oversell; a shelf already below zero opens the usual negat
 with a cost, weighted: the stock value's own rule, the same figure Reports values the unit at), `cost_source` `estimate` (a cost CW worked
 out itself, as the opening loads' are; 0006's ENUM has no other fitting value and widening it would copy the whole ledger table). None
 when no unit of the item ever came in with a cost (the stock value already counts that item at £0). The average is read under the item's
-value clock, taken right after the balance locks (Stock::lockValueClocks, as a document posting does; NR11 M1). A cost on a fall moves no average: every average CW keeps (CostHints, report_item,
+value clock, taken right after the balance locks (Stock::lockValueClocks, as a document posting does; NR11 M1), or read before the locks and
+kept only when that clock did not move meanwhile (NR12). A cost on a fall moves no average: every average CW keeps (CostHints, report_item,
 CostEngine's start price) counts only rises with a cost. So the stored cost is the record of what left (the pages show it), never an input.
 - *Example:* 10 in at £2.00 and 10 at £3.00: average £2.50; a pack of two cancelled not restockable: one write-off of 2 at £2.50 = £5.00.
 
@@ -21618,3 +21619,21 @@ connector files it can see and STOPs if their expected lists no longer hold the 
   rollback folder is checked on the code-switch path only. *M3:* `golive.sh check` removes the earlier success first and writes it only at its
   end; `apply` runs the connector check again itself. *M4:* the install marker is retired on success; a resume accepts only the setting /
   history states a real run of 0081 can leave (nothing; the row without its baseline; the row and its baseline before the migration record).
+
+**NR12. Round 3 (the lead's narrow re-check of fa9cd43; the owner's standing rule "we dont undo we fix them"): the undo is the quick stop.**
+- *The undo of this release* is the quick stop (stock.cancel_not_restockable back to `verify`, on the Settings page or the kit's
+  `undo.sh quickstop`) and fixing forward. The code switch back to the rollback release stays only for a release that breaks (minutes after
+  the go-live) and only while NO unit written off by its last cancel is still cancelled: the kit pauses the writers as the installer does
+  (cron aside and its running jobs waited for, the public vhost off, php-fpm stopped after its requests: the installer's own markers), counts
+  those units with the writers drained, and keeps them paused through the switch; a count above 0 brings the writers back and STOPs with "fix
+  forward (quick stop first)". There is no acknowledgement to go on anyway and no correction tool (both removed): after the first such unit,
+  no code undo.
+- *The quick stop* reads only what it needs, with a short timeout (the schema's migrations = the tip's files, the setting row, its mode),
+  and changes the setting.
+- *The cost read:* the averages AND the items' value-clock versions (read first) are read BEFORE any lock; under the balance locks and the
+  value clocks the versions are read again: unchanged = the costs stand (no scan of value rows under a lock: a 100-item cancel scans before
+  it locks), changed = read again there, once (CancelWriteOffLocksTest: the read happens before the balance lock when nothing moved; a
+  delivery between the read and the lock gives the re-read £3.00).
+- *The kit:* the connector files checked are pinned and apply checks the same list; a resume needs the seeded row exactly (type string, value
+  "write_off", provisional, NR1, set up by the migration) and the baseline's JSON exactly; every marker is written to a temporary name and
+  renamed (atomic), every write and removal checked.
