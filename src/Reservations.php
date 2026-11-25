@@ -647,8 +647,10 @@ final class Reservations
      *     a result the shops' connectors know, the precise outcome beside it). No VERIFY move, no recount.
      *     allocated -u and on_hand -u together: availability does not move (no feed row, never an oversell);
      *   - `verify` (the way before, D37): moved to VERIFY with a recount -> "cancelled_to_verify".
-     * The setting is read in the transaction, once per call; missing or anything else: `verify` (NR1). The average costs are read before any
-     * balance is locked (a plain read: no balance lock waits on it, R6/NR3).
+     * The setting is read in the transaction, once per call; missing or anything else: `verify` (NR1). The average costs are read under the
+     * written-off items' value clocks, taken right after the balance locks (Stock::lockValueClocks, the documents' own pattern): no other
+     * on-hand change of the item can take a place in its value sequence before this write-off's once the cost is read, so the cost is the
+     * average of exactly what comes before the write-off in that sequence (the final review of f3a7ed0, M1; NR3).
      *
      * @param list<string|int> $unitIds
      */
@@ -672,9 +674,14 @@ final class Reservations
                         }
                     }
                 }
-                // The unit's cost: the item's average so far, as the stock value takes it (NR3), read before the balances are locked.
-                $costs = $costOf === [] ? [] : (new StockOps\CostHints($this->db))->average(array_keys($costOf));
                 $this->stock->lock($pairs);
+                // The unit's cost: the item's average so far, as the stock value takes it (NR3), read under the item's value clock (M1): a
+                // delivery committing meanwhile is either before this write-off in the item's value sequence and in the average, or after both.
+                $costs = [];
+                if ($costOf !== []) {
+                    $this->stock->lockValueClocks(array_keys($costOf));
+                    $costs = (new StockOps\CostHints($this->db))->average(array_keys($costOf));
+                }
                 $out = [];
                 foreach ($wanted as $id) {
                     $u = $units[$id] ?? null;
@@ -948,6 +955,23 @@ final class Reservations
                 }
                 $this->stock->lock($pairs);
                 $skus = $this->lockSkus(array_column($pairs, 1));
+                // NR5 (the final review of f3a7ed0, M5): the latest count of each balance with written-off units, read ONCE under its lock
+                // (from the earliest of their write-offs on), never once per unit; each unit is then judged against it
+                $since = [];
+                foreach ($cancelled as $u) {
+                    $c = $last[strtolower($u['unit_id'])] ?? null;
+                    if ($c !== null && $c['written_off'] && $u['sku_id'] !== null) {
+                        $k = Stock::key($u['warehouse_id'], (int) $u['sku_id']);
+                        $since[$k] = min($since[$k] ?? PHP_INT_MAX, (int) $c['written_id']);
+                    }
+                }
+                $latestCount = [];
+                foreach ($since as $k => $from) {
+                    [$wh, $sku] = array_map('intval', explode(':', $k));
+                    $id = $this->db->value("SELECT id FROM stock_ledger WHERE warehouse_id = ? AND sku_id = ? AND id > ? AND movement_type = 'count' "
+                        . 'ORDER BY id DESC LIMIT 1', [$wh, $sku, $from]);
+                    $latestCount[$k] = $id === null ? null : (int) $id;
+                }
                 $now = Clock::db($this->now());
                 $fallen = []; // balance => central units allocated without coming back from VERIFY
                 $out = [];
@@ -982,7 +1006,8 @@ final class Reservations
                             [$back, $result] = $this->uncancelFromVerify($caller, $orderRef, $u, $id, $c, $verify, $now, $idemKey);
                             $note = $back ? null : 'after_verify';
                         } elseif ($c !== null && $c['written_off']) {
-                            [$back, $result, $outcome] = $this->uncancelFromWriteOff($caller, $orderRef, $u, $id, $c, $now, $idemKey);
+                            [$back, $result, $outcome] = $this->uncancelFromWriteOff($caller, $orderRef, $u, $id, $c, $now, $idemKey,
+                                $latestCount[Stock::key($wh, $sku)] ?? null);
                             $note = $back ? null : 'after_write_off';
                         }
                         $this->stock->apply($wh, $sku, 'allocated', $size, $this->move('uncancel', $caller, $orderRef, $id, $idemKey, $note));
@@ -1081,18 +1106,18 @@ final class Reservations
      *
      * @param array{channel_id: int, unit_id: string, listing_id: int, sku_id: ?int, u: int, warehouse_id: int, state: string, dispatched_at: ?string} $u
      * @param array{cancel_id: int, written_id: ?int, written_wh: ?int, written_sku: ?int, written_qty: ?int, written_cost: ?string} $c the unit's last cancel
+     * @param ?int $latestCount the id of the balance's latest count after the earliest write-off of this call (read once under the lock)
      * @return array{0: bool, 1: string, 2: string}
      */
-    private function uncancelFromWriteOff(Caller $caller, string $orderRef, array $u, string $id, array $c, string $now, string $idemKey): array
+    private function uncancelFromWriteOff(Caller $caller, string $orderRef, array $u, string $id, array $c, string $now, string $idemKey,
+        ?int $latestCount): array
     {
         $sku = (int) $u['sku_id'];
         $wh = $u['warehouse_id'];
         $own = $c['written_wh'] === $wh && $c['written_sku'] === $sku && $c['written_qty'] === -$u['u'];
-        // A count booked at the unit's warehouse after the write-off: ledger ids of one balance follow its lock, so commit order (as D46).
-        $counted = !$own ? null : $this->db->value(
-            "SELECT id FROM stock_ledger WHERE warehouse_id = ? AND sku_id = ? AND id > ? AND movement_type = 'count' ORDER BY id LIMIT 1",
-            [$wh, $sku, (int) $c['written_id']],
-        );
+        // A count booked at the unit's warehouse after the write-off: ledger ids of one balance follow its lock, so commit order (as D46). The
+        // balance's latest count is read once per call under its lock (M5); counted since = it comes after this unit's write-off.
+        $counted = $own && $latestCount !== null && $latestCount > (int) $c['written_id'] ? $latestCount : null;
         if ($own && $counted === null) {
             $this->stock->apply($wh, $sku, 'on_hand', $u['u'],
                 $this->move('write_off', $caller, $orderRef, $id, $idemKey, self::NOTE_WRITE_OFF_BACK) + ['effective_at' => $now]);

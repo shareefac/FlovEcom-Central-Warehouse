@@ -33,9 +33,10 @@ namespace CW;
  * 12. CW-1180 (NR6): each write-off of a unit by a not-restockable cancel (write_off noted cancel_not_restockable) and each
  *     take-back of one by an uncancel (write_off noted uncancel_from_write_off) is ONE on_hand row of the unit's own item at its
  *     own warehouse (its sale-time snapshot), -u for the cancel and +u for the take-back, under the key of that same cancel /
- *     uncancel of the unit (its allocated row -u / +u); a take-back carries no cost.
- * 13. per unit and item, those write-off rows never net above 0: an uncancel takes back only what a cancel wrote off. (Below -u
- *     is possible and right: an uncancel after a count since the write-off takes nothing back, NR5, and a later cancel writes off again.)
+ *     uncancel of the unit, which has exactly ONE allocated row, on the same item and warehouse, of -u / +u; a take-back carries no cost.
+ * 13. per unit and item, those write-off rows, summed in ledger order, never run above 0: an uncancel takes back only what a cancel
+ *     wrote off before it. (Below -u is possible and right: an uncancel after a count since the write-off takes nothing back, NR5, and a
+ *     later cancel writes off again.)
  * D1-D7. the document base (0008): gapless numbers, reversal pairs, ledger rows naming posted documents by their
  *     number, review tasks on the right documents and never decided by their own people, line items, posted_hash
  *     (CW\Documents\DocumentInvariants, I17-I21).
@@ -277,36 +278,44 @@ final class Invariants
     {
         $v = [];
         $notes = "('" . Reservations::NOTE_NOT_RESTOCKABLE . "', '" . Reservations::NOTE_WRITE_OFF_BACK . "')";
-        // 12. one row of the unit's own balance and size, with its own cancel / uncancel under the same key; a take-back without a cost
+        // 12. one row of the unit's own balance and size, with EXACTLY ONE allocated row of its own cancel / uncancel under the same key, on the
+        // write-off's own item and warehouse with the expected signed units (the final review of f3a7ed0, M6: never a sum that matches across
+        // warehouses); a take-back without a cost
         foreach ($db->all(
-            'SELECT w.channel_id, w.unit_id, w.idem_key, w.note, COUNT(*) AS n, SUM(w.qty_delta) AS net, '
-            . "SUM(w.bucket <> 'on_hand' OR w.warehouse_id <> u.warehouse_id OR w.sku_id <> u.sku_id) AS elsewhere, "
-            . 'SUM(w.unit_cost IS NOT NULL AND w.note = ?) AS costed_back, MAX(u.units_per_item) AS upi, '
-            . "(SELECT COALESCE(SUM(a.qty_delta), 0) FROM stock_ledger a WHERE a.channel_id = w.channel_id AND a.unit_id = w.unit_id "
-            . "  AND a.idem_key <=> w.idem_key AND a.bucket = 'allocated' AND a.movement_type = IF(w.note = ?, 'cancel', 'uncancel')) AS own_move "
-            . 'FROM channel c JOIN stock_ledger w FORCE INDEX (ix_stock_ledger_store_type) ON w.channel_id = c.id AND w.movement_type = \'write_off\' '
-            . "LEFT JOIN reservation_unit u ON u.channel_id = w.channel_id AND u.unit_id = w.unit_id "
-            . "WHERE w.note IN {$notes} "
-            . 'GROUP BY w.channel_id, w.unit_id, w.idem_key, w.note '
-            . 'HAVING n <> 1 OR upi IS NULL OR elsewhere <> 0 OR costed_back <> 0 '
-            . '   OR net <> IF(w.note = ?, -upi, upi) OR own_move <> IF(w.note = ?, -upi, upi) '
-            . 'ORDER BY w.channel_id, w.unit_id LIMIT ' . self::MAX_PER_CHECK,
-            [Reservations::NOTE_WRITE_OFF_BACK, Reservations::NOTE_NOT_RESTOCKABLE, Reservations::NOTE_NOT_RESTOCKABLE, Reservations::NOTE_NOT_RESTOCKABLE],
+            'SELECT g.*, '
+            . "(SELECT COUNT(*) FROM stock_ledger a WHERE a.channel_id = g.channel_id AND a.unit_id = g.unit_id AND a.idem_key <=> g.idem_key "
+            . "  AND a.bucket = 'allocated' AND a.movement_type = IF(g.note = ?, 'cancel', 'uncancel')) AS all_moves, "
+            . "(SELECT COUNT(*) FROM stock_ledger a WHERE a.channel_id = g.channel_id AND a.unit_id = g.unit_id AND a.idem_key <=> g.idem_key "
+            . "  AND a.bucket = 'allocated' AND a.movement_type = IF(g.note = ?, 'cancel', 'uncancel') AND a.warehouse_id = g.wh AND a.sku_id = g.sku "
+            . '  AND a.qty_delta = IF(g.note = ?, -g.upi, g.upi)) AS own_moves '
+            . 'FROM (SELECT w.channel_id, w.unit_id, w.idem_key, w.note, COUNT(*) AS n, SUM(w.qty_delta) AS net, MIN(w.warehouse_id) AS wh, MIN(w.sku_id) AS sku, '
+            . "  SUM(w.bucket <> 'on_hand' OR w.warehouse_id <> u.warehouse_id OR w.sku_id <> u.sku_id) AS elsewhere, "
+            . '  SUM(w.unit_cost IS NOT NULL AND w.note = ?) AS costed_back, MAX(u.units_per_item) AS upi '
+            . '  FROM channel c JOIN stock_ledger w FORCE INDEX (ix_stock_ledger_store_type) ON w.channel_id = c.id AND w.movement_type = \'write_off\' '
+            . '  LEFT JOIN reservation_unit u ON u.channel_id = w.channel_id AND u.unit_id = w.unit_id '
+            . "  WHERE w.note IN {$notes} GROUP BY w.channel_id, w.unit_id, w.idem_key, w.note) g "
+            . 'HAVING n <> 1 OR upi IS NULL OR elsewhere <> 0 OR costed_back <> 0 OR net <> IF(note = ?, -upi, upi) OR own_moves <> 1 OR all_moves <> 1 '
+            . 'ORDER BY channel_id, unit_id LIMIT ' . self::MAX_PER_CHECK,
+            [Reservations::NOTE_NOT_RESTOCKABLE, Reservations::NOTE_NOT_RESTOCKABLE, Reservations::NOTE_NOT_RESTOCKABLE, Reservations::NOTE_WRITE_OFF_BACK,
+                Reservations::NOTE_NOT_RESTOCKABLE],
         ) as $r) {
+            $what = $r['note'] === Reservations::NOTE_NOT_RESTOCKABLE ? 'cancel' : 'uncancel';
             $v[] = sprintf('unit %s:%s: its %s write-off under key %s is not one on_hand row of its own item, warehouse and size with its own %s '
-                . '(%d rows, net %d, %d elsewhere, %d take-backs with a cost, its %s %d, u %s)',
-                $r['channel_id'], $r['unit_id'], $r['note'], $r['idem_key'] ?? 'NULL', $r['note'] === Reservations::NOTE_NOT_RESTOCKABLE ? 'cancel' : 'uncancel',
-                $r['n'], $r['net'], $r['elsewhere'], $r['costed_back'], $r['note'] === Reservations::NOTE_NOT_RESTOCKABLE ? 'cancel' : 'uncancel',
-                $r['own_move'], $r['upi'] ?? 'none');
+                . '(%d rows, net %d, %d elsewhere, %d take-backs with a cost, its %s %d/%d, u %s)',
+                $r['channel_id'], $r['unit_id'], $r['note'], $r['idem_key'] ?? 'NULL', $what, $r['n'], $r['net'], $r['elsewhere'], $r['costed_back'], $what,
+                $r['own_moves'], $r['all_moves'], $r['upi'] ?? 'none');
         }
-        // 13. an uncancel takes back only what a cancel wrote off
+        // 13. an uncancel takes back only what a cancel wrote off BEFORE it: the running balance in ledger order per unit and item never goes
+        // above 0 (the final review of f3a7ed0, M7: a take-back before its write-off nets to zero, yet put a unit on sale it never had)
         foreach ($db->all(
-            'SELECT w.channel_id, w.unit_id, w.sku_id, SUM(w.qty_delta) AS net '
-            . 'FROM channel c JOIN stock_ledger w FORCE INDEX (ix_stock_ledger_store_type) ON w.channel_id = c.id AND w.movement_type = \'write_off\' '
-            . "WHERE w.note IN {$notes} "
-            . 'GROUP BY w.channel_id, w.unit_id, w.sku_id HAVING net > 0 ORDER BY w.channel_id, w.unit_id LIMIT ' . self::MAX_PER_CHECK,
+            'SELECT channel_id, unit_id, sku_id, MIN(id) AS first_id, SUBSTRING_INDEX(GROUP_CONCAT(run ORDER BY id), \',\', 1) AS first_run FROM ('
+            . '  SELECT w.channel_id, w.unit_id, w.sku_id, w.id, SUM(w.qty_delta) OVER (PARTITION BY w.channel_id, w.unit_id, w.sku_id ORDER BY w.id) AS run '
+            . '  FROM channel c JOIN stock_ledger w FORCE INDEX (ix_stock_ledger_store_type) ON w.channel_id = c.id AND w.movement_type = \'write_off\' '
+            . "  WHERE w.note IN {$notes}) t WHERE run > 0 "
+            . 'GROUP BY channel_id, unit_id, sku_id ORDER BY channel_id, unit_id LIMIT ' . self::MAX_PER_CHECK,
         ) as $r) {
-            $v[] = "unit {$r['channel_id']}:{$r['unit_id']}: its write-offs of item {$r['sku_id']} net {$r['net']} (more taken back than written off)";
+            $v[] = "unit {$r['channel_id']}:{$r['unit_id']}: its write-offs of item {$r['sku_id']} run above 0 (+{$r['first_run']} at ledger row {$r['first_id']}: "
+                . 'taken back before it was written off)';
         }
         return $v;
     }

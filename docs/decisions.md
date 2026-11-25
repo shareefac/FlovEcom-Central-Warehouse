@@ -21520,8 +21520,8 @@ no feed row, never an oversell; a shelf already below zero opens the usual negat
 **NR3. "At its cost" = the item's average cost so far.** The write-off row carries `unit_cost` = CostHints::average (every unit that came in
 with a cost, weighted: the stock value's own rule, the same figure Reports values the unit at), `cost_source` `estimate` (a cost CW worked
 out itself, as the opening loads' are; 0006's ENUM has no other fitting value and widening it would copy the whole ledger table). None
-when no unit of the item ever came in with a cost (the stock value already counts that item at £0). The average is read before any balance
-is locked (a plain read; no other order waits on it). A cost on a fall moves no average: every average CW keeps (CostHints, report_item,
+when no unit of the item ever came in with a cost (the stock value already counts that item at £0). The average is read under the item's
+value clock, taken right after the balance locks (Stock::lockValueClocks, as a document posting does; NR11 M1). A cost on a fall moves no average: every average CW keeps (CostHints, report_item,
 CostEngine's start price) counts only rises with a cost. So the stored cost is the record of what left (the pages show it), never an input.
 - *Example:* 10 in at £2.00 and 10 at £3.00: average £2.50; a pack of two cancelled not restockable: one write-off of 2 at £2.50 = £5.00.
 
@@ -21591,3 +21591,30 @@ outcome is part of the stored answer: a replay under the same key returns it byt
 it. No page reads `result` (Sales returns, the order page and Stock movements read the ledger: NR7). The go-live kit's check reads the live
 connector files it can see and STOPs if their expected lists no longer hold the three old results CW now gives (`cancelled`, `uncancelled`,
 `uncancelled_after_verify`).
+
+**NR11. The final review of f3a7ed0 (Codex astra, NO GO: 2 High, 7 Medium), each fixed test-first.**
+- *M1, the cost:* a delivery committing between the cancel's start and its write-off could leave the write-off at the stale average (10 at
+  £2 then 10 at £4 booked meanwhile: written off at £2 while the stock value falls £3). The house pattern of a posting whose costs depend on
+  the item's value stream is used: after the balance locks, `Stock::lockValueClocks` on the written-off items, THEN the average. No other
+  on-hand change of the item can take a place in its value sequence until the cancel commits, so the cost is the average of exactly what
+  precedes the write-off (CancelWriteOffLocksTest: the delivery booked at the hook is in it: £3.00). No retry is needed. The read now runs
+  under the item's locks: the go-live kit times it at production size before the go-live (box.sh before; above 500 ms a STOP to look).
+- *M5, counted since:* the balance's latest count after the call's earliest write-off is read ONCE per locked balance, and each unit is judged
+  against it (latest count id > its write-off id = counted since). 100 units of one item: one read, not 100.
+- *M6, invariant 12:* the cancel / uncancel under the same key must have EXACTLY ONE allocated row, on the write-off's own item and warehouse,
+  of the expected signed units; a sum that matches across warehouses no longer passes.
+- *M7, invariant 13:* the running balance in ledger order per channel, unit and item (a window sum) must never be above 0: a take-back
+  booked before its write-off is flagged even when they net to zero. Both read only the channels' write_off rows (ix_stock_ledger_store_type,
+  ~30-60 a day): the kit prints the invariants' time and memory on production after the switch (1G).
+- *H1, the code undo:* the PRIMARY undo is the quick stop (the setting back to `verify`; no code change). The code undo (the rollback release,
+  which does not know write-offs) STOPs while any unit written off by its last cancel is still cancelled (an uncancel of it under the rollback
+  would allocate it without its write-off taken back); the kit lists each with its pack size (units_per_item) and whether its item was
+  counted at that warehouse since, and the switch goes on only with `NRKIT_UNDO_ACK=<that number>`. After such an undo `undo.sh corrections`
+  says, per unit taken back under the rollback, what to book: its pack size, never "+1" (a 6-pack written off at £2 a unit: +6, £12), and
+  NOTHING when the item was counted at that warehouse after the write-off (the count already holds the shelf as it is).
+- *H2, the undo switch:* under the install lock, before the symlink or the cron is touched, the rollback release's migration files must be
+  exactly the applied ones (a 0080 applied by another install after undo-check: STOP) and no installer pause marker may be there.
+- *M2:* the scripted quick stop checks only what it needs (live = the tip, the schema's migrations = the tip's files, the setting row); the
+  rollback folder is checked on the code-switch path only. *M3:* `golive.sh check` removes the earlier success first and writes it only at its
+  end; `apply` runs the connector check again itself. *M4:* the install marker is retired on success; a resume accepts only the setting /
+  history states a real run of 0081 can leave (nothing; the row without its baseline; the row and its baseline before the migration record).
