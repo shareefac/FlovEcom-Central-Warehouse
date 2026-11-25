@@ -326,11 +326,15 @@ final class ExpensesController
             'anchor' => !ExpenseMoney::blank($f('total')) && !str_contains(self::hand($f('hand')), 'sum'), 'note' => $f('note')];
     }
 
-    /** The script's record of what was typed by hand (EX65): the words it knows (net, vat, sum), once each, in one order; never saved. */
+    /**
+     * The script's record of the boxes (EX65): typed by hand (net, vat), the total box holding the sum the script wrote (sum), the boxes the
+     * script filled from the total (fnet, fvat: CW-1176, Codex's final of 332aba7) - only those words, once each, in one order; never saved,
+     * never part of the one-effect key.
+     */
     private static function hand(string $typed): string
     {
         $words = preg_split('/\s+/', $typed, -1, PREG_SPLIT_NO_EMPTY) ?: [];
-        return implode(' ', array_values(array_filter(['net', 'vat', 'sum'], static fn (string $w): bool => in_array($w, $words, true))));
+        return implode(' ', array_values(array_filter(['net', 'vat', 'sum', 'fnet', 'fvat'], static fn (string $w): bool => in_array($w, $words, true))));
     }
 
     /**

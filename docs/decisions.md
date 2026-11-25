@@ -21481,7 +21481,9 @@ so under the boxes and never written over. One money rule for the three boxes in
 spaces U+00A0, U+202F, U+2007 around and after the £; nothing else trimmed; a box at most £9,999,999.99, a total at most two boxes' worth).
 The one-effect key (FormOnce) checks the fields and a typed total, never the choice or the record of hand typing, so an Add sent from the
 page live before keeps its fingerprint and is replayed. The page reads the shops' rate once for the label and the script. CW-1176 (the
-lead's browser test of the live 27dea71): a total still being typed (a whole amount and "." or "." and one figure, or the £ alone: "8.")
-says nothing and leaves the boxes; one that cannot become an amount ("8,47", "8,", three decimals, a letter) says so and empties the boxes
-the script filled from the total, never one typed by hand. A comma is read only as a thousands mark of three figures, so "8,4" says "not an
+lead's browser test of the live 27dea71): a total still being typed (an amount and its point, "8.", whose lowest end is within two
+boxes' worth, or the £ alone; "8.4" is an amount already: 840p, £7.00 + £1.40 at 20%) says nothing and leaves the boxes; one that cannot
+become an amount ("8,47", "8,", three decimals, a letter, "20,000,000.") says so and empties the boxes the script filled from the total,
+never one typed by hand; which boxes it filled goes with the form in the hidden "hand" (fnet, fvat), so a refused form empties them too
+(Codex's final of 332aba7). A comma is read only as a thousands mark of three figures, so "8,4" says "not an
 amount" at once (a total is seldom typed with thousands commas). The server refuses both on save, as before.
