@@ -107,7 +107,7 @@ final class WordsTest extends TestCase
             'SALE_RETURN_KIND' => \CW\Ui\SalesViews::KINDS,
             'DISPATCH_CHIP' => ['late', 'on_time'],
             'SALE_RESTOCK' => ['yes', 'no', 'none'],
-            'SALE_RESTOCK_TEXT' => ['returned', 'cancelled', 'cancelled_held', 'verify_open', 'verify_resolved', 'verify_dismissed', 'unlinked', 'unknown'],
+            'SALE_RESTOCK_TEXT' => \CW\Ui\SalesViews::RESTOCK_OUTCOMES, // CW-1180 added the two written-off ones (NR7)
             // ---- end of pack D ----
             'COMING_LATER' => array_column(Permissions::COMING_LATER, 'key'),
             'BADGE' => [...Sections::badgeNames(), 'section'],
@@ -431,6 +431,7 @@ final class WordsTest extends TestCase
             '0048_totp_off_switch.sql', // 2-step verification switched off for a while (TF1)
             '0051_hide_unsold.sql', // HU (hide-unsold): the matching lists leave out what was not sold in a year (HU1)
             '0070_live_presence.sql', // who is here on a draft order (LV9)
+            '0081_cancel_not_restockable.sql', // CW-1180: a cancelled item the store marked "don't restock" (NR1)
         ] as $file) {
             preg_match_all("/^ \\('([a-z_]+\.[a-z_.]+)','/m", $sql($file), $m);
             $keys = [...$keys, ...$m[1]];

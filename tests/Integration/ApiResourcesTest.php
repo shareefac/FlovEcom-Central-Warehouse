@@ -178,6 +178,7 @@ final class ApiResourcesTest extends ApiTestCase
 
     public function testPurchasingReportsStockAndDemandBySite(): void
     {
+        self::notRestockable('verify'); // CW-1180 (NR1): this test is about the way before, a not-restockable cancel parked in VERIFY (D37)
         // /v1/purchasing runs in php-fpm on the real clock (90-day window from UTC_TIMESTAMP), so this
         // test books its sales and count on the real clock too; a pinned 26 Sep date would drift out of
         // the window after 90 days.

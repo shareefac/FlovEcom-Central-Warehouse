@@ -46,6 +46,7 @@ final class IdempotencyTest extends StockTestCase
 
     public function testEveryOperationReplayedThreeTimesHasOneEffect(): void
     {
+        self::notRestockable('verify'); // CW-1180 (NR1): this test is about the way before, a not-restockable cancel parked in VERIFY (D37)
         $site = $this->site();
         $this->grant($site, 'goods_in');
         $sku = $this->item('strict', 3);
@@ -95,6 +96,7 @@ final class IdempotencyTest extends StockTestCase
 
     public function testConcurrentReplaysOfEveryOperationHaveOneEffect(): void
     {
+        self::notRestockable('verify'); // CW-1180 (NR1): this test is about the way before, a not-restockable cancel parked in VERIFY (D37)
         $site = $this->site();
         $this->grant($site, 'goods_in');
         $sku = $this->item('strict', 10);

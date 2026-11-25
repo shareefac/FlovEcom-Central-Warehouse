@@ -121,6 +121,7 @@ final class ApiIdempotencyTest extends ApiTestCase
 
     public function testEveryPostEndpointReplayedThreeTimesHasOneEffect(): void
     {
+        self::notRestockable('verify'); // CW-1180 (NR1): this test is about the way before, a not-restockable cancel parked in VERIFY (D37)
         [$site, $key] = $this->apiSite();
         $this->grant($site, 'goods_in');
         $sku = $this->item('strict', 20);

@@ -16,6 +16,13 @@ use CW\Tests\Support\WorkerPool;
  */
 final class UncancelTest extends StockTestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // CW-1180 (NR1): these are the cancels of the way before, parked in VERIFY (D37); the written-off ones: CancelWriteOffTest.
+        self::notRestockable('verify');
+    }
+
     private function uncancel(Caller $site, string $ref, array $units, ?string $key = null): OpResult
     {
         return $this->ok($this->res->uncancel($site, $ref, $units, $key ?? $this->key('uncancel')));

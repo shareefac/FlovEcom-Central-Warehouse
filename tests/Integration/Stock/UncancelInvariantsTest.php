@@ -20,6 +20,7 @@ final class UncancelInvariantsTest extends StockTestCase
     protected function setUp(): void
     {
         parent::setUp();
+        self::notRestockable('verify'); // CW-1180 (NR1): the VERIFY pair of the way before (D37); the write-off pair: CancelWriteOffInvariantsTest
         $site = $this->site();
         $this->channel = (int) $site->channelId;
         $this->sku = $this->item('strict', 10);
