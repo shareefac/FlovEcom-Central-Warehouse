@@ -209,7 +209,8 @@ final class AiClaudeTest extends TestCase
         $r = (new Claude(self::KEY, 'claude-opus-5-5', 'medium', $f))->read($k, 'x', 'image/jpeg');
         self::assertSame(['overloaded', 1], [$r['reason'], count($f->sent)]);
         // M4: the HTTP client's limits: the whole transfer within the deadline (300 s: below the installer's 6-minute drain), no redirect
-        self::assertSame(['timeout' => 300, 'connect_timeout' => 15, 'read_timeout' => 120, 'allow_redirects' => false, 'http_errors' => false],
-            array_intersect_key(Claude::guzzleOptions(), array_flip(['timeout', 'connect_timeout', 'read_timeout', 'allow_redirects', 'http_errors'])));
+        $o = array_intersect_key(Claude::guzzleOptions(), array_flip(['timeout', 'connect_timeout', 'read_timeout', 'allow_redirects', 'http_errors']));
+        ksort($o);
+        self::assertSame(['allow_redirects' => false, 'connect_timeout' => 15, 'http_errors' => false, 'read_timeout' => 120, 'timeout' => 300], $o);
     }
 }

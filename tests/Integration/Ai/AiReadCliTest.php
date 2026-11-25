@@ -34,11 +34,13 @@ final class AiReadCliTest extends IntegrationTestCase
     {
         parent::setUp();
         $this->spool = AiFixtures::dir('clispool');
+        // the installer's pause markers are looked for here, never in the box's own /etc/cw
+        $this->env = ['CW_PAUSE_DIR' => AiFixtures::dir('pause')];
     }
 
     protected function tearDown(): void
     {
-        exec('rm -rf ' . escapeshellarg($this->spool));
+        exec('rm -rf ' . escapeshellarg($this->spool) . ' ' . escapeshellarg($this->env['CW_PAUSE_DIR']));
         parent::tearDown();
     }
 
@@ -101,13 +103,10 @@ final class AiReadCliTest extends IntegrationTestCase
         $run = self::$db->one('SELECT ended_at, ok_at, failed_at, error FROM ai_reader WHERE id = 1') ?? [];
         self::assertSame(['did not end', true, true], [$run['error'], $run['failed_at'] !== null, (string) $run['ok_at'] >= (string) $run['failed_at']]);
         // M4 (Codex final of 86aebbd): the installer has paused the writers (its marker): the reader starts no reading, the job waits for after
-        $pause = AiFixtures::dir('pause');
-        touch($pause . '/cw-prod.cron.paused');
-        $this->env = ['CW_PAUSE_DIR' => $pause];
+        touch($this->env['CW_PAUSE_DIR'] . '/cw-prod.cron.paused');
         $wait = self::$db->insert("INSERT INTO ai_read (staff_user_id, place, kind, context, media_type, file_bytes, file_sha256, state, created_at) VALUES "
             . "(?, 'expense_new', 'expense_invoice', '{}', 'application/pdf', 9, ?, 'waiting', ?)", [$staff, str_repeat('0', 64), Clock::db(Clock::now())]);
         $r = $this->cli('--once');
-        exec('rm -rf ' . escapeshellarg($pause));
         self::assertSame(0, $r['code'], $r['err']);
         self::assertStringContainsString('the writers are paused (an install): no reading starts', $r['out']);
         self::assertSame('waiting', self::$db->value('SELECT state FROM ai_read WHERE id = ?', [$wait]));
