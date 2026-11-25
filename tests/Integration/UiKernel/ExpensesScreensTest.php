@@ -357,12 +357,14 @@ final class ExpensesScreensTest extends KernelUiTestCase
         $rows = self::rows($page, 'real-profit');
         $lines = array_column($rows, 0);
         self::assertSame([Words::PROFIT['real_sales'], Words::PROFIT['real_cost'], Words::PROFIT['real_delivery_charged'], Words::PROFIT['real_delivery'],
-            Words::PROFIT['real_fees'], Words::PROFIT['real_expenses'], Words::PROFIT['real_regular'], Words::PROFIT['real_profit']], $lines);
+            Words::PROFIT['real_fees'], Words::PROFIT['real_fees_other'], Words::PROFIT['real_expenses'], Words::PROFIT['real_regular'], Words::PROFIT['real_profit']],
+            $lines); // CW-1172 fix round 1 (the lead's decision 8): the payment fees' "not on an order" part on a line of its own
         $col = static fn (int $i): array => array_column($rows, $i);
         // Vape and Go: 980.00 - 500.00 + 50.00 - 43.00 - 0 - 750.00 - 890.10 = -1,153.10; Electrofag: 200.00 - 90.00 = 110.00; Vape Big: 0.
-        self::assertSame(['£980.00', '£500.00', '£50.00', '£43.00', '£0.00', '£750.00', '£890.10', '-£1,153.10'], $col(1));
-        self::assertSame(['£200.00', '£90.00', '£0.00', '£0.00', '£0.00', '£0.00', '£0.00', '£110.00'], $col(2));
-        self::assertSame(['£0.00', '£0.00', '£0.00', '£0.00', '£0.00', '£0.00', '£0.00', '£0.00'], $col(3));
+        // (CW-1172: the payment fees' "not on an order" line, £0.00 here, after the fees)
+        self::assertSame(['£980.00', '£500.00', '£50.00', '£43.00', '£0.00', '£0.00', '£750.00', '£890.10', '-£1,153.10'], $col(1));
+        self::assertSame(['£200.00', '£90.00', '£0.00', '£0.00', '£0.00', '£0.00', '£0.00', '£0.00', '£110.00'], $col(2));
+        self::assertSame(['£0.00', '£0.00', '£0.00', '£0.00', '£0.00', '£0.00', '£0.00', '£0.00', '£0.00'], $col(3));
         self::assertStringContainsString(Words::PROFIT['real_fees_not_built'], $page->text(), 'payment fees: not built yet');
         // One shop: its column only; the expenses line opens that month's expenses of the shop.
         $one = $fin->get('/ui/profit/real', ['period' => 'choose', 'from' => '2026-11-01', 'to' => '2026-11-30', 'store' => $this->shops['ef']]);

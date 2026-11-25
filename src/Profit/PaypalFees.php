@@ -325,6 +325,7 @@ final class PaypalFees
         // the referred row read since
         array_push($ids, ...array_map('intval', $this->db->column("SELECT t.id FROM paypal_txn t JOIN paypal_txn p ON p.account = t.account AND p.txn_id = t.ref_txn_id "
             . "WHERE t.account = ? AND t.due = 0 AND t.kind IN ('refund', 'chargeback', 'fee') AND (t.matched_by IS NULL OR t.matched_by <> 'reference') "
+            . "AND t.count_state <> 'look' "
             . "AND p.kind IN ('sale', 'chargeback') AND p.form_shop IS NOT NULL", [$account])));
         // a chargeback's order's refunds changed
         array_push($ids, ...array_map('intval', $this->db->column("SELECT t.id FROM paypal_txn t JOIN sale_order o ON o.channel_id = t.shop_channel AND o.order_ref = t.match_order_ref "
