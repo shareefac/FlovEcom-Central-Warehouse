@@ -365,4 +365,45 @@ final class ExpenseTotalVatScreensTest extends KernelUiTestCase
         self::assertStringContainsString('the form suggests the split', Words::HELP['expenses']);
         self::assertStringContainsString('saves the amounts the boxes show', Words::HELP['expenses']);
     }
+
+    /**
+     * The script's pattern called $name (`var <name> = function (v...) { ... /^...$/ ... }`), as a PCRE pattern read as JavaScript reads it:
+     * \uXXXX as \x{XXXX} (u), and $ only at the very end (D: JavaScript's $ never matches before a last line break).
+     */
+    private static function jsPattern(string $part, string $name): string
+    {
+        self::assertSame(1, preg_match('#var ' . preg_quote($name, '#') . ' = function \(v(?:, max)?\) \{\s*(?:var m = |return )(/\^.*?\$/)\.(?:exec|test)\(v\)#s', $part, $m),
+            "the script's {$name}()");
+        return (string) preg_replace('/\\\\u([0-9A-F]{4})/', '\\\\x{$1}', $m[1]) . 'uD';
+    }
+
+    /**
+     * The script reads money as the server does (one rule, run here on the script's own pattern), and tells "still being typed" from "not an
+     * amount" (CW-1176, the lead's browser test of 27dea71): "8." or the £ alone is a total being typed (no line, the boxes left as they
+     * are); "8,47" (a comma for the pence), "8." with letters, three decimals or a comma group of fewer than three figures is not an amount:
+     * the line says so and the boxes the script filled from the total are emptied (never one typed by hand). The server refuses all of
+     * these on save, as before.
+     */
+    public function testTheScriptTellsATotalBeingTypedFromOneThatIsNotAnAmount(): void
+    {
+        $js = (string) file_get_contents(Assets::dir() . '/app.js');
+        $part = substr($js, (int) strpos($js, '// An expense\'s total as it is typed'));
+        $money = self::jsPattern($part, 'pence');
+        $typing = self::jsPattern($part, 'typing');
+        foreach (['8', '8.4', '8.47', '1,234.56', '£ 12', "\u{00A0}12", "\u{202F}£\u{202F}8.47", ' 12 ', '99999999.99', '10,800,000.00', '0', '8.', '8,47', '8.475',
+            '', '£', 'abc', "12\n", '1,23', '-8', '8.4x', "12\u{200B}", '12 £', '.5'] as $v) {
+            // The server's rule without its cap (the script caps after reading, as the server does).
+            self::assertSame(ExpenseMoney::pence($v, PHP_INT_MAX) !== null, preg_match($money, $v) === 1, 'the script reads ' . json_encode($v) . ' as the server does');
+        }
+        foreach (['8.' => true, '£' => true, '' => true, ' £ ' => true, '1,234.' => true, '8,47' => false, '8,' => false, '8.475' => false,
+            'abc' => false, '8.4x' => false, '1,23' => false, "8.\n" => false] as $v => $still) {
+            self::assertSame($still, preg_match($typing, (string) $v) === 1, json_encode($v) . ($still ? ' is still being typed' : ' is not an amount'));
+            self::assertNull(ExpenseMoney::pence((string) $v, ExpenseMoney::MAX_TOTAL_PENCE), json_encode($v) . ': the server refuses it on save, as before');
+        }
+        foreach (['!blank(gross.value) && !typing(gross.value)', 'var unfill = function () {', 'filled.net = true;', 'filled.vat = true;',
+            "if (filled.net && !hand.net) {\n        netBox.value = '';", "if (filled.vat && !hand.vat) {\n        vatBox.value = '';", 'filled[which] = false;',
+            "if (gross && t === null && !typing(gross.value)) {\n          unfill();"] as $piece) {
+            self::assertStringContainsString($piece, $part, $piece);
+        }
+    }
 }
