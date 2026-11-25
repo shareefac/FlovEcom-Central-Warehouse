@@ -21906,7 +21906,9 @@ LATER end proves the whole); a row PayPal repeats in its answer (PPF55) proves n
 a window whose answer's own interval ended early is followed by one from its FIRST DAY NOT PROVEN (split), so a 1-7 Nov request answered for
 1-2 Nov is followed by 3 Nov, never 1 Nov again; the run's covered_to moves only while the windows join without a gap; a window that proves
 nothing leaves a gap (its rows stored all the same). The nightly starts from the first day not proven (or the re-read days, the earlier).
-(This replaces PPF41's 60 s slack.)
+The run's summary (and bin/paypal_fees.php's line, which the go-live kit prints) says why windows proved less than their days ("a page without
+its start or end", "a page without its refresh time", "a page starting later than asked", "a row given twice", "its answer ended early",
+"PayPal's data not finished past <day>"), so a gate that STOPs on coverage says why. (This replaces PPF41's 60 s slack.)
 
 **PPF53. The key file is root's alone; PayPal reached before the key (Fable F-M1, F-check).** The key file is root:root 0600 (0400 passes):
 PaypalKey refuses any group or other read, so nothing the web app runs as (www-data) can read it; only bin/paypal_fees.php reads it, run by

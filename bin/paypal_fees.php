@@ -148,10 +148,11 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
             };
         }
         $cli->log(sprintf('%s %s %s..%s: RUN=%d ok, %d windows (%d of old days read again), %d pages, %d rows (%d new, %d changed%s), %d decided (+%d before reading), '
-            . 'PayPal complete to %s, proven read to %s, %.1f s (%s)',
+            . 'PayPal complete to %s, proven read to %s%s, %.1f s (%s)',
             $account, $kind, $from, $to, $r['run'], $r['windows'], $r['extra_windows'], $r['pages'], $r['read'], $r['new'], $r['changed'],
             $r['repeated'] > 0 ? sprintf('; %d given twice by PayPal: kept once, or held for a look; their windows not proven', $r['repeated']) : '', $r['allocated'], $local,
-            $r['refreshed'] ?? '-', $r['covered'] ?? '-', microtime(true) - $t,
+            $r['refreshed'] ?? '-', $r['covered'] ?? '-', $r['unproven'] === [] ? '' : ' (windows proving less than their days: ' . implode(', ', array_map(
+                static fn (string $why, int $n): string => "{$n} {$why}", array_keys($r['unproven']), array_values($r['unproven']))) . ')', microtime(true) - $t,
             implode(', ', array_map(static fn (string $k, float $v): string => "{$k} {$v} s", array_keys($r['seconds']), array_values($r['seconds'])))));
         return Cli::OK;
     }, false, true));

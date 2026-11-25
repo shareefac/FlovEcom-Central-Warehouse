@@ -314,16 +314,18 @@ final class PaypalFeesR4Test extends StockTestCase
             $a['end_date'] = gmdate('Y-m-d\TH:i:s\Z', (new \DateTimeImmutable($q['end_date']))->getTimestamp() - 59);
             return $a;
         };
-        self::readPp($http, '2026-11-01', '2026-11-14');
+        $r = self::readPp($http, '2026-11-01', '2026-11-14');
         self::assertSame('2026-11-13', $covered(), 'the 14th\'s last minute was not answered for');
+        self::assertSame(['its answer ended early' => 4], $r['unproven'], 'the run says why its windows proved less than their days');
         // a page that does not say where it ends, or where it starts: nothing of its window proven
         foreach (['end_date', 'start_date'] as $f) {
             $http->alter = static function (array $a, array $q) use ($f): array {
                 unset($a[$f]);
                 return $a;
             };
-            self::readPp($http, '2026-11-01', '2026-11-07');
+            $r = self::readPp($http, '2026-11-01', '2026-11-07');
             self::assertNull($covered(), "a page without its {$f}");
+            self::assertSame(['a page without its start or end' => 1], $r['unproven']);
         }
         // a page starting 30 seconds after the start asked for: nothing proven
         $http->alter = static function (array $a, array $q): array {

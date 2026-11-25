@@ -228,7 +228,8 @@ final class PaypalFees
      * the old ones, and also when a window fails (what was stored before it is decided at once: forward progress every night).
      *
      * @param list<array{0: string, 1: string}> $extra
-     * @return array{run: int, windows: int, extra_windows: int, pages: int, read: int, new: int, changed: int, allocated: int, refreshed: ?string, covered: ?string, seconds: array<string, float>}
+     * @return array{run: int, windows: int, extra_windows: int, pages: int, read: int, new: int, changed: int, repeated: int, allocated: int, refreshed: ?string,
+     *   covered: ?string, unproven: array<string, int>, seconds: array<string, float>} unproven: the forward windows that proved less than their days, by why
      */
     public function run(Caller $caller, PaypalApi $api, string $fromDay, string $toDay, string $kind, ?float $deadline = null, array $extra = []): array
     {
@@ -276,7 +277,7 @@ final class PaypalFees
             $runId = $this->db->insert('INSERT INTO paypal_run (account, channel_id, kind, from_day, to_day, actor, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
                 [$account, $shop['id'], $kind, $fromDay, $toDay, $caller->actor, $now]);
             $sum = ['run' => $runId, 'windows' => 0, 'extra_windows' => 0, 'pages' => 0, 'read' => 0, 'new' => 0, 'changed' => 0, 'repeated' => 0, 'allocated' => 0,
-                'refreshed' => null, 'covered' => null, 'seconds' => ['paypal' => 0.0, 'parse' => 0.0, 'store' => 0.0, 'decide' => 0.0]];
+                'refreshed' => null, 'covered' => null, 'unproven' => [], 'seconds' => ['paypal' => 0.0, 'parse' => 0.0, 'store' => 0.0, 'decide' => 0.0]];
             $covering = true;
             $stored = false; // rows stored that this run has not decided yet
             // a window is started only while its decisions still have their time (M2, round 4): the run's deadline less the reserve kept for them
@@ -297,6 +298,9 @@ final class PaypalFees
                     $stored = true;
                     // the days this window PROVES read (c1, round 3; H7, round 4): what its answer proves (proven())
                     $p = self::proven($last, $w);
+                    if ($p['why'] !== null) {
+                        $sum['unproven'][$p['why']] = ($sum['unproven'][$p['why']] ?? 0) + 1;
+                    }
                     if ($p['to'] !== null && $p['to'] >= $first) {
                         if ($covering) {
                             $sum['covered'] = $p['to'];
@@ -1800,20 +1804,30 @@ final class PaypalFees
     }
 
     /**
-     * The last UK day a window of $last proves read (final review c1, round 3; PPF41): the day before the UK day of the LEAST fresh refresh
-     * time of its pages (that day is not finished in PayPal's data), never past the last whole UK day of the interval its pages say they cover,
-     * at most $last; null when a page gave no refresh time, or said it starts later than asked (its completeness unknown: nothing proven).
+     * The last UK day a window of $last proves read (final review c1, round 3; PPF41; round 4 PPF52): the day before the UK day of the LEAST
+     * fresh refresh time of its pages (that day is not finished in PayPal's data), never past the last whole UK day of the interval its pages
+     * say they cover, at most $last; null when a page gave no refresh time, no start or end, a start later than asked, or a row twice (its
+     * completeness unknown: nothing proven). With why the window proved less than its days (the run's summary says it: the go-live gate's
+     * reader sees why a day is not proven).
      *
      * @param array{refreshed: ?string, returned_to?: ?string, short_start?: bool, unproven?: bool, repeated?: int} $w PaypalApi::window()
-     * @return array{to: ?string, cut: bool} the last day proven (null: none), and whether the answer's own interval ended before $last
+     * @return array{to: ?string, cut: bool, why: ?string} the last day proven (null: none), whether the answer's own interval ended before $last,
+     *   and why it proved less than $last (null: all of it)
      */
     private static function proven(string $last, array $w): array
     {
         $refreshed = self::refreshed($w['refreshed'] ?? null);
         // a page without its refresh time, or without its start or end, one starting later than asked, a row repeated (one may be missing: F-L5,
         // round 4): nothing of the window proven (H7, round 4)
-        if ($refreshed === null || ($w['short_start'] ?? false) || ($w['unproven'] ?? false) || (int) ($w['repeated'] ?? 0) > 0) {
-            return ['to' => null, 'cut' => false];
+        $why = match (true) {
+            $refreshed === null => 'a page without its refresh time',
+            (bool) ($w['unproven'] ?? false) => 'a page without its start or end',
+            (bool) ($w['short_start'] ?? false) => 'a page starting later than asked',
+            (int) ($w['repeated'] ?? 0) > 0 => 'a row given twice',
+            default => null,
+        };
+        if ($why !== null) {
+            return ['to' => null, 'cut' => false, 'why' => $why];
         }
         $done = (new \DateTimeImmutable(ReportRefresh::ukDay($refreshed)))->modify('-1 day')->format('Y-m-d');
         $cut = false;
@@ -1825,7 +1839,8 @@ final class PaypalFees
             $cut = $answer < min($done, $last);
             $done = min($done, $answer);
         }
-        return ['to' => min($last, $done), 'cut' => $cut];
+        $to = min($last, $done);
+        return ['to' => $to, 'cut' => $cut, 'why' => $to >= $last ? null : ($cut ? 'its answer ended early' : 'PayPal\'s data not finished past ' . $to)];
     }
 
     /** PayPal's refresh time as PaypalApi read it (CW's UTC database time, or null). */
