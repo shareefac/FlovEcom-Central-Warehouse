@@ -30,8 +30,8 @@ use CW\Tests\Support\RmBill;
  */
 final class DocumentReaderTest extends IntegrationTestCase
 {
-    /** Every upload place (the screens pass their own: M5). */
-    private const ALL = [...DocumentReader::BILL_PLACES, ...DocumentReader::EXPENSE_PLACES];
+    /** Every upload place (the screens pass their own: M5); a list, so a class without the places fails its tests, not the run. */
+    private const ALL = ['delivery_upload', 'delivery_replace', 'expense_new', 'expense_change'];
 
     private string $spool = '';
     private string $files = '';
