@@ -21480,4 +21480,8 @@ Change does), and the sum goes only into an empty total box or over the sum writ
 so under the boxes and never written over. One money rule for the three boxes in the script and on the server (spaces, tabs and the no-break
 spaces U+00A0, U+202F, U+2007 around and after the £; nothing else trimmed; a box at most £9,999,999.99, a total at most two boxes' worth).
 The one-effect key (FormOnce) checks the fields and a typed total, never the choice or the record of hand typing, so an Add sent from the
-page live before keeps its fingerprint and is replayed. The page reads the shops' rate once for the label and the script.
+page live before keeps its fingerprint and is replayed. The page reads the shops' rate once for the label and the script. CW-1176 (the
+lead's browser test of the live 27dea71): a total still being typed (a whole amount and "." or "." and one figure, or the £ alone: "8.")
+says nothing and leaves the boxes; one that cannot become an amount ("8,47", "8,", three decimals, a letter) says so and empties the boxes
+the script filled from the total, never one typed by hand. A comma is read only as a thousands mark of three figures, so "8,4" says "not an
+amount" at once (a total is seldom typed with thousands commas). The server refuses both on save, as before.
