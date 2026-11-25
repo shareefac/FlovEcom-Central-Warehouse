@@ -159,12 +159,12 @@ final class PaypalFeesR3Test extends StockTestCase
     public function testCoverageIsOnlyWhatPaypalsAnswerCovers(): void
     {
         $this->shops();
-        // a 1-7 Nov window answered for 1-4 Nov only (its end_date) with a fresh refresh time: proven to 4 Nov, the rest still to read, the
-        // alert on until it is
+        // a 1-7 Nov window answered for 1-4 Nov only (its end_date: the 5th's start; round 6, H7: an end at 23:59:59 would not complete the 4th)
+        // with a fresh refresh time: proven to 4 Nov, the rest still to read, the alert on until it is
         $http = new FakePaypalHttp([PaypalTx::sale('3B00000000000V01', '2026-11-03T10:01:00Z', '50.00', '-1.20', '1312001')]);
         $http->alter = static function (array $a, array $q): array {
             if (str_starts_with($q['start_date'], '2026-11-01')) {
-                $a['end_date'] = '2026-11-04T23:59:59Z';
+                $a['end_date'] = '2026-11-05T00:00:00Z';
             }
             return $a;
         };

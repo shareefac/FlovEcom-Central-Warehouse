@@ -350,9 +350,10 @@ final class PaypalFeesR4Test extends StockTestCase
         $this->shops();
         $rows = [PaypalTx::sale('4H00000000000S01', '2026-11-01T10:00:00Z', '10.00', '-0.30', null),
             PaypalTx::row('4H00000000000F04', 'T0114', '2026-11-04T12:00:00Z', '-60.00', null, '1312002')];
-        // every answer covers two days from its start at most (its end and its rows cut there); two windows a night (the third is refused)
+        // every answer covers two days from its start at most (its end and its rows cut there: the end at the third day's start, round 6, H7: an
+        // answer ending at 23:59:59 does not complete its day); two windows a night (the third is refused)
         $short = static function (array $a, array $q): array {
-            $cut = (new \DateTimeImmutable($q['start_date']))->modify('+2 days')->getTimestamp() - 1;
+            $cut = (new \DateTimeImmutable($q['start_date']))->modify('+2 days')->getTimestamp();
             if ((new \DateTimeImmutable($q['end_date']))->getTimestamp() > $cut) {
                 $a['end_date'] = gmdate('Y-m-d\TH:i:s\Z', $cut);
                 $a['transaction_details'] = array_values(array_filter($a['transaction_details'],

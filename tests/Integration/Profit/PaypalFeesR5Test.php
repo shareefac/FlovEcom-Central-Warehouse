@@ -445,17 +445,19 @@ final class PaypalFeesR5Test extends StockTestCase
         self::readPp($http, '2026-11-01', '2026-11-07');
         $run = self::lastRun();
         self::assertSame([-120, $run, $run], self::of('5L00000000000S01', ['fee_pence', 'last_run', 'older_run']));
-        // an older version with the same money (only its update time older): nothing to mark
+        // an older version with the same money (only its update time older): nothing new to mark; the mark of the run that returned other
+        // money stays (round 6, the lead's decision 5, PPF72: never cleared by a later run before the gate reads it)
         $http->set([['transaction_updated_date' => '2026-11-03T11:30:00Z'] + $new]);
         self::readPp($http, '2026-11-01', '2026-11-07');
-        self::assertSame([-120, self::lastRun(), null], self::of('5L00000000000S01', ['fee_pence', 'last_run', 'older_run']));
-        // the older one again, then the kept version: its mark goes with the read that gives it
+        self::assertSame([-120, self::lastRun(), $run], self::of('5L00000000000S01', ['fee_pence', 'last_run', 'older_run']));
+        // the older one again: the row says the newest run that returned it; then the kept version: the mark stays (round 6)
         $http->set([['transaction_updated_date' => '2026-11-03T11:00:00Z', 'fee_amount' => ['currency_code' => 'GBP', 'value' => '-0.80']] + $new]);
         self::readPp($http, '2026-11-01', '2026-11-07');
-        self::assertSame(self::lastRun(), self::of('5L00000000000S01', ['older_run'])[0]);
+        $again = self::lastRun();
+        self::assertSame($again, self::of('5L00000000000S01', ['older_run'])[0]);
         $http->set([$new]);
         self::readPp($http, '2026-11-01', '2026-11-07');
-        self::assertSame([-120, null], self::of('5L00000000000S01', ['fee_pence', 'older_run']));
+        self::assertSame([-120, $again], self::of('5L00000000000S01', ['fee_pence', 'older_run']));
     }
 
     // ---- F-M2 again: the looks alert keeps its last send across episodes, its reasons in staff words ------------------------------------
