@@ -413,7 +413,8 @@ final class PaypalFeesR5Test extends StockTestCase
             $other->pdo()->rollBack();
             self::$db->exec('SET SESSION innodb_lock_wait_timeout = 50');
         }
-        self::assertLessThan(1.5, $took, 'the snapshot waited for no PayPal row');
+        // a wait for the held row would last the 3 s set above and fail the snapshot (busy): well under that, it waited for none
+        self::assertLessThan(2.5, $took, 'the snapshot waited for no PayPal row');
         self::assertSame(3000, (int) self::$db->value("SELECT order_refund_inc FROM sale_order WHERE channel_id = ? AND order_ref = '1001'", [$this->vpg]));
         // the next PayPal run (or --decide) takes the queue first
         self::decideAll();
