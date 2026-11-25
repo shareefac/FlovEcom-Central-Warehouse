@@ -3,6 +3,9 @@
 // three big buttons (picked each time, none picked for you), the supplier (type to find one; a new one only with its box ticked), the type,
 // the invoice date and number, the amount without VAT and the VAT as printed (0 allowed), the total (net + VAT, worked out on save), a hint for
 // dollar bills, a note, the PDF or a photo; "Save expense" and "Save and add another". A refusal comes back with what was typed.
+// The layout (EX64): one card (div.ex-main: the shop and the fields), the file panel (div.ex-side: beside the card on a wide screen, inside it
+// on a narrow one), then at the card's foot the "same one" tick when asked and Save; the file comes before Save in the reading and keyboard
+// order, the tick just above Save.
 $X = \CW\Ui\Words::EXPENSES;
 $t = $typed;
 $net = \CW\Expenses\ExpenseMoney::pence((string) $t['net']);
@@ -16,7 +19,7 @@ $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
 <form class="record expense-form" method="post" action="/ui/profit/expenses/new" enctype="multipart/form-data" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
-  <div class="expense-main">
+  <div class="ex-main">
     <fieldset class="shop-pick">
       <legend><?= $word('EXPENSES', 'which_shop') ?></legend>
 <?php foreach ($shops as $s): ?>
@@ -24,27 +27,34 @@ $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
 <?php endforeach; ?>
     </fieldset>
 <?= $partial('expense_fields', ['t' => $t, 'types' => $types, 'suppliers' => $suppliers, 'errorField' => $errorField, 'net' => $net, 'vat' => $vat, 'newSupplier' => true]) ?>
-<?php if ($sameAsk): ?>
-    <label class="choice same-ok"><input type="checkbox" name="same_ok" value="1"> <?= $word('EXPENSES', 'same_ok') ?></label>
-    <input type="hidden" name="same_ids" value="<?= $e($sameIds) ?>">
-<?php endif; ?>
-    <p class="actions">
-      <button type="submit" class="btn primary" name="then" value="done"><?= $word('EXPENSES', 'save') ?></button>
-      <button type="submit" class="btn" name="then" value="another"><?= $word('EXPENSES', 'save_another') ?></button>
-    </p>
   </div>
-  <fieldset class="expense-file">
-    <legend><?= $word('EXPENSES', 'file_title') ?></legend>
+  <div class="ex-side">
+    <fieldset class="expense-file">
+      <legend><?= $word('EXPENSES', 'file_title') ?></legend>
 <?php if ($fileAgain): ?>
-    <p class="note" role="status"><?= $word('EXPENSES', 'file_again') ?></p>
-    <input type="hidden" name="file_again" value="1">
+      <p class="note" role="status"><?= $word('EXPENSES', 'file_again') ?></p>
+      <input type="hidden" name="file_again" value="1">
 <?php endif; ?>
-    <label><?= $word('EXPENSES', 'file_label') ?> <span class="hint"><?= $say('EXPENSES', 'file_hint', $maxMb) ?></span>
-      <input type="file" name="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"<?php if ($errorField === 'file'): ?> aria-invalid="true"<?php endif; ?>>
-    </label>
+      <div class="field">
+        <label for="ex-file"><?= $word('EXPENSES', 'file_label') ?></label>
+        <div class="ex-drop">
+          <input id="ex-file" type="file" name="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" aria-describedby="ex-file-hint"<?php if ($errorField === 'file'): ?> aria-invalid="true"<?php endif; ?>>
+          <span class="ex-drop-words" aria-hidden="true"><?= $word('EXPENSES', 'file_drop') ?></span>
+        </div>
+        <p class="hint" id="ex-file-hint"><?= $say('EXPENSES', 'file_hint', $maxMb) ?></p>
+      </div>
 <?php if ($fileAgain): ?>
-    <label class="choice"><input type="checkbox" name="no_file_ok" value="1"> <?= $word('EXPENSES', 'no_file_ok') ?></label>
+      <label class="choice"><input type="checkbox" name="no_file_ok" value="1"> <?= $word('EXPENSES', 'no_file_ok') ?></label>
 <?php endif; ?>
-    <p class="muted"><?= $word('EXPENSES', 'file_kept') ?></p>
-  </fieldset>
+      <p class="muted"><?= $word('EXPENSES', 'file_kept') ?></p>
+    </fieldset>
+  </div>
+<?php if ($sameAsk): ?>
+  <label class="choice same-ok"><input type="checkbox" name="same_ok" value="1"> <?= $word('EXPENSES', 'same_ok') ?></label>
+  <input type="hidden" name="same_ids" value="<?= $e($sameIds) ?>">
+<?php endif; ?>
+  <p class="actions">
+    <button type="submit" class="btn primary lg" name="then" value="done"><?= $word('EXPENSES', 'save') ?></button>
+    <button type="submit" class="btn lg" name="then" value="another"><?= $word('EXPENSES', 'save_another') ?></button>
+  </p>
 </form>

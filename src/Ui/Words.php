@@ -11184,6 +11184,7 @@ final class Words
         'file_label' => 'The PDF or a photo',
         'file_hint' => 'A PDF, JPEG or PNG, at most %s MB.',
         'file_kept' => 'Kept with the expense; open it any time from the list.',
+        'file_drop' => 'Drop the PDF or photo here', // over the file box (the drawing AddExpense; docs/decisions.md EX64)
         'supplier' => 'Supplier',
         'supplier_hint' => 'Type to find one. Not on the list? Tick "Add it as a new supplier".',
         'new_supplier' => 'Add it as a new supplier',

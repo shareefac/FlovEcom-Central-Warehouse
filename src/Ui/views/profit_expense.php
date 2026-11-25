@@ -1,20 +1,29 @@
 <?php
 // Profit › Expenses › one expense (CW-1150; docs/decisions.md EX1-EX9, EX13): its facts (shop, supplier, type, invoice date and number, without
 // VAT, VAT, total, note, who added it), its PDF or photo (opened as a download), for the Expenses job "Change this expense" (the same fields as
-// the add form, a new file optional) and "Delete this expense" (a reason and a box: a mark, never a removal), and its history.
+// the add form, a new file optional) and "Delete this expense" (a reason and a box: a mark, never a removal), and its history. The Change
+// form is laid out as the add form's card (docs/decisions.md EX64): the fields, the file panel, then Save.
 $X = \CW\Ui\Words::EXPENSES;
 $gbp = static fn (int $p): string => \CW\Expenses\ExpenseMoney::gbp($p);
 $t = $typed;
 $net = \CW\Expenses\ExpenseMoney::pence((string) $t['net']);
 $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
 $deleted = $x['deleted_at'] !== null;
+// A refusal is said in the fold of the form it refused, just above that form and as wide as it (EX64; Codex r1 L1): Delete's own two
+// (the box not ticked, no reason) in Delete, the rest in Change; one about the whole page (someone else changed it meanwhile), one either
+// form can get (an incomplete form, bad_form: Codex final L1), or one with no fold to show it in, at the top. In a fold it takes the focus
+// when the page opens (tabindex -1: by script only, never in the Tab order), so a phone shows it below the facts (Codex final M1).
+$errorIn = $error === null || !$canEdit || in_array($errorCode, ['changed_meanwhile', 'bad_form'], true) ? null
+    : (in_array($errorCode, ['not_sure', 'bad_reason'], true) ? 'delete' : 'change');
 ?>
 <?= $head(\CW\Ui\Words::say('EXPENSES', 'one_title', (string) $x['supplier'], (string) $x['invoice_no'] !== '' ? (string) $x['invoice_no'] : \CW\Ui\Html::day((string) $x['invoice_date'])),
     intro: 'profit_expense', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_expenses'], [$vatPct]), back: [$listHref, $X['back']]) ?>
+<?php if ($errorIn === null): ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
 <?= $partial('same_list', ['items' => $sameList, 'group' => 'EXPENSES']) ?>
+<?php endif; ?>
 <?php if ((int) $x['net_pence'] < 0): ?>
 <p class="note credit-banner" role="status"><?= $say('EXPENSES', 'credit_banner', (string) $x['shop']) ?></p>
 <?php endif; ?>
@@ -43,12 +52,16 @@ $deleted = $x['deleted_at'] !== null;
 <?php if ($canEdit): ?>
 <details class="fold expense-change" id="change"<?php if ($error !== null && $errorCode !== 'not_sure' && $errorCode !== 'bad_reason'): ?> open<?php endif; ?>>
   <summary><?= $word('EXPENSES', 'change_title') ?></summary>
+<?php if ($errorIn === 'change'): ?>
+  <p class="error" role="alert" tabindex="-1" autofocus data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
+<?= $partial('same_list', ['items' => $sameList, 'group' => 'EXPENSES']) ?>
+<?php endif; ?>
   <form class="record expense-form" method="post" enctype="multipart/form-data" action="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/change') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
     <input type="hidden" name="supplier_id" value="<?= $e((string) ($t['supplier_id'] ?? '')) ?>">
     <input type="hidden" name="supplier_was" value="<?= $e((string) ($t['supplier_was'] ?? '')) ?>">
-    <div class="expense-main">
+    <div class="ex-main">
       <fieldset class="shop-pick">
         <legend><?= $word('EXPENSES', 'which_shop') ?></legend>
 <?php foreach ($shops as $s): ?>
@@ -56,29 +69,40 @@ $deleted = $x['deleted_at'] !== null;
 <?php endforeach; ?>
       </fieldset>
 <?= $partial('expense_fields', ['t' => $t, 'types' => $types, 'suppliers' => $suppliers, 'errorField' => $errorField, 'net' => $net, 'vat' => $vat, 'newSupplier' => true]) ?>
-<?php if ($sameAsk): ?>
-      <label class="choice same-ok"><input type="checkbox" name="same_ok" value="1"> <?= $word('EXPENSES', 'same_ok') ?></label>
-      <input type="hidden" name="same_ids" value="<?= $e($sameIds) ?>">
-<?php endif; ?>
-      <p class="actions"><button type="submit" class="btn primary"><?= $word('EXPENSES', 'change_save') ?></button></p>
     </div>
-    <fieldset class="expense-file">
-      <legend><?= $word('EXPENSES', 'file_title') ?></legend>
+    <div class="ex-side">
+      <fieldset class="expense-file">
+        <legend><?= $word('EXPENSES', 'file_title') ?></legend>
 <?php if ($fileAgain): ?>
-      <p class="note" role="status"><?= $word('EXPENSES', 'file_again') ?></p>
-      <input type="hidden" name="file_again" value="1">
+        <p class="note" role="status"><?= $word('EXPENSES', 'file_again') ?></p>
+        <input type="hidden" name="file_again" value="1">
 <?php endif; ?>
-      <label><?= $word('EXPENSES', 'change_file') ?> <span class="hint"><?= $say('EXPENSES', 'file_hint', $maxMb) ?></span>
-        <input type="file" name="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"<?php if ($errorField === 'file'): ?> aria-invalid="true"<?php endif; ?>>
-      </label>
+        <div class="field">
+          <label for="ex-file"><?= $word('EXPENSES', 'change_file') ?></label>
+          <div class="ex-drop">
+            <input id="ex-file" type="file" name="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" aria-describedby="ex-file-hint"<?php if ($errorField === 'file'): ?> aria-invalid="true"<?php endif; ?>>
+            <span class="ex-drop-words" aria-hidden="true"><?= $word('EXPENSES', 'file_drop') ?></span>
+          </div>
+          <p class="hint" id="ex-file-hint"><?= $say('EXPENSES', 'file_hint', $maxMb) ?></p>
+        </div>
 <?php if ($fileAgain): ?>
-      <label class="choice"><input type="checkbox" name="no_file_ok" value="1"> <?= $word('EXPENSES', 'no_file_ok') ?></label>
+        <label class="choice"><input type="checkbox" name="no_file_ok" value="1"> <?= $word('EXPENSES', 'no_file_ok') ?></label>
 <?php endif; ?>
-    </fieldset>
+      </fieldset>
+    </div>
+<?php if ($sameAsk): ?>
+    <label class="choice same-ok"><input type="checkbox" name="same_ok" value="1"> <?= $word('EXPENSES', 'same_ok') ?></label>
+    <input type="hidden" name="same_ids" value="<?= $e($sameIds) ?>">
+<?php endif; ?>
+    <p class="actions"><button type="submit" class="btn primary lg"><?= $word('EXPENSES', 'change_save') ?></button></p>
   </form>
 </details>
 <details class="fold expense-delete" id="delete"<?php if (in_array($errorCode, ['not_sure', 'bad_reason'], true)): ?> open<?php endif; ?>>
   <summary><?= $word('EXPENSES', 'delete_title') ?></summary>
+<?php if ($errorIn === 'delete'): ?>
+  <p class="error" role="alert" tabindex="-1" autofocus data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
+<?= $partial('same_list', ['items' => $sameList, 'group' => 'EXPENSES']) ?>
+<?php endif; ?>
   <form class="record" method="post" action="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/delete') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">

@@ -21428,6 +21428,32 @@ before the shop's first day in profit_day (derived from the data, never a second
 Big's 17 Nov 2026 on live, as the lead measured) or after 2099-12-31, and any day while CW holds no sales of that shop. Real profit's shop
 choice offers and takes the three shops only (C7).
 
+**EX64. The expense and regular-cost forms are one card whose boxes line up (the owner, 25 Nov 2026: "the adding expense part ... It's so
+misaligned, everything").** Found in the code (no screenshot): form.record's own grid (cells of at least 200 px, auto-filled) put the add form's
+fields into 3 columns at 1440 px (2 at 1024 px), with "Add it as a new supplier", the credit tick and its hint each taking a whole line in
+between, so the supplier stood alone, the note alone, and in every row a box with a hint in its label sat lower than one without; the shops (and
+a regular cost's VAT) stacked one per line instead of the drawing's row of buttons, because form.record's fieldset rule outranked
+fieldset.shop-pick; the shop, the fields and the file were three separate cards (a regular cost's four, two of them numbered "1" and "2" and
+two not); the file box was a faint dashed outline; the dollar hint amber instead of the drawing's info blue. Now (Add an expense, an
+expense's Change, Add a regular cost, a regular cost's Change): ONE card (the shop as a row of equal buttons, one under the other when the card is
+under 476 px; the fields two cells a row, one under 400 px; each cell a div.field: its label, its box, its hint UNDER the box tied with
+aria-describedby, the cells of a row sharing the label / box / hint lines through subgrid, so the boxes line up whatever hints they carry);
+"Add it as a new supplier" under the supplier's hint; the credit tick and its hint before the amounts; the total box; the dollar hint in the
+info panel; the note across; the "same one" tick (when asked) and Save (48 px) at the card's foot; the invoice file in its own 360 px panel
+beside the card when the page is at least 960 px wide (the drawing), inside the card under a line when narrower, its box a dashed place to drop
+the file on. The reading and keyboard order: shop, supplier, new supplier, type, date, number, credit, without VAT, VAT, note, file, (the
+"same one" tick), Save; "Save expense" stays the form's first button. No field name, check, FormOnce, CSRF or permission changed, no word changed (one added: the drawing's drop words); every
+new style is scoped to form.expense-form and form.regular-form (tests/Integration/UiKernel/ExpenseLayoutScreensTest). Codex's review (r1):
+on an expense's or a regular cost's page a refusal is said once, in the fold of the form it refused, above that form and as wide as it (one
+about the whole page, someone else's change meanwhile, stays at the top); two cells a row only where the browser has subgrid (elsewhere one a
+row, so a wrapped label never sets a row's boxes apart); the drawing's 300 px drop place with "Drop the PDF or photo here" over the box (the
+words let drops and clicks through; left-aligned with the box's button, since a browser keeps a file box's contents at its start). The
+final review (Codex astra): a refusal in a fold takes the focus when the page opens (tabindex -1, autofocus), so a phone shows it below the
+facts; an incomplete form (bad_form) is either form's, so it is said at the top; the buttons of a row are one height when a name wraps; the drop
+words wrap. Its re-check: the drop words sit in flow UNDER the box's button (the box spans both rows of its place), so their real height
+at any text size sets the place's height (a file box's button always sits at its top, so words above it would need room reserved by guess);
+the scope lint reads selector tokens and refuses a sibling step only from the root itself.
+
 ## PayPal's payment fees in the profit (CW-1172): read every night from PayPal's own API (branch `paypal-fees`, 25 Nov 2026; PPF1-PPF22: the prefix PF is pack F's; migration 0080)
 
 <!-- ---- CW-1172 (0080): PPF1-PPF22. Brief: cw_work/runs/paypal_fees_brief.txt; state: cw_work/runs/PAYPAL_FEES_STATE.md ---- -->
