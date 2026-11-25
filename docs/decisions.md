@@ -21755,8 +21755,9 @@ switches it on. The release is built ON the live commit: 86c21af (CW-1180, live 
 rollback is the kit's aikit-rollback, PIN_RB in its vars.sh (86c21af + 0082 byte for byte; its id changes with each re-pin, as it is a
 child of the tip: 20c620a on the merge 86aebbd). The undo (the owner's word only): the quick stop first (reading off AND the key emptied;
 it needs only the box, the schema and the live release: never the rollback folder, AI18 M8); then, with the writers PAUSED as the installer
-pauses them (AI18 H6, H8): the key emptied and reading off again, the seven ai.* setting rows deleted (the history keeps fingerprints only),
-every job row and every spool file purged and checked gone, the switch to the plain rollback, its cron, the writers back; the app login's
+pauses them (AI18 H6, H8): the key emptied and reading off again, the key's row closed to any key (typed a number: the release before
+refuses a key typed into it), every job row and every spool file purged and checked gone, the switch to the plain rollback, its cron, the
+writers back; the app login's
 grants on 0082's tables taken back after it; the call log (ai_call) and 0082's tables stay. A run stopped after the switch resumes from its
 marker (AI18 M9). tests/Integration/Profit/RollbackReleaseTest pins the recipe: the release before's last migration 0081, the rollback's one
 file 0082.
@@ -21823,9 +21824,12 @@ note; else none, and why is said. £ example: a total read as "84.7x" with £70.
 out as £84.72 and filled); a credit note of £84.72 fills its supplier, number, date and the Credit note tick, and the person types £70.60
 and £14.12. H4: a stream that ends before message_stop is a broken stream (`connection`, counted at its most), never an answer. H5: Save is
 the forms' first submit button (Enter saves); "Fill from the file with Claude" sits after it. H6, H8: the undo's code switch runs with the
-writers paused, the ai.* setting rows deleted (the release before never shows a key setting, and no one can set one there), every job row
-(its context, an answer not taken) and spool file purged and checked gone; the call log kept. A later go-live of this release after such an
-undo puts the seven rows back (0082's INSERT, run again: it adds only what is missing). H7: a form carrying a kept invoice also carries the
+writers paused; the key's row is closed to any key (the lead's decision was to delete the seven ai.* rows; the kit's trial showed that
+breaks the nightly check "a setting with a history keeps its row, nothing is ever deleted" (Q9, K2: 7 violations), so the rows stay and the
+key's row is typed a number instead: its value stays empty and its history untouched (K2 compares a setting's value and provisional), and
+the release before's own parser refuses any key typed into it; the trial proves the refusal); every job row (its context, an answer not
+taken) and spool file purged and checked gone; the call log kept. A later go-live of this release after such an undo types the key's row
+back to text first. H7: a form carrying a kept invoice also carries the
 release before's "choose the file again" marker, so after an undo its Save asks for the file instead of saving without it; a refused Save
 keeps both. H9: the installer's --expect-revision / --expect-active (as PayPal's kit), so the copy installed is the one probed.
 M1: a bill line's reference is written verbatim (a bare sales order "7181703660" keeps its order); a Mac copy that breaks after the reference
