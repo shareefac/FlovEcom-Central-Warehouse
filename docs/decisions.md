@@ -22031,6 +22031,67 @@ apart from the rows never counted, and STOPs on a row of the backfill's days the
 both sides) and ALL their indexes (the snapshot lookup index too) are the tip's, and paypal_order_due is one of its four tables. TARGET=test
 runs offline: the trial gives paypal-reach's answer itself (PPKIT_TRIAL_REACH, 401 by default; production keeps the real request).
 
+### Round 6: the Codex astra final of 9b46fe0 and the kit (`runs/codex_25nov/paypal_r5_final_astra_final.md`: NO GO), with the lead's 14 decisions (25 Nov 2026 ~22:05), each shown failing first on 9b46fe0 (`runs/paypal_r6_red.log`, `runs/paypal_r6_red2.log`) and then green (PPF70-PPF78)
+
+**PPF70. A UK day is complete only when PayPal's answer reaches the next day's start (the lead's decision 3; H7).** A window whose answer ends
+before the end asked for proves its days only up to the day BEFORE the UK day of that end, at the precision PayPal gives it: an answer of
+1-7 Nov ending at 4 Nov 23:59:59.250 proves 1-3 Nov (the 4th's last 0.75 s were not answered for: a £60 fee at .750 would be skipped), and
+the next window starts on the 4th (PPF52); an answer ending at 5 Nov 00:00:00 proves 1-4 Nov. An end at or after the one asked for (full
+precision) proves the whole window, as before.
+
+**PPF71. The order queue is taken in bounded batches within the run's time (the lead's decision 4; M2).** decideAll takes paypal_order_due
+TAKE_BATCH (200) orders at a time in the queue's order, each batch its own short transaction (its chargebacks marked due and its queue rows
+taken away together, PPF59), up to the newest order queued when it starts. The run's deadline is checked before each batch and bounds every
+row wait inside one (Db::waitsUntil: the session's innodb_lock_wait_timeout never more than the whole seconds left; less than a second left:
+no statement is started): a batch that runs out of time or waits for a PayPal row held elsewhere is rolled back whole and stays queued with
+the rest (paypal_deadline, busy: the run fails with it, the next run takes them first). A long queue never holds one transaction past the
+cron's limit; what was taken stays taken.
+
+**PPF72. The go-live gate certifies only the account's last run: older_run is never cleared, an older version of another shop or order is
+said, the kit holds the nightly (the lead's decisions 5 and 11; M3, NEW High).** A run that returns an OLDER version than kept with other
+money, OR other captures (the invoice or custom field there or not, its shop or number taken: compared whatever forms made them, since CW
+cannot tell whether the version or a form change makes the difference) sets older_run to its id; no later run clears it (a read of the kept
+version, a newer version: the mark stays), so the gate always sees it. The gate also refuses certification when any other run of the account
+started after the certified one (PPF78), and the nightly does nothing while the go-live kit's hold is in force: `<key file>.hold` holding
+"until=<unix time>" (PaypalFees::nightlyHold: its time still ahead and at most HOLD_MAX_SEC, 2 hours, ahead; one run out, further ahead or
+not in that form holds nothing, so a kit that dies never stops the nightly for long; a backfill or --decide by hand is never held).
+
+**PPF73. A row one answer gave two contents of is settled only by an answer giving it exactly once in a window that proves its day (the
+lead's decision 6).** store() counts every copy of a row in the answer BEFORE identical copies are let go: the same content twice, or once in
+a window that proves nothing of the row's day (a page without its refresh time, a repeat, a short start, an end before the row's day ends:
+PPF52, PPF70; proven() is worked out before the rows are stored), never settles pp_conflict 2, nor does a newer version given so; a clean
+read once in a proven window takes that version (PPF60) and counts it. Two reads disagreeing (1) are settled by a newer version as before.
+
+**PPF74. A row that counts nothing whatever its shop is not marked again by the reference rule either (the lead's decision 7).** The rematch
+of rows whose referred row was read since skips rows not counted whatever their shop (denied, ignored: not_counted; those decided under other
+forms are marked by the forms rule once, PPF67): a denied chargeback with its own invoice whose sale is held for form_unread is decided once,
+then never again at every pass; it still follows its sale whenever the sale is read (store) or moves (decide).
+
+**PPF75. A reference shared by several rows: all of them, never the first one read (the lead's decision 10; NEW High).** One PayPal id may
+have several event codes (two chargebacks). resolveForms loads EVERY row of each id referred to (the rows decided now as they are, the others
+from the table: never only those among the rows of this decision), takes the rows of the best rank (sale, chargeback, fee, refund), and
+holds the referring row (ref_conflict) when they name two shops or two orders, or one a shop and another none; whichever is read first, in
+either order, also when one of them was decided by an earlier run. Rows of one rank that agree are one answer (counted there).
+
+**PPF76. A batch recost lets the intake lock go before its PayPal work (the lead's decision 12).** OrderSnapshots::recompute (a batch tool's
+costs) dispatches the PayPal work of the orders it queued (afterSnapshot) only after the finally that releases the order's intake lock: the
+API storing a snapshot of that order waits about a second for that lock, never for a chargeback's decision.
+
+**PPF77. "Back to normal" only for an episode whose alert was said; the held refund's words (the lead's decisions 2 and 14).** A cleared
+alert gets its "back to normal" only when its last send belongs to the episode that cleared (last_sent_at at or after its first_seen_at): the
+looks alert keeps its last send across episodes (PPF58), so a recurrence kept quiet never sends a recovery. The held chargeback's look says
+"CW could not verify this refund against PayPal" (the refund recorded in CW may have been made through PayPal before the days read), its fee
+counted as before; ref_conflict's words also cover a payment naming two orders (PPF75).
+
+**PPF78. The kit (the lead's decisions 1, 5, 8, 9, 13).** key-check takes root:root 0600 or 0400 (PPF68). backfill-check STOPs on a run of
+the account started after the certified one and on any order queued for its chargebacks (read in the same consistent read as the due rows
+and the totals); `golive.sh backfill` holds the nightly before the switch-on (`box.sh hold-nightly`, checked with the tip's own code), drains
+the queue just before the gate (`box.sh decide`) and takes the hold away whatever the verdict (`box.sh release-nightly`, by a trap). A
+part-applied 0080's indexes are compared with their uniqueness, and each of its tables with what MySQL itself makes of the pinned 0080 file
+(pp_state.php --ddl: a TEMPORARY table of its own session, foreign keys aside; SHOW CREATE TABLE of both line by line: a CHECK's literal case
+and grouping never hidden by a normalisation). Back from the rollback release: `box.sh return-decide` records the earliest affected day
+before `--decide`, runs it on the restored release, then the rebuild from the earliest day and the reconcile (RUNBOOK).
+
 ## CW-1180 "don't restock" = written off at once (branch `no-restock`, 25 Nov 2026; NR1-NR8; migration 0081)
 
 The owner (CW chat, 25 Nov 2026 ~15:15-16:45 UK): "if the staff said dont restock then dont reestock", then "Yes, build it" (a test copy;
