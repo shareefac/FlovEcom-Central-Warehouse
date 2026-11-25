@@ -16,7 +16,7 @@ $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
 <p class="error" role="alert" data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
 <?= $partial('same_list', ['items' => $sameList, 'group' => 'EXPENSES']) ?>
-<form class="record expense-form" method="post" action="/ui/profit/expenses/new" enctype="multipart/form-data" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
+<form class="record expense-form" method="post" action="/ui/profit/expenses/new" enctype="multipart/form-data" data-vat-bp="<?= $e((string) $vatBp) ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
   <div class="ex-main">
@@ -26,7 +26,7 @@ $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
       <label class="choice shop-choice"><input type="radio" name="shop" value="<?= $e((string) $s['id']) ?>" required<?php if ((string) $t['shop'] === (string) $s['id']): ?> checked<?php endif; ?><?php if ($errorField === 'shop'): ?> aria-invalid="true"<?php endif; ?>> <?= $e($s['name']) ?></label>
 <?php endforeach; ?>
     </fieldset>
-<?= $partial('expense_fields', ['t' => $t, 'types' => $types, 'suppliers' => $suppliers, 'errorField' => $errorField, 'net' => $net, 'vat' => $vat, 'newSupplier' => true]) ?>
+<?= $partial('expense_fields', ['t' => $t, 'types' => $types, 'suppliers' => $suppliers, 'errorField' => $errorField, 'net' => $net, 'vat' => $vat, 'newSupplier' => true, 'vatPct' => $vatPct]) ?>
   </div>
   <div class="ex-side">
     <fieldset class="expense-file">

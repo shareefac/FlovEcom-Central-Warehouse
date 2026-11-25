@@ -4209,8 +4209,21 @@ form.record:is(.expense-form, .regular-form) label.choice.ex-tick { max-width: 1
   @supports (grid-template-rows: subgrid) {
     form.record:is(.expense-form, .regular-form) .ex-row { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 6px; }
     form.record:is(.expense-form, .regular-form) .ex-row > .field { grid-row: span 3; grid-template-rows: subgrid; }
+    form.record:is(.expense-form, .regular-form) .ex-row:not(:has(.hint)) > .field { grid-row: span 2; }
+    form.record.expense-form .ex-row.ex-money > .field:first-child { grid-column: 1 / -1; margin-bottom: 10px; }
   }
 }
+/* The money row (EX65): Total with VAT | Amount without VAT | VAT, three cells from a 600 px card; between 400 and 600 px the total across
+   and the two under it; a row with no hint in either cell takes no empty third line (Fable's Low b on f044e2f). */
+@container ex-main (min-width: 600px) {
+  @supports (grid-template-rows: subgrid) {
+    form.record.expense-form .ex-row.ex-money { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    form.record.expense-form .ex-row.ex-money > .field:first-child { grid-column: auto; margin-bottom: 0; }
+  }
+}
+/* The line that says when the two boxes and the total with VAT disagree (the script fills it; empty, it takes no room). */
+form.record.expense-form p.ex-adds-up { margin: 0; color: var(--sf-amber-ink); font: 500 13px/18px var(--font); }
+form.record.expense-form p.ex-adds-up:empty { display: none; }
 /* The total box (as the drawing: a quiet panel, the words left and the sum right), the dollar hint in the info tint. */
 form.record.expense-form p.expense-total {
   display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0; padding: 12px 14px;

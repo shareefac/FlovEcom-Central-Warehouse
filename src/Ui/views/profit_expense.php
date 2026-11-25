@@ -9,12 +9,11 @@ $t = $typed;
 $net = \CW\Expenses\ExpenseMoney::pence((string) $t['net']);
 $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
 $deleted = $x['deleted_at'] !== null;
-// A refusal is said in the fold of the form it refused, just above that form and as wide as it (EX64; Codex r1 L1): Delete's own two
-// (the box not ticked, no reason) in Delete, the rest in Change; one about the whole page (someone else changed it meanwhile), one either
-// form can get (an incomplete form, bad_form: Codex final L1), or one with no fold to show it in, at the top. In a fold it takes the focus
-// when the page opens (tabindex -1: by script only, never in the Tab order), so a phone shows it below the facts (Codex final M1).
-$errorIn = $error === null || !$canEdit || in_array($errorCode, ['changed_meanwhile', 'bad_form'], true) ? null
-    : (in_array($errorCode, ['not_sure', 'bad_reason'], true) ? 'delete' : 'change');
+// $form: the form whose sending this page answers (change, delete; null: a plain look), named by the controller (Fable's Low a on f044e2f):
+// its fold opens, and a refusal is said there, just above that form and as wide as it (EX64; Codex r1 L1), taking the focus when the page
+// opens (tabindex -1: by script only, never in the Tab order), so a phone shows it below the facts (Codex final M1). One about the whole page
+// (someone else changed it meanwhile), or with no fold to show it in, at the top.
+$errorIn = $error === null || !$canEdit || $errorCode === 'changed_meanwhile' || !in_array($form, ['change', 'delete'], true) ? null : $form;
 ?>
 <?= $head(\CW\Ui\Words::say('EXPENSES', 'one_title', (string) $x['supplier'], (string) $x['invoice_no'] !== '' ? (string) $x['invoice_no'] : \CW\Ui\Html::day((string) $x['invoice_date'])),
     intro: 'profit_expense', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_expenses'], [$vatPct]), back: [$listHref, $X['back']]) ?>
@@ -50,13 +49,13 @@ $errorIn = $error === null || !$canEdit || in_array($errorCode, ['changed_meanwh
 </table>
 </div>
 <?php if ($canEdit): ?>
-<details class="fold expense-change" id="change"<?php if ($error !== null && $errorCode !== 'not_sure' && $errorCode !== 'bad_reason'): ?> open<?php endif; ?>>
+<details class="fold expense-change" id="change"<?php if ($form === 'change'): ?> open<?php endif; ?>>
   <summary><?= $word('EXPENSES', 'change_title') ?></summary>
 <?php if ($errorIn === 'change'): ?>
   <p class="error" role="alert" tabindex="-1" autofocus data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
 <?= $partial('same_list', ['items' => $sameList, 'group' => 'EXPENSES']) ?>
 <?php endif; ?>
-  <form class="record expense-form" method="post" enctype="multipart/form-data" action="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/change') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
+  <form class="record expense-form" method="post" enctype="multipart/form-data" action="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/change') ?>" data-vat-bp="<?= $e((string) $vatBp) ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
     <input type="hidden" name="supplier_id" value="<?= $e((string) ($t['supplier_id'] ?? '')) ?>">
@@ -68,7 +67,7 @@ $errorIn = $error === null || !$canEdit || in_array($errorCode, ['changed_meanwh
         <label class="choice shop-choice"><input type="radio" name="shop" value="<?= $e((string) $s['id']) ?>" required<?php if ((string) $t['shop'] === (string) $s['id']): ?> checked<?php endif; ?><?php if ($errorField === 'shop'): ?> aria-invalid="true"<?php endif; ?>> <?= $e($s['name']) ?></label>
 <?php endforeach; ?>
       </fieldset>
-<?= $partial('expense_fields', ['t' => $t, 'types' => $types, 'suppliers' => $suppliers, 'errorField' => $errorField, 'net' => $net, 'vat' => $vat, 'newSupplier' => true]) ?>
+<?= $partial('expense_fields', ['t' => $t, 'types' => $types, 'suppliers' => $suppliers, 'errorField' => $errorField, 'net' => $net, 'vat' => $vat, 'newSupplier' => true, 'vatPct' => $vatPct]) ?>
     </div>
     <div class="ex-side">
       <fieldset class="expense-file">
@@ -97,7 +96,7 @@ $errorIn = $error === null || !$canEdit || in_array($errorCode, ['changed_meanwh
     <p class="actions"><button type="submit" class="btn primary lg"><?= $word('EXPENSES', 'change_save') ?></button></p>
   </form>
 </details>
-<details class="fold expense-delete" id="delete"<?php if (in_array($errorCode, ['not_sure', 'bad_reason'], true)): ?> open<?php endif; ?>>
+<details class="fold expense-delete" id="delete"<?php if ($form === 'delete'): ?> open<?php endif; ?>>
   <summary><?= $word('EXPENSES', 'delete_title') ?></summary>
 <?php if ($errorIn === 'delete'): ?>
   <p class="error" role="alert" tabindex="-1" autofocus data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>

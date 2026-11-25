@@ -21038,7 +21038,8 @@ The amount without VAT is above 0 (an expense of nothing is refused), the VAT 0 
 typed as the pounds the card was charged (the form says so; CW keeps no currency). A credit note (a negative amount) is NOT taken in this
 version: the open question Q1. The invoice date is a real day from 1 Jan 2020 to a year after today (a typo guard only).
 
-**EX3. The VAT of an expense is never worked out by CW.** (A regular cost's is: EX38.) It is typed as printed, 0 when none; the total is net + VAT. The profit counts the amount WITHOUT
+**EX3. The VAT of an expense is never worked out by CW.** (A regular cost's is: EX38. Amended by EX65, the owner's word of 25 Nov 2026: the
+form's script fills it in from a total typed with VAT; the server still saves exactly what the boxes say.) It is typed as printed, 0 when none; the total is net + VAT. The profit counts the amount WITHOUT
 VAT (every Profit page is without VAT; the drawing's tiles and the ProfitMonth Expenses line show the net).
 
 **EX4. Money in whole pence (BIGINT), never a float.** Typed as pounds and pence ("64.20", "£1,234.56", "12.5", "200"; at most two decimals;
@@ -21453,6 +21454,33 @@ facts; an incomplete form (bad_form) is either form's, so it is said at the top;
 words wrap. Its re-check: the drop words sit in flow UNDER the box's button (the box spans both rows of its place), so their real height
 at any text size sets the place's height (a file box's button always sits at its top, so words above it would need room reserved by guess);
 the scope lint reads selector tokens and refuses a sibling step only from the root itself.
+
+**EX65. An expense's total with VAT fills the amount without VAT and the VAT (the owner, 25 Nov 2026, of Add an expense: "When I type in
+price including VAT, why the non-VAT is not automatically calculated and shown? If it is right, then I don't have to type it again.";
+amends EX3).** Add an expense and an expense's Change have "Total with VAT (£)" and a VAT choice like a regular cost's (EX38): "Includes 20%
+VAT" (the shops' rate, profit.vat_rate_pct; picked for you on Add), "No VAT", "Different VAT (type it)", then one row Total with VAT | Amount
+without VAT | VAT. The page's script fills the two boxes as the total is typed: at the rate, without VAT = total x 10000 / (10000 + rate) to
+the penny, half up, in whole pence, and VAT = the total minus that, so the two always add up to the total (the owner's Amazon invoice:
+£8.47 = £7.06 + £1.41, as it prints); No VAT: without VAT = the total, VAT £0; Different VAT: the VAT stays as typed, without VAT = the total
+minus it. The total leads once the person has typed it (or sent it back on a refusal); until then (an empty Add form; an expense's Change
+showing its saved total) typing the amount or the VAT works the old way and the total box shows their sum, so fixing a saved VAT by a penny
+moves the total, never the amount without VAT. A box typed by hand is never overwritten: typing the VAT (or the amount) yourself while the
+total leads picks "Different VAT" and the other box follows the total (an invoice's VAT a penny off the rounding is typed once); with both typed by hand neither moves, and a
+line under them says when they do not add up to the total; pressing "Includes" or "No VAT" (again) works both out afresh. The old way
+(without VAT + VAT, the total left empty) still works, and so does a page whose script never ran. WHAT IS SHOWN IS WHAT IS SAVED: the server
+keeps the amount without VAT and the VAT exactly as in the boxes and works nothing out; a total typed must be their sum, else it is refused
+with both sums named and nothing saved (a credit note's total is typed as printed, without a minus, like its amounts: EX37). The VAT choice
+is not saved: an expense's Change picks the choice its figures match (no VAT; the rate's split; else Different) and its script shows the
+total (net + VAT) in the box, which the page itself leaves empty, so the amounts changed without the script never meet a stale total. No database change. The page is told which form it answers (Change, Delete) as a regular cost's page is, so a refusal of
+either, even an incomplete form, opens that fold and is said there. The final reviews of 1f18763 (Codex, Fable): the script keeps a hidden
+"hand" (which boxes were typed by hand: net, vat; and sum when the total box holds the sum it wrote), given back with a refusal so the page
+carries on as it was typed (a total the person typed leads again, a sum the script wrote does not; a box typed by hand stays kept); a box
+typed by hand before the total shows "Different VAT"; the old way's two amounts pick the choice their split matches (as a saved expense's
+Change does), and the sum goes only into an empty total box or over the sum written before; a total that is not an amount ("8,47") is said
+so under the boxes and never written over. One money rule for the three boxes in the script and on the server (spaces, tabs and the no-break
+spaces U+00A0, U+202F, U+2007 around and after the £; nothing else trimmed; a box at most £9,999,999.99, a total at most two boxes' worth).
+The one-effect key (FormOnce) checks the fields and a typed total, never the choice or the record of hand typing, so an Add sent from the
+page live before keeps its fingerprint and is replayed. The page reads the shops' rate once for the label and the script.
 
 ## PayPal's payment fees in the profit (CW-1172): read every night from PayPal's own API (branch `paypal-fees`, 25 Nov 2026; PPF1-PPF22: the prefix PF is pack F's; migration 0080)
 

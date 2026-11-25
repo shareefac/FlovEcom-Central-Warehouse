@@ -8738,6 +8738,23 @@
   // An expense's total as it is typed (CW-1150; docs/decisions.md EX4): the amount without VAT + the VAT, in pounds and pence, in the form's
   // <output data-expense-total>; "-" while either is not an amount; with "This is a credit note" ticked, as minus (EX37). Whole pence only (no
   // float sums); CW works the total out again on save.
+  // The total with VAT (EX65; the owner, 25 Nov 2026: "When I type in price including VAT, why the non-VAT is not automatically calculated
+  // and shown?"): typing the invoice's total (input[data-expense-gross]) fills "Amount without VAT" and "VAT" by the VAT choice (vat_way):
+  // "Includes" the rate (data-vat-bp, basis points): without VAT = total x 10000 / (10000 + rate) to the penny, half up, in whole pence
+  // (ExpenseMoney::netOfTotal, the same sum), VAT = the rest, so the two always add up to the total; "No VAT": without VAT = the total, VAT
+  // 0; "Different VAT": the VAT stays as typed, without VAT = the total - VAT.
+  //  - The total leads once the person has typed something in it (or sent it back: data-expense-anchor), whether it reads as an amount or
+  //    not (a total not read is never written over: Codex's final review, H2); until then (an empty Add form; an expense's Change, whose page
+  //    leaves the box empty) typing the amount or the VAT works the old way and the total box shows their sum.
+  //  - A box typed by hand is never overwritten: while the total leads the other box follows the total; a box typed by hand, before or
+  //    after the total, shows "Different VAT" (M1); with both typed by hand neither moves and the line under them says when they do not add
+  //    up. Which boxes were typed by hand goes with the form (input[name="hand"]: net, vat; and sum when the total box holds the sum this
+  //    script wrote, not the person's figure) and comes back with a refusal (H1), so a total the person typed leads again and a sum does not.
+  //    Pressing "Includes" or "No VAT" (again) works both out afresh.
+  //  - One money rule with the server (ExpenseMoney::pence; L1): spaces, tabs and the no-break spaces around, an optional £, pounds (with
+  //    thousands commas, or up to 8 figures) and pence; at most a box's worth, a total two boxes' worth (M2); anything else is not an amount.
+  // Values set here raise no input event, so only the person's own typing marks a box. CW saves the two boxes as they are; the server
+  // refuses a total that is not their sum.
   each(document.querySelectorAll('form.expense-form'), function (form) {
     var out = form.querySelector('output[data-expense-total]');
     var boxes = form.querySelectorAll('input[data-expense-sum]');
@@ -8745,24 +8762,179 @@
     if (!out || boxes.length !== 2) {
       return;
     }
-    var pence = function (v) {
-      var m = /^\s*£?\s*(\d{1,3}(?:,\d{3}){1,2}|\d{1,7})(?:\.(\d{1,2}))?\s*$/.exec(v);
-      return m ? parseInt(m[1].replace(/,/g, ''), 10) * 100 + parseInt(((m[2] || '') + '00').slice(0, 2), 10) : null;
+    var netBox = boxes[0];
+    var vatBox = boxes[1];
+    var gross = form.querySelector('input[data-expense-gross]');
+    var ways = form.querySelectorAll('input[name="vat_way"]');
+    var warn = form.querySelector('[data-expense-adds-up]');
+    var handBox = form.querySelector('input[name="hand"]');
+    var bp = parseInt(form.getAttribute('data-vat-bp') || '', 10);
+    var MAX = 999999999;
+    var MAX_TOTAL = 1999999998;
+    var hand = { net: false, vat: false };
+    var led = false;
+    var summed = false;
+    var pence = function (v, max) {
+      var m = /^[ \t\u00A0\u202F\u2007]*£?[ \t\u00A0\u202F\u2007]*(\d{1,3}(?:,\d{3}){1,2}|\d{1,8})(?:\.(\d{1,2}))?[ \t\u00A0\u202F\u2007]*$/.exec(v);
+      var p = m ? parseInt(m[1].replace(/,/g, ''), 10) * 100 + parseInt(((m[2] || '') + '00').slice(0, 2), 10) : null;
+      return p !== null && p <= (max || MAX) ? p : null;
+    };
+    var blank = function (v) {
+      return /^[ \t\u00A0\u202F\u2007]*$/.test(v);
+    };
+    var total = function () {
+      return gross ? pence(gross.value, MAX_TOTAL) : null;
+    };
+    var money = function (p) {
+      return '£' + String(Math.floor(p / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + ('0' + (p % 100)).slice(-2);
+    };
+    var plain = function (p) {
+      return Math.floor(p / 100) + '.' + ('0' + (p % 100)).slice(-2);
+    };
+    var way = function () {
+      var w = 'inc';
+      each(ways, function (r) {
+        if (r.checked) {
+          w = r.value;
+        }
+      });
+      return w;
+    };
+    var setWay = function (v) {
+      each(ways, function (r) { r.checked = r.value === v; });
+    };
+    // The choice two amounts make, as the server reads a saved expense (ExpensesController::wayOf): VAT 0 is No VAT, the rate's split of
+    // their sum is Includes, anything else Different.
+    var splitWay = function (a, b) {
+      return b === 0 ? 'none' : (a === Math.floor((2 * (a + b) * 10000 + (10000 + bp)) / (2 * (10000 + bp))) ? 'inc' : 'other');
+    };
+    var keepHand = function () {
+      if (handBox) {
+        handBox.value = (hand.net ? 'net ' : '') + (hand.vat ? 'vat ' : '') + (summed ? 'sum' : '');
+      }
     };
     var show = function () {
-      var a = pence(boxes[0].value);
-      var b = pence(boxes[1].value);
+      var a = pence(netBox.value);
+      var b = pence(vatBox.value);
+      var t = total();
+      if (warn) {
+        // A total that is not an amount ("8,47", "8.475") is said so, never written over (Fable's L2); one that is, when the boxes disagree.
+        warn.textContent = gross && t === null && !blank(gross.value) ? (warn.getAttribute('data-words-bad') || '')
+          : t !== null && a !== null && b !== null && a + b !== t
+            ? (warn.getAttribute('data-words') || '%s / %s').replace('%s', money(a + b)).replace('%s', money(t)) : '';
+      }
       if (a === null || b === null) {
         out.textContent = '-';
         return;
       }
-      var t = a + b;
-      var pounds = String(Math.floor(t / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-      out.textContent = (credit && credit.checked && t > 0 ? '-' : '') + '£' + pounds + '.' + ('0' + (t % 100)).slice(-2);
+      out.textContent = (credit && credit.checked && a + b > 0 ? '-' : '') + money(a + b);
     };
-    each(boxes, function (b) { b.addEventListener('input', show); });
+    // The two boxes from the total, by the VAT choice; a box typed by hand stays as it is and shows "Different VAT".
+    var fill = function () {
+      var t = total();
+      if (t === null || isNaN(bp)) {
+        show();
+        return;
+      }
+      var n = pence(netBox.value);
+      var v = pence(vatBox.value);
+      if (hand.net && hand.vat) {
+        if (n !== null && v !== null) {
+          setWay(splitWay(n, v));
+        }
+        show();
+        return;
+      }
+      if (hand.net || hand.vat) {
+        setWay('other');
+      }
+      if (hand.net) {
+        if (n !== null && n <= t) {
+          vatBox.value = plain(t - n);
+        }
+      } else if (hand.vat || way() === 'other') {
+        if (v !== null && v < t) {
+          netBox.value = plain(t - v);
+        }
+      } else if (way() === 'none') {
+        netBox.value = plain(t);
+        vatBox.value = plain(0);
+      } else {
+        var net = Math.floor((2 * t * 10000 + (10000 + bp)) / (2 * (10000 + bp)));
+        netBox.value = plain(net);
+        vatBox.value = plain(t - net);
+      }
+      show();
+    };
+    var byHand = function (which) {
+      return function () {
+        hand[which] = true;
+        keepHand();
+        if (led) {
+          fill();
+          return;
+        }
+        // The old way: the total box shows the two boxes' sum, written only into an empty box or over the sum written here before
+        // (Fable's L2); the VAT choice says what the two are, as the server's reading of a saved expense does (wayOf: VAT 0 is No VAT, the
+        // rate's split is Includes, anything else Different; Fable's L1), so "Includes 20% VAT" never shows over a split that is not 20%.
+        var a = pence(netBox.value);
+        var b = pence(vatBox.value);
+        if (gross && a !== null && b !== null && (summed || blank(gross.value))) {
+          gross.value = plain(a + b);
+          summed = true;
+          keepHand();
+        }
+        if (a !== null && b !== null && !isNaN(bp)) {
+          setWay(splitWay(a, b));
+        }
+        show();
+      };
+    };
+    if (handBox) {
+      hand.net = /\bnet\b/.test(handBox.value);
+      hand.vat = /\bvat\b/.test(handBox.value);
+      summed = /\bsum\b/.test(handBox.value);
+    }
+    netBox.addEventListener('input', byHand('net'));
+    vatBox.addEventListener('input', byHand('vat'));
+    if (gross) {
+      led = gross.hasAttribute('data-expense-anchor') && blank(gross.value) === false;
+      gross.addEventListener('input', function () {
+        led = blank(gross.value) === false;
+        summed = false;
+        keepHand();
+        fill();
+      });
+    }
+    // A press (mouse, touch, a label, Space) on a choice, even the one picked already (click), or a choice moved to by the arrow keys
+    // (change): the total leads from then on; "Includes" or "No VAT" works both boxes out afresh from it; "Different VAT" keeps the VAT.
+    // Twice for one press is the same sum.
+    each(ways, function (r) {
+      var pick = function () {
+        if (r.value !== 'other') {
+          hand.net = false;
+          hand.vat = false;
+          keepHand();
+        }
+        led = !!gross && blank(gross.value) === false;
+        fill();
+      };
+      r.addEventListener('click', pick);
+      r.addEventListener('change', pick);
+    });
     if (credit) {
       credit.addEventListener('change', show);
+    }
+    // An empty total box shows the two boxes' sum (an expense's Change: the page leaves it empty, so a change sent without this script never
+    // meets a stale total); it leads only once typed.
+    if (gross && !led && blank(gross.value)) {
+      var a0 = pence(netBox.value);
+      var b0 = pence(vatBox.value);
+      if (a0 !== null && b0 !== null) {
+        gross.value = plain(a0 + b0);
+        summed = true;
+        keepHand();
+      }
     }
     show();
   });

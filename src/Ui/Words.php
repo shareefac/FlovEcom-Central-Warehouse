@@ -3108,7 +3108,8 @@ final class Words
             . 'cannot put on an order (**not matched**, or **to check** when two parcels fit) are in the profit as charges not on an order, on the '
             . 'line\'s date. The lines always add up to the bill\'s net. CW never keeps the file or any address: only what it needs.',
         // 0079 (docs/decisions.md EX5, EX6, EX15): Profit > Expenses, Regular costs, Real profit
-        'expenses' => 'An **expense** is an invoice you add, for ONE shop: its amount without VAT and its VAT as printed (CW never works VAT out). '
+        'expenses' => 'An **expense** is an invoice you add, for ONE shop: its amount without VAT and its VAT as printed (type its total with VAT and the form '
+            . 'suggests the split at the shops\' rate; check it against the invoice: CW saves the amounts the boxes show). '
             . 'It goes in the profit on its **invoice date**, without VAT. A **credit note** is ticked as one: typed as printed, it comes off that shop\'s '
             . 'expenses. A **regular cost** has no invoice: it goes out every week, month or year, includes VAT at the shops\' rate (now %s) unless it is marked **No VAT**, and its '
             . 'cost without VAT is shared out **per day**: a weekly cost over its 7 days, a monthly cost over the days of its month, a yearly cost over the days of its year. '
@@ -11197,6 +11198,16 @@ final class Words
         'net' => 'Amount without VAT (£)',
         'vat' => 'VAT (£)',
         'vat_hint' => 'As printed on the invoice (0 if none).',
+        // The total with VAT and the VAT choice (the owner, 25 Nov 2026; docs/decisions.md EX65): the page fills without VAT and VAT from the total.
+        'total_with_vat' => 'Total with VAT (£)',
+        'total_hint' => 'As printed on the invoice. The amount without VAT and the VAT fill in from it: check them against the invoice.',
+        'vat_way' => 'VAT on the invoice',
+        'vat_way_hint' => 'How the two boxes fill in from the total. A VAT or an amount you type yourself is kept.',
+        'way_inc' => 'Includes %s VAT',
+        'way_none' => 'No VAT',
+        'way_other' => 'Different VAT (type it)',
+        'adds_up' => 'The two boxes add up to %s, not the total with VAT (%s): check them against the invoice.',
+        'total_not_amount' => 'The total with VAT is not an amount: type it as printed, for example 8.47.',
         'total' => 'Total',
         'dollar_hint' => 'Bill in dollars (Anthropic, OpenAI)? Type the £ amount your card was charged.',
         // A credit note (the owner, 24 Nov 2026: EX37)
@@ -11299,6 +11310,8 @@ final class Words
         'bad_invoice_no' => 'The invoice number is at most 64 characters.',
         'bad_net' => 'Type the amount without VAT in pounds and pence, above 0 (for example 64.20).',
         'bad_vat' => 'Type the VAT in pounds and pence as printed, or 0 when the invoice has none.',
+        'bad_total' => 'Type the total with VAT in pounds and pence as printed (for example 8.47), or leave it empty.',
+        'total_mismatch' => 'The amount without VAT and the VAT add up to %s, not the total with VAT you typed (%s). Nothing was saved: check them against the invoice.',
         'bad_note' => 'The note is at most 500 characters.',
         'same_invoice_lead' => 'This invoice is in already',
         'same_invoice' => 'This invoice is in already: the same supplier, invoice number and shop (dated %s). If it really is another invoice, tick the box below and save again.',

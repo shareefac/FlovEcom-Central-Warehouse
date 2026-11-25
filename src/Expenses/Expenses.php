@@ -245,6 +245,21 @@ final class Expenses
         if ($vat === null) {
             throw new CwException('bad_vat', 'the VAT is not an amount in pounds and pence (0 when the invoice has none)', 422, ['field' => 'vat']);
         }
+        // The total with VAT, when the form sends one (EX65): typed as printed (a credit note's without a minus, as its amounts), it must be the
+        // amount without VAT + the VAT as typed; CW saves those two boxes and works nothing out (EX3). Empty: not asked (the old way, no script).
+        $total = (string) ($in['total'] ?? '');
+        if (!ExpenseMoney::blank($total)) {
+            // The same money rule as the boxes (nothing trimmed that they are refused for), up to two boxes' worth (Codex's final review of
+            // 1f18763, L1 and M2).
+            $t = ExpenseMoney::pence($total, ExpenseMoney::MAX_TOTAL_PENCE);
+            if ($t === null) {
+                throw new CwException('bad_total', 'the total with VAT is not an amount in pounds and pence', 422, ['field' => 'total']);
+            }
+            if ($t !== $net + $vat) {
+                throw new CwException('total_mismatch', 'the amount without VAT and the VAT do not add up to the total with VAT typed', 422,
+                    ['field' => 'total', 'sum' => $net + $vat, 'total' => $t]);
+            }
+        }
         $note = trim((string) ($in['note'] ?? ''));
         if (!mb_check_encoding($note, 'UTF-8') || mb_strlen($note) > self::NOTE_MAX || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $note) === 1) {
             throw new CwException('bad_note', 'the note is at most ' . self::NOTE_MAX . ' characters', 422, ['field' => 'note']);
