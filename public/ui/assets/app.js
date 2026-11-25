@@ -8738,6 +8738,16 @@
   // An expense's total as it is typed (CW-1150; docs/decisions.md EX4): the amount without VAT + the VAT, in pounds and pence, in the form's
   // <output data-expense-total>; "-" while either is not an amount; with "This is a credit note" ticked, as minus (EX37). Whole pence only (no
   // float sums); CW works the total out again on save.
+  // The total with VAT (EX65; the owner, 25 Nov 2026: "When I type in price including VAT, why the non-VAT is not automatically calculated
+  // and shown?"): typing the invoice's total (input[data-expense-gross]) fills "Amount without VAT" and "VAT" by the VAT choice (vat_way):
+  // "Includes" the rate (data-vat-bp, basis points): without VAT = total x 10000 / (10000 + rate) to the penny, half up, in whole pence
+  // (ExpenseMoney::netOfTotal, the same sum), VAT = the rest, so the two always add up to the total; "No VAT": without VAT = the total, VAT
+  // 0; "Different VAT": the VAT stays as typed, without VAT = the total - VAT. The total leads once the person has typed it (or sent it:
+  // data-expense-anchor); until then (an empty Add form, an expense's Change showing its saved total) typing the amount or the VAT works the
+  // old way and the total box shows their sum. A box typed by hand is never overwritten: typing the VAT (or the amount) yourself while the
+  // total leads picks "Different VAT" and the other box follows the total; with both typed by hand neither moves, and the line under them
+  // says when they do not add up to the total. Pressing "Includes" or "No VAT" (again) works both out afresh. Values set here raise no input
+  // event, so only the person's own typing marks a box. CW saves the two boxes as they are; the server refuses a total that is not their sum.
   each(document.querySelectorAll('form.expense-form'), function (form) {
     var out = form.querySelector('output[data-expense-total]');
     var boxes = form.querySelectorAll('input[data-expense-sum]');
@@ -8745,24 +8755,129 @@
     if (!out || boxes.length !== 2) {
       return;
     }
+    var netBox = boxes[0];
+    var vatBox = boxes[1];
+    var gross = form.querySelector('input[data-expense-gross]');
+    var ways = form.querySelectorAll('input[name="vat_way"]');
+    var warn = form.querySelector('[data-expense-adds-up]');
+    var bp = parseInt(form.getAttribute('data-vat-bp') || '', 10);
+    var hand = { net: false, vat: false };
+    var anchored = false;
     var pence = function (v) {
       var m = /^\s*£?\s*(\d{1,3}(?:,\d{3}){1,2}|\d{1,7})(?:\.(\d{1,2}))?\s*$/.exec(v);
       return m ? parseInt(m[1].replace(/,/g, ''), 10) * 100 + parseInt(((m[2] || '') + '00').slice(0, 2), 10) : null;
     };
+    var money = function (p) {
+      return '£' + String(Math.floor(p / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + ('0' + (p % 100)).slice(-2);
+    };
+    var plain = function (p) {
+      return Math.floor(p / 100) + '.' + ('0' + (p % 100)).slice(-2);
+    };
+    var way = function () {
+      var w = 'inc';
+      each(ways, function (r) {
+        if (r.checked) {
+          w = r.value;
+        }
+      });
+      return w;
+    };
+    var setWay = function (v) {
+      each(ways, function (r) { r.checked = r.value === v; });
+    };
     var show = function () {
-      var a = pence(boxes[0].value);
-      var b = pence(boxes[1].value);
+      var a = pence(netBox.value);
+      var b = pence(vatBox.value);
+      var t = gross ? pence(gross.value) : null;
+      if (warn) {
+        warn.textContent = t !== null && a !== null && b !== null && a + b !== t
+          ? (warn.getAttribute('data-words') || '%s / %s').replace('%s', money(a + b)).replace('%s', money(t)) : '';
+      }
       if (a === null || b === null) {
         out.textContent = '-';
         return;
       }
-      var t = a + b;
-      var pounds = String(Math.floor(t / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-      out.textContent = (credit && credit.checked && t > 0 ? '-' : '') + '£' + pounds + '.' + ('0' + (t % 100)).slice(-2);
+      out.textContent = (credit && credit.checked && a + b > 0 ? '-' : '') + money(a + b);
     };
-    each(boxes, function (b) { b.addEventListener('input', show); });
+    // The two boxes from the total, by the VAT choice; a box typed by hand stays as it is.
+    var fill = function () {
+      var t = gross ? pence(gross.value) : null;
+      if (t === null || isNaN(bp) || (hand.net && hand.vat)) {
+        show();
+        return;
+      }
+      var n = pence(netBox.value);
+      var v = pence(vatBox.value);
+      if (hand.net) {
+        if (n !== null && n <= t) {
+          vatBox.value = plain(t - n);
+        }
+      } else if (hand.vat || way() === 'other') {
+        if (v !== null && v < t) {
+          netBox.value = plain(t - v);
+        }
+      } else if (way() === 'none') {
+        netBox.value = plain(t);
+        vatBox.value = plain(0);
+      } else {
+        var net = Math.floor((2 * t * 10000 + (10000 + bp)) / (2 * (10000 + bp)));
+        netBox.value = plain(net);
+        vatBox.value = plain(t - net);
+      }
+      show();
+    };
+    var byHand = function (which) {
+      return function () {
+        hand[which] = true;
+        if (anchored) {
+          setWay('other');
+          fill();
+          return;
+        }
+        // The old way: the total box shows the two boxes' sum.
+        var a = pence(netBox.value);
+        var b = pence(vatBox.value);
+        if (gross && a !== null && b !== null) {
+          gross.value = plain(a + b);
+        }
+        show();
+      };
+    };
+    netBox.addEventListener('input', byHand('net'));
+    vatBox.addEventListener('input', byHand('vat'));
+    if (gross) {
+      anchored = gross.hasAttribute('data-expense-anchor') && pence(gross.value) !== null;
+      gross.addEventListener('input', function () {
+        anchored = pence(gross.value) !== null;
+        fill();
+      });
+    }
+    // A press (mouse, touch, a label, Space) on a choice, even the one picked already (click), or a choice moved to by the arrow keys
+    // (change): the total leads from then on; "Includes" or "No VAT" works both boxes out afresh from it; "Different VAT" keeps the VAT.
+    // Twice for one press is the same sum.
+    each(ways, function (r) {
+      var pick = function () {
+        if (r.value !== 'other') {
+          hand.net = false;
+          hand.vat = false;
+        }
+        anchored = !!gross && pence(gross.value) !== null;
+        fill();
+      };
+      r.addEventListener('click', pick);
+      r.addEventListener('change', pick);
+    });
     if (credit) {
       credit.addEventListener('change', show);
+    }
+    // An empty total box shows the two boxes' sum (an expense's Change: the page leaves it empty, so a change sent without this script never
+    // meets a stale total); it leads only once typed.
+    if (gross && !anchored && gross.value.replace(/\s/g, '') === '') {
+      var a0 = pence(netBox.value);
+      var b0 = pence(vatBox.value);
+      if (a0 !== null && b0 !== null) {
+        gross.value = plain(a0 + b0);
+      }
     }
     show();
   });

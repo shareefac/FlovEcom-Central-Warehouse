@@ -80,6 +80,7 @@ final class ExpenseTotalVatScreensTest extends KernelUiTestCase
         self::assertSame(['ex-total', '', 'decimal'], [$total->getAttribute('id'), $total->getAttribute('value'), $total->getAttribute('inputmode')]);
         self::assertTrue($total->hasAttribute('data-expense-gross'));
         self::assertFalse($total->hasAttribute('required'), 'the total may be left empty (the old way, or no script)');
+        self::assertFalse($total->hasAttribute('data-expense-anchor'), 'nothing typed yet: the old way until the total is typed');
         self::assertSame(Words::EXPENSES['total_with_vat'], trim((string) $xp->evaluate('string(//label[@for="ex-total"])')));
         self::assertSame('2000', (string) $xp->evaluate('string(//form[@action="/ui/profit/expenses/new"]/@data-vat-bp)'), 'the shops\' rate for the script, in basis points');
         $words = (string) $xp->evaluate('string(//p[@data-expense-adds-up]/@data-words)');
@@ -118,6 +119,7 @@ final class ExpenseTotalVatScreensTest extends KernelUiTestCase
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM expense'));
         $back = $r->form('/ui/profit/expenses/new');
         self::assertSame(['8.47', '7.06', '1.42'], [$back['total'] ?? null, $back['net'] ?? null, $back['vat'] ?? null], 'what was typed comes back');
+        self::assertSame(1, (new \DOMXPath($r->dom()))->query('//input[@name="total"][@data-expense-anchor]')?->length, 'the total sent leads again');
         // Not an amount at all.
         $r = $this->add($job, ['total' => '8,4']);
         self::assertSame(422, $r->status, $r->describe());
@@ -158,19 +160,28 @@ final class ExpenseTotalVatScreensTest extends KernelUiTestCase
         self::assertSame(303, $this->add($job, ['invoice_no' => 'B', 'vat_way' => 'none', 'total' => '12.00', 'net' => '12.00', 'vat' => '0'])->status);
         self::assertSame(303, $this->add($job, ['invoice_no' => 'C', 'vat_way' => 'other', 'net' => '7.05', 'vat' => '1.42'])->status);
         self::assertSame(303, $this->add($job, ['invoice_no' => 'D', 'credit' => '1', 'total' => '12.50', 'net' => '10.42', 'vat' => '2.08'])->status);
-        foreach (['A' => ['77.04', 'inc'], 'B' => ['12.00', 'none'], 'C' => ['8.47', 'other'], 'D' => ['12.50', 'inc']] as $no => [$total, $way]) {
+        foreach (['A' => 'inc', 'B' => 'none', 'C' => 'other', 'D' => 'inc'] as $no => $way) {
             $id = (int) self::$db->value('SELECT id FROM expense WHERE invoice_no = ?', [$no]);
             $one = $job->get("/ui/profit/expenses/{$id}");
             self::assertSame(200, $one->status, $one->describe());
-            self::assertSame($total, $one->form("/ui/profit/expenses/{$id}/change")['total'] ?? null, "{$no}: its total as printed");
+            self::assertSame('', $one->form("/ui/profit/expenses/{$id}/change")['total'] ?? null,
+                "{$no}: the total box empty in the page (the script shows net + VAT there), so the amounts changed without it never meet a stale total");
             self::assertSame($way, self::ways($one, "/ui/profit/expenses/{$id}/change")[1], "{$no}: the VAT choice its figures match");
+            self::assertSame(0, (new \DOMXPath($one->dom()))->query('//input[@name="total"][@data-expense-anchor]')?->length,
+                "{$no}: a saved total follows the boxes until typed in (a penny's fix of the VAT moves the total, never the amount without VAT)");
         }
         // A change whose total is not the sum: refused, nothing changed.
         $id = (int) self::$db->value("SELECT id FROM expense WHERE invoice_no = 'A'");
         $f = $job->get("/ui/profit/expenses/{$id}")->form("/ui/profit/expenses/{$id}/change");
-        $r = $job->postMultipart("/ui/profit/expenses/{$id}/change", ['total' => '77.05'] + $f, []);
+        // The amounts changed the old way, the total left as the page drew it (empty): saved as today.
+        $r = $job->postMultipart("/ui/profit/expenses/{$id}/change", ['vat' => '12.85'] + $f, []);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame('7705', (string) self::$db->value('SELECT total_pence FROM expense WHERE id = ?', [$id]));
+        $f = $job->get("/ui/profit/expenses/{$id}")->form("/ui/profit/expenses/{$id}/change");
+        self::assertSame('other', self::ways($job->get("/ui/profit/expenses/{$id}"), "/ui/profit/expenses/{$id}/change")[1], '£12.85 is not 20% of £77.05\'s split');
+        $r = $job->postMultipart("/ui/profit/expenses/{$id}/change", ['total' => '77.04'] + $f, []);
         self::assertSame(422, $r->status, $r->describe());
-        self::assertSame('7704', (string) self::$db->value('SELECT total_pence FROM expense WHERE id = ?', [$id]));
+        self::assertSame('7705', (string) self::$db->value('SELECT total_pence FROM expense WHERE id = ?', [$id]));
         $r = $job->postMultipart("/ui/profit/expenses/{$id}/change", ['total' => '78.04', 'net' => '65.03', 'vat' => '13.01', 'vat_way' => 'inc'] + $f, []);
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame(['6503', '1301'], array_map('strval', array_values(self::$db->one('SELECT net_pence, vat_pence FROM expense WHERE id = ?', [$id]))));
@@ -194,7 +205,8 @@ final class ExpenseTotalVatScreensTest extends KernelUiTestCase
         $part = substr($js, $start);
         self::assertStringContainsString('Math.floor((2 * t * 10000 + (10000 + bp)) / (2 * (10000 + bp)))', $part, 'the same sum, in whole pence');
         foreach (["querySelector('input[data-expense-gross]')", "querySelectorAll('input[name=\"vat_way\"]')", "getAttribute('data-vat-bp')",
-            'hand.net', 'hand.vat', "setWay('other')", '[data-expense-adds-up]'] as $piece) {
+            'hand.net', 'hand.vat', "setWay('other')", '[data-expense-adds-up]', "hasAttribute('data-expense-anchor')", 'if (anchored) {',
+            'gross.value = plain(a + b);', 'gross.value = plain(a0 + b0);'] as $piece) {
             self::assertStringContainsString($piece, $part, $piece);
         }
         // Programmatic values raise no input event: only the person's own typing marks a box as typed by hand.

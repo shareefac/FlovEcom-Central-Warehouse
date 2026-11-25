@@ -30,6 +30,9 @@ use CW\Ui\Words;
  */
 final class ExpensesController
 {
+    /** The form's VAT choice (EX65): includes the shops' rate, no VAT, another VAT typed. */
+    private const VAT_WAYS = ['inc', 'none', 'other'];
+
     public const PATH = '/ui/profit/expenses';
     public const PERM_VIEW = ExpenseAccess::PERM_VIEW;
     public const PERM_EDIT = ExpenseAccess::PERM_EDIT;
@@ -198,7 +201,7 @@ final class ExpensesController
             self::fileAgain($ctx, $file);
             $r = (new Expenses($ctx->db, static fn (): FileStore => $ctx->files()))->change($ctx->caller(), $id, self::seen($ctx), $typed, $file, self::same($ctx));
         } catch (CwException $e) {
-            return $this->refused($ctx, $id, $e, $typed);
+            return $this->refused($ctx, $id, $e, $typed, 'change');
         }
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['notice' => $r['changed'] ? 'changed' : 'unchanged']));
     }
@@ -213,7 +216,7 @@ final class ExpensesController
             }
             (new Expenses($ctx->db))->delete($ctx->caller(), $id, self::seen($ctx), (string) ($ctx->req->field('reason') ?? ''));
         } catch (CwException $e) {
-            return $this->refused($ctx, $id, $e, null);
+            return $this->refused($ctx, $id, $e, null, 'delete');
         }
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['notice' => 'deleted']));
     }
@@ -302,6 +305,7 @@ final class ExpensesController
             'same_cost' => Words::say('EXPENSES_ERROR', 'same_cost', is_string($e->detail['from'] ?? null) ? Html::day($e->detail['from']) : ''),
             'file_too_large', 'too_large' => Words::say('EXPENSES_ERROR', 'file_too_large', intdiv(ExpenseFiles::MAX_BYTES, 1_048_576)),
             'changed_meanwhile' => Words::say('EXPENSES_ERROR', 'changed_meanwhile', (string) ($e->detail['by'] ?? '?')),
+            'total_mismatch' => Words::say('EXPENSES_ERROR', 'total_mismatch', ExpenseMoney::gbp((int) ($e->detail['sum'] ?? 0)), ExpenseMoney::gbp((int) ($e->detail['total'] ?? 0))),
             default => Words::EXPENSES_ERROR[$e->errorCode] ?? Words::error($e->errorCode, $e->getMessage()),
         };
     }
@@ -314,7 +318,25 @@ final class ExpensesController
         return ['shop' => $f('shop'), 'supplier' => $f('supplier'), 'supplier_id' => $f('supplier_id'), 'supplier_was' => $f('supplier_was'),
             'new_supplier' => $ctx->req->field('new_supplier') === '1', 'type' => $f('type'),
             'invoice_date' => $f('invoice_date'), 'invoice_no' => $f('invoice_no'), 'credit' => $ctx->req->field('credit') === '1', 'net' => $f('net'), 'vat' => $f('vat'),
-            'note' => $f('note')];
+            // The total with VAT as typed (checked against net + VAT on save) and the VAT choice that steers the page's script (EX65; never saved).
+            // anchor: a total the person sent leads the script's sums when the page comes back (a saved one shown on Change does not).
+            'total' => $f('total'), 'vat_way' => self::vatWay($f('vat_way')), 'anchor' => trim($f('total')) !== '', 'note' => $f('note')];
+    }
+
+    /** The VAT choice of the form (EX65): one it offers, else the one picked for you ("Includes ... VAT"). */
+    private static function vatWay(string $way): string
+    {
+        return in_array($way, self::VAT_WAYS, true) ? $way : 'inc';
+    }
+
+    /**
+     * The VAT choice a saved expense's figures match (EX65), for its Change form: no VAT; the amount without VAT the shops' rate gives for
+     * its total (ExpenseMoney::netOfTotal, the script's own rule); or another VAT (typed). Only which button is picked: nothing is worked out
+     * for saving.
+     */
+    private static function wayOf(int $net, int $vat, int $rateBp): string
+    {
+        return $vat === 0 ? 'none' : ($net === ExpenseMoney::netOfTotal($net + $vat, $rateBp) ? 'inc' : 'other');
     }
 
     /** @return array{path: string, name: string}|null the uploaded file, or null when none was chosen */
@@ -385,7 +407,7 @@ final class ExpensesController
             'types' => (new ExpenseTypes($ctx->db))->active('expense'),
             'suppliers' => array_values(array_filter($views->suppliers(), static fn (array $s): bool => $s['is_active'])),
             'typed' => $typed + ['shop' => '', 'supplier' => '', 'new_supplier' => false, 'type' => '', 'invoice_date' => '', 'invoice_no' => '', 'credit' => false,
-                'net' => '', 'vat' => '', 'note' => ''],
+                'total' => '', 'vat_way' => 'inc', 'anchor' => false, 'net' => '', 'vat' => '', 'note' => ''],
             'error' => $error === null ? null : self::plain($error),
             'errorCode' => $error?->errorCode,
             'errorField' => is_string($error?->detail['field'] ?? null) ? $error->detail['field'] : null,
@@ -397,6 +419,7 @@ final class ExpensesController
             'fileAgain' => $error !== null && self::fileChosen($ctx),
             'formKey' => self::formKey($ctx, $error),
             'vatPct' => self::vatPct($ctx),
+            'vatBp' => (new \CW\Profit\ProfitSettings($ctx->db))->vatBp(),
         ], $status, ['title' => Words::EXPENSES['new_title'], 'notice' => $notice]);
     }
 
@@ -408,23 +431,25 @@ final class ExpensesController
      *
      * @param array<string, mixed>|null $typed
      */
-    private function refused(Context $ctx, int $id, CwException $e, ?array $typed): HtmlResponse
+    private function refused(Context $ctx, int $id, CwException $e, ?array $typed, string $form): HtmlResponse
     {
         if (self::deniedWrite($e)) {
             return self::denied($ctx, $e);
         }
         if ($e->errorCode === 'changed_meanwhile') {
-            return $this->one($ctx, $id, $e->httpStatus, $e, null, null);
+            return $this->one($ctx, $id, $e->httpStatus, $e, null, null, null, $form);
         }
         $s = (string) ($ctx->req->field('seen') ?? '');
-        return $this->one($ctx, $id, $e->httpStatus, $e, $typed, null, preg_match('/^[1-9]\d{0,8}$/D', $s) === 1 ? (int) $s : null);
+        return $this->one($ctx, $id, $e->httpStatus, $e, $typed, null, preg_match('/^[1-9]\d{0,8}$/D', $s) === 1 ? (int) $s : null, $form);
     }
 
     /**
      * @param array<string, mixed>|null $typed what a refused change said
      * @param int|null $seen the version the forms carry (null: the expense's own)
+     * @param string|null $form the form whose sending this page answers (change, delete; null: a plain look), so the page opens that fold and
+     *     says its refusal there (as a regular cost's page: Fable's Low a on f044e2f)
      */
-    private function one(Context $ctx, int $id, int $status, ?CwException $error, ?array $typed, ?string $notice, ?int $seen = null): HtmlResponse
+    private function one(Context $ctx, int $id, int $status, ?CwException $error, ?array $typed, ?string $notice, ?int $seen = null, ?string $form = null): HtmlResponse
     {
         $views = new ExpenseViews($ctx->db, $ctx->caller());
         $x = $views->expense($id);
@@ -436,6 +461,7 @@ final class ExpensesController
             $types[] = ['id' => (int) $x['type_id'], 'name' => (string) $x['type']]; // its own type, switched off since, stays its choice
         }
         $title = Words::say('EXPENSES', 'one_title', (string) $x['supplier'], (string) $x['invoice_no'] !== '' ? (string) $x['invoice_no'] : Html::day((string) $x['invoice_date']));
+        $rateBp = (new \CW\Profit\ProfitSettings($ctx->db))->vatBp();
         return $ctx->page('profit_expense', [
             'x' => $x,
             'shops' => $views->shops(),
@@ -445,7 +471,11 @@ final class ExpensesController
                 'supplier_was' => (string) $x['supplier'], 'new_supplier' => false, 'type' => (string) $x['type_id'],
                 // A credit note's amounts as printed, with its tick on (EX37).
                 'invoice_date' => (string) $x['invoice_date'], 'invoice_no' => (string) $x['invoice_no'], 'credit' => (int) $x['net_pence'] < 0,
-                'net' => ExpenseMoney::plain(abs((int) $x['net_pence'])), 'vat' => ExpenseMoney::plain(abs((int) $x['vat_pence'])), 'note' => (string) ($x['note'] ?? '')],
+                'net' => ExpenseMoney::plain(abs((int) $x['net_pence'])), 'vat' => ExpenseMoney::plain(abs((int) $x['vat_pence'])), 'note' => (string) ($x['note'] ?? ''),
+                // The VAT choice its figures match (EX65); the total box left empty in the page (its script shows net + VAT there), so a
+                // change of the amounts sent without the script never meets a stale total.
+                'total' => '', 'vat_way' => self::wayOf(abs((int) $x['net_pence']), abs((int) $x['vat_pence']), $rateBp), 'anchor' => false],
+            'form' => $form,
             'canEdit' => $ctx->me()->can(self::PERM_EDIT) && $x['deleted_at'] === null,
             'error' => $error === null ? null : self::plain($error),
             'errorCode' => $error?->errorCode,
@@ -455,6 +485,7 @@ final class ExpensesController
             'sameList' => self::sameList($error),
             'maxMb' => intdiv(ExpenseFiles::MAX_BYTES, 1_048_576),
             'vatPct' => self::vatPct($ctx),
+            'vatBp' => $rateBp,
             'listHref' => Html::url(self::PATH, ['month' => substr((string) $x['invoice_date'], 0, 7)]),
             // A change refused because someone else changed it shows their figures and still asks for the file chosen (the Codex check r3, M8).
             'fileAgain' => $error !== null && self::fileChosen($ctx),

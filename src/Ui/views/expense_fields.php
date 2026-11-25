@@ -5,6 +5,10 @@
 // note" (EX37): its amounts are typed as printed, without a minus, and kept as minus; the total shows the minus.
 // The layout (docs/decisions.md EX64): two cells a row (div.ex-row), each cell its label, its box and its hint UNDER the box (tied to it with
 // aria-describedby), so the boxes of a row line up; "Add it as a new supplier" under the supplier's hint; the credit tick before the amounts.
+// The total with VAT (EX65, the owner's 25 Nov 2026): the VAT on the invoice (Includes the shops' rate, picked for you; No VAT; Different VAT),
+// then one row of Total with VAT | Amount without VAT | VAT: the script fills the two from the total once it is typed (data-expense-anchor:
+// a total the person sent back on a refusal leads again; an expense's Change leaves the box empty and its script shows net + VAT there);
+// what the boxes say is what is saved (the server only checks they add up to a total typed); a line under the row says so when they disagree.
 ?>
     <div class="ex-fields">
       <div class="ex-row">
@@ -49,7 +53,18 @@
         <label class="choice ex-tick"><input type="checkbox" name="credit" value="1" data-expense-credit aria-describedby="ex-credit-hint"<?php if ($t['credit']): ?> checked<?php endif; ?>> <?= $word('EXPENSES', 'credit') ?></label>
         <p class="hint" id="ex-credit-hint"><?= $word('EXPENSES', 'credit_hint') ?></p>
       </div>
-      <div class="ex-row">
+      <fieldset class="vat-pick ex-vat-way">
+        <legend><?= $word('EXPENSES', 'vat_way') ?> <span class="hint"><?= $word('EXPENSES', 'vat_way_hint') ?></span></legend>
+        <label class="choice"><input type="radio" name="vat_way" value="inc"<?php if ($t['vat_way'] === 'inc'): ?> checked<?php endif; ?>> <?= $say('EXPENSES', 'way_inc', $vatPct) ?></label>
+        <label class="choice"><input type="radio" name="vat_way" value="none"<?php if ($t['vat_way'] === 'none'): ?> checked<?php endif; ?>> <?= $word('EXPENSES', 'way_none') ?></label>
+        <label class="choice"><input type="radio" name="vat_way" value="other"<?php if ($t['vat_way'] === 'other'): ?> checked<?php endif; ?>> <?= $word('EXPENSES', 'way_other') ?></label>
+      </fieldset>
+      <div class="ex-row ex-money">
+        <div class="field">
+          <label for="ex-total"><?= $word('EXPENSES', 'total_with_vat') ?></label>
+          <input id="ex-total" type="text" name="total" value="<?= $e((string) $t['total']) ?>" inputmode="decimal" maxlength="16" autocomplete="off" data-expense-gross<?php if ($t['anchor']): ?> data-expense-anchor<?php endif; ?> aria-describedby="ex-total-hint"<?php if ($errorField === 'total'): ?> aria-invalid="true"<?php endif; ?>>
+          <p class="hint" id="ex-total-hint"><?= $word('EXPENSES', 'total_hint') ?></p>
+        </div>
         <div class="field">
           <label for="ex-net"><?= $word('EXPENSES', 'net') ?></label>
           <input id="ex-net" type="text" name="net" value="<?= $e((string) $t['net']) ?>" inputmode="decimal" maxlength="16" autocomplete="off" required data-expense-sum<?php if ($errorField === 'net'): ?> aria-invalid="true"<?php endif; ?>>
@@ -60,6 +75,7 @@
           <p class="hint" id="ex-vat-hint"><?= $word('EXPENSES', 'vat_hint') ?></p>
         </div>
       </div>
+      <p class="hint ex-adds-up" data-expense-adds-up data-words="<?= $word('EXPENSES', 'adds_up') ?>" role="status"></p>
       <p class="expense-total"><span><?= $word('EXPENSES', 'total') ?></span> <output data-expense-total><?php if ($net !== null && $vat !== null && $t['credit']): ?><?= $e(\CW\Expenses\ExpenseMoney::gbp(-($net + $vat))) ?><?php elseif ($net !== null && $vat !== null): ?><?= $e(\CW\Expenses\ExpenseMoney::gbp($net + $vat)) ?><?php else: ?>-<?php endif; ?></output></p>
       <p class="alert expense-dollar"><?= $word('EXPENSES', 'dollar_hint') ?></p>
       <div class="field ex-wide">

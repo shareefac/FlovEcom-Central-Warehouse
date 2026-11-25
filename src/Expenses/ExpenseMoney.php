@@ -34,6 +34,17 @@ final class ExpenseMoney
         return ($pence < 0 ? '-' : '') . '£' . number_format(intdiv(abs($pence), 100)) . '.' . str_pad((string) (abs($pence) % 100), 2, '0', STR_PAD_LEFT);
     }
 
+    /**
+     * The amount without VAT of a total that includes VAT at $rateBp (basis points: 2000 = 20%), to the penny, half up, in whole pence:
+     * total x 10000 / (10000 + rate) (Amazon £8.47 at 20%: £7.06; its VAT is the rest, £1.41, so the two always add up to the total).
+     * The rule the form's script fills the boxes by (app.js, the same sum: docs/decisions.md EX65); on the server it only says which VAT
+     * choice a saved expense's figures match. CW never saves it: what is saved is what the boxes say. $total >= 0, $rateBp >= 0.
+     */
+    public static function netOfTotal(int $total, int $rateBp): int
+    {
+        return intdiv(2 * $total * 10000 + (10000 + $rateBp), 2 * (10000 + $rateBp));
+    }
+
     /** Pence as a form's box holds it again: "64.20". */
     public static function plain(int $pence): string
     {
