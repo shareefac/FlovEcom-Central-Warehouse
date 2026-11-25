@@ -139,34 +139,40 @@ final class PaypalFeesR2Test extends StockTestCase
         return PaypalTx::row($id, 'T1201', $at, $amount, null, $no, $status, $over);
     }
 
-    public function testOnlyCountableChargebacksUseTheRefundsAndPaypalsOwnRefundsDoNot(): void
+    public function testOnlyCountableChargebacksAreCheckedAgainstTheRefundsAndPaypalsOwnRefundsCoverThem(): void
     {
+        // round 3 (the lead's decision a3, PPF43): a refund in CW not on PayPal is never taken as the chargeback's own money (a look instead)
         $this->shops();
         self::order($this->vpg, '1002', '1312002', '2026-11-04T09:00:00Z', 2, 3000);
-        // a denied chargeback first, then a settled one: the settled one takes CW's £30 refund (a1)
+        // a denied chargeback first, then a settled one, on an order with £30 refunded in CW: the denied one counts nothing, the settled one
+        // needs a look (a1)
         $http = new FakePaypalHttp([self::cb('3A00000000000CB1', '2026-11-06T12:00:00Z', '-30.00', '1312002', 'D'),
             self::cb('3A00000000000CB2', '2026-11-07T12:00:00Z', '-30.00', '1312002')]);
         self::readPp($http);
         self::assertSame(['not_counted', 0], [self::row('3A00000000000CB1')['count_state'], (int) self::row('3A00000000000CB1')['refund_offset_pence']]);
-        self::assertSame([3000, 0], [(int) self::row('3A00000000000CB2')['refund_offset_pence'], (int) self::row('3A00000000000CB2')['alloc_pence']]);
+        self::assertSame(['look', 'refund_not_on_paypal', 0], [self::row('3A00000000000CB2')['count_state'], self::row('3A00000000000CB2')['look_reason'],
+            (int) self::row('3A00000000000CB2')['alloc_pence']]);
         // a £20 refund PayPal paid out (T1107) that CW holds, then an £80 chargeback: both are real money out, the chargeback counts whole (a3)
         self::order($this->vpg, '1001', '1312001', '2026-11-03T10:00:00Z', 2, 2000);
         $http->set([PaypalTx::refund('3A00000000000RF1', '2026-11-05T12:00:00Z', '-20.00', null, '1312001'),
             self::cb('3A00000000000CB3', '2026-11-08T12:00:00Z', '-80.00', '1312001')]);
         self::readPp($http);
-        self::assertSame([0, 8000], [(int) self::row('3A00000000000CB3')['refund_offset_pence'], (int) self::row('3A00000000000CB3')['alloc_pence']]);
-        // an order not paid in CW counts none of its refunds: no offset; paid later: decided again with it (a4)
+        self::assertSame(['counts', 0, 8000], [self::row('3A00000000000CB3')['count_state'], (int) self::row('3A00000000000CB3')['refund_offset_pence'],
+            (int) self::row('3A00000000000CB3')['alloc_pence']]);
+        // an order not paid in CW counts none of its refunds: the chargeback counts whole; paid later, its £30 refund counts and is not on
+        // PayPal: decided again, a look (a4)
         self::order($this->vpg, '1003', '1312003', null, 2, 3000);
         $http->set([self::cb('3A00000000000CB4', '2026-11-09T12:00:00Z', '-30.00', '1312003')]);
         self::readPp($http);
-        self::assertSame([0, 3000], [(int) self::row('3A00000000000CB4')['refund_offset_pence'], (int) self::row('3A00000000000CB4')['alloc_pence']]);
+        self::assertSame(['counts', 3000], [self::row('3A00000000000CB4')['count_state'], (int) self::row('3A00000000000CB4')['alloc_pence']]);
         self::order($this->vpg, '1003', '1312003', '2026-11-05T09:00:00Z', 3, 3000);
         self::decideAll();
-        self::assertSame([3000, 0], [(int) self::row('3A00000000000CB4')['refund_offset_pence'], (int) self::row('3A00000000000CB4')['alloc_pence']]);
+        self::assertSame(['look', 'refund_not_on_paypal', 3000], [self::row('3A00000000000CB4')['count_state'], self::row('3A00000000000CB4')['look_reason'],
+            (int) self::row('3A00000000000CB4')['refund_seen_pence']]);
         self::assertDaysRebuild($this->vpg);
     }
 
-    public function testAChargebackMovedGivesItsOldOrdersOffsetToTheOther(): void
+    public function testAChargebackMovedIsDecidedOnItsNewOrderAndItsOldOrdersOtherStaysChecked(): void
     {
         $this->shops();
         self::order($this->vpg, '1001', '1312001', '2026-11-03T10:00:00Z', 2, 3000);
@@ -174,14 +180,18 @@ final class PaypalFeesR2Test extends StockTestCase
             self::cb('3A00000000000CB2', '2026-11-08T12:00:00Z', '-30.00', '1312001')];
         $http = new FakePaypalHttp($rows);
         self::readPp($http);
-        self::assertSame([3000, 0], [(int) self::row('3A00000000000CB1')['refund_offset_pence'], (int) self::row('3A00000000000CB2')['refund_offset_pence']]);
-        // PayPal corrects the first one to order 1312002 (a newer version): 1312001's refund now covers the second
+        self::assertSame(['look', 'look'], [self::row('3A00000000000CB1')['count_state'], self::row('3A00000000000CB2')['count_state']], 'the £30 refund in CW is not on PayPal');
+        // PayPal corrects the first one to order 1312002 (a newer version; no refund there): it counts whole there; the second stays a look
         $rows[0] = self::cb('3A00000000000CB1', '2026-11-07T12:00:00Z', '-30.00', '1312002', 'S', ['transaction_updated_date' => '2026-11-09T12:00:00Z']);
         $http->set($rows);
         self::readPp($http);
-        self::assertSame(['1002', 0, 3000], [self::row('3A00000000000CB1')['match_order_ref'], (int) self::row('3A00000000000CB1')['refund_offset_pence'],
+        self::assertSame(['counts', '1002', 3000], [self::row('3A00000000000CB1')['count_state'], self::row('3A00000000000CB1')['match_order_ref'],
             (int) self::row('3A00000000000CB1')['alloc_pence']]);
-        self::assertSame([3000, 0], [(int) self::row('3A00000000000CB2')['refund_offset_pence'], (int) self::row('3A00000000000CB2')['alloc_pence']]);
+        self::assertSame(['look', 'refund_not_on_paypal'], [self::row('3A00000000000CB2')['count_state'], self::row('3A00000000000CB2')['look_reason']]);
+        // PayPal's own £30 refund of 1312001 read: CW's refund is PayPal's, the second counts whole
+        $http->set([...$rows, PaypalTx::refund('3A00000000000RF1', '2026-11-06T12:00:00Z', '-30.00', '0.50', '1312001')]);
+        self::readPp($http);
+        self::assertSame(['counts', 3000], [self::row('3A00000000000CB2')['count_state'], (int) self::row('3A00000000000CB2')['alloc_pence']]);
         self::assertDaysRebuild($this->vpg);
     }
 
@@ -231,8 +241,9 @@ final class PaypalFeesR2Test extends StockTestCase
         self::assertSame(['dropped', null, 'shop'], [self::row('3A00000000000E02')['invoice_state'], self::row('3A00000000000E02')['invoice_no'],
             self::row('3A00000000000E02')['alloc_dest']]);
         $this->setting('profit.paypal_form_electrofag', '"^([0-9]{4,6})-[0-9]{10}$"');
-        self::assertSame('2026-11-06', self::fees()->nightlyFrom('vapeandgo'), 'the days read under other forms are read again');
-        self::fees()->run(Caller::system('paypal_test'), self::api($http), self::fees()->nightlyFrom('vapeandgo'), '2026-11-24', 'nightly');
+        $from = self::fees()->nightlyFrom('vapeandgo');
+        self::assertSame([['2026-11-06', '2026-11-06']], self::fees()->nightlyExtra('vapeandgo', $from), 'the days read under other forms are read again, in their own window');
+        self::fees()->run(Caller::system('paypal_test'), self::api($http), $from, '2026-11-24', 'nightly', null, self::fees()->nightlyExtra('vapeandgo', $from));
         self::assertSame(['order', '2002', '5458'], [self::row('3A00000000000E02')['alloc_dest'], self::row('3A00000000000E02')['match_order_ref'],
             self::row('3A00000000000E02')['invoice_no']]);
         self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'paypal_txn' "
@@ -330,7 +341,6 @@ final class PaypalFeesR2Test extends StockTestCase
     public function testInvariantsLeaveDueRowsAloneAndStatusIsCheckedBeforeIgnore(): void
     {
         $this->shops();
-        self::order($this->vpg, '1001', '1312001', '2026-11-03T10:00:00Z', 2, 10000);
         $http = new FakePaypalHttp([self::cb('3A00000000000CB1', '2026-11-07T12:00:00Z', '-100.00', '1312001'),
             PaypalTx::row('3A00000000000B01', 'T0801', '2026-11-07T12:00:00Z', '5.00', null, null, 'X')]);
         self::readPp($http);

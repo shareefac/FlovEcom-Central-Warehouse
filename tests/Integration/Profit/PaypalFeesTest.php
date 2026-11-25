@@ -283,8 +283,9 @@ final class PaypalFeesTest extends StockTestCase
             (int) self::$db->value('SELECT windows FROM paypal_run ORDER BY id DESC LIMIT 1')]);
         self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM paypal_txn WHERE day >= '2026-11-07'"), 'nothing of the failed window');
         self::assertSame(11, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn'), 'the first window (31 Oct - 6 Nov) is stored whole');
-        self::assertSame(11, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn WHERE due = 1'), 'its rows due: decided by the next run');
-        self::assertSame([], self::days($ch), 'nothing counted before it is decided');
+        // what was stored before the failed window is decided at once, the run failed all the same (round 3, c2: forward progress every night)
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn WHERE due = 1'), 'the stored window\'s rows decided');
+        self::assertDaysRebuild($ch);
         $kinds = array_column(PaypalFees::health(self::$db, new \DateTimeImmutable(self::PP_NOW . 'Z')), 'kind');
         self::assertContains('paypal_failed', $kinds);
         self::assertContains('paypal_not_read', $kinds, 'no ok run yet');

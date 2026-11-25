@@ -16,30 +16,47 @@ use CW\Tests\Support\PaypalTx;
 use CW\Tests\Support\StockTestCase;
 
 /**
- * CW-1172 final review: random sequences (MADE-UP rows; seeded, so a failure names its seed and sequence) of PayPal reads and changes on a
- * small world (two Vape and Go orders, one Electrofag order): sales, refunds PayPal paid out, chargebacks (done, pending, denied, by invoice or
- * by reference), dispute fees referring to their chargeback, newer and older versions of a row, an invoice corrected to another shop's order,
- * the orders' refunds and payment changed in CW, Electrofag's form narrowed and put back. After each sequence:
- *   - the PayPal checks (PP1-PP5) find nothing and every day of both shops is what a rebuild works out;
- *   - converged: deciding every row of the sequence again changes nothing (no row left on an old order, an old budget or an old parent);
- *   - the chargebacks' refund offsets are what an independent working-out gives (the budget = the refunds CW counts less PayPal's own refunds,
- *     used by the countable chargebacks in time order: PPF34);
- *   - an older version read never changed a row.
- * CW_PP_FUZZ_N sequences (default 10 in the suite, about 17 s; the round's small run: 1,000, once).
+ * CW-1172 (final review; round 3: Codex astra re-check of 20faffa): random sequences (MADE-UP rows; seeded, so a failure names its seed and
+ * sequence) of PayPal reads and changes on a small world of the ONE shared account: two Vape and Go orders, one Electrofag order, a Hayati
+ * Vapes order (not a CW shop) and a Vape and Go number CW holds no order of; the real first fee days (Vape and Go 1 Nov, Electrofag 1 Dec,
+ * the clock 6 Dec): sales, refunds PayPal paid out, chargebacks (done, pending, denied; by invoice or by reference to their sale) and their
+ * reversals, dispute fees referring to their chargeback, newer and older versions of a row, an invoice corrected to another order (another
+ * shop's too), the orders' refunds (at order level, or on a cancelled line that takes nothing off) and payment changed in CW, Electrofag's form
+ * narrowed and put back, decisions with no PayPal read. Each sequence is its own account (fz<seq>: the same shops, forms and rules), so its
+ * work stays its own size.
+ *
+ * The expected result is worked out INDEPENDENTLY of the code under test, from the generated truth alone (round 3): which order and shop each
+ * row really is of (its invoice under the forms, else its reference to its sale or chargeback), whether it counts (status, the shop's first
+ * fee day, Hayati outside, pending), where (its order, on the order's paid day for a sale's fee and its own day for the rest, or its shop's
+ * "not on an order" line), what it costs, and a chargeback on an order whose refunds in CW (paid, not on a cancelled line) PayPal's own
+ * refunds of it do not cover, or one paid before the first day read from PayPal with any refund in CW: a look (refund_not_on_paypal). After
+ * each sequence: every row = the truth; every day of both shops = the truth
+ * of every sequence so far; converged (deciding again changes nothing); an older version read never changed a row; every 25th sequence and
+ * the last: the PayPal checks (PP1-PP5) find nothing and the days are what a rebuild works out.
+ * CW_PP_FUZZ_N sequences (default 10 in the suite; the round's small run: 1,000; the final tip: 5,000 once), CW_PP_FUZZ_SEED.
  */
 final class PaypalFuzzTest extends StockTestCase
 {
     private const KEY = ['client_id' => 'AclientIDmadeUp0123456789', 'client_secret' => 'EsecretMadeUp0123456789xyz', 'api_base' => 'https://api-m.paypal.com',
-        'shop' => 'vapeandgo', 'account' => 'vapeandgo', 'merchant_id' => 'TESTACCOUNT'];
-    private const PP_NOW = '2026-11-25 05:20:00';
+        'shop' => 'vapeandgo', 'merchant_id' => 'TESTACCOUNT'];
+    private const PP_NOW = '2026-12-06 05:20:00';
+    private const VPG_FROM = '2026-11-01';
+    private const EF_FROM = '2026-12-01';
+    private const WIDE = '"^([0-9]{4,6})-[0-9]{10}$"';
+    private const FORMS = ['vapeandgo' => '/^([0-9]{7})-[0-9]{10}$/D', 'electrofag' => '/^([0-9]{4,6})-[0-9]{10}$/D', 'hayati' => '/^faaeeb-([0-9]{1,6})$/D'];
 
     /** @var array<string, string> */
     private array $settingsBefore = [];
+    /** @var list<string> setting keys this test put in (the accounts') */
+    private array $added = [];
 
     protected function tearDown(): void
     {
         foreach ($this->settingsBefore as $k => $v) {
             self::$db->exec('UPDATE app_setting SET value_json = ? WHERE setting_key = ?', [$v, $k]);
+        }
+        foreach (array_chunk($this->added, 500) as $chunk) {
+            self::$db->exec('DELETE FROM app_setting WHERE setting_key IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')', $chunk);
         }
         parent::tearDown();
     }
@@ -50,84 +67,141 @@ final class PaypalFuzzTest extends StockTestCase
         self::$db->exec('UPDATE app_setting SET value_json = ? WHERE setting_key = ?', [$json, $key]);
     }
 
-    private static function fees(): PaypalFees
+    /** The sequence's own account: the shared account's shops, main shop and merchant (its key names it). */
+    private function account(string $account): void
     {
-        return new PaypalFees(self::$db, static fn (): \DateTimeImmutable => new \DateTimeImmutable(self::PP_NOW, new \DateTimeZone('UTC')));
+        foreach (['shops' => '"vapeandgo,electrofag,hayati"', 'main' => '"vapeandgo"', 'merchant' => '"TESTACCOUNT"'] as $what => $json) {
+            $key = "profit.paypal_{$what}_{$account}";
+            self::$db->exec("INSERT INTO app_setting (setting_key, value_type, value_json, provisional, decision, description) VALUES (?, 'string', ?, 0, 'PPF21', 'the fuzz')",
+                [$key, $json]);
+            $this->added[] = $key;
+        }
     }
 
-    private static function order(int $ch, string $ref, string $no, ?string $paid, int $version, int $refundInc): void
+    /** @param array<string, mixed> $o the order's truth */
+    private static function order(int $ch, array $o): void
     {
-        (new OrderSnapshots(self::$db))->store($ch, $ref, ['v' => 1, 'version' => $version, 'order_no' => $no, 'status' => 'completed',
-            'placed_at' => '2026-10-30T09:00:00Z', 'paid_at' => $paid, 'gateway' => 'paypal', 'currency' => 'GBP', 'parent_ref' => null,
-            'lines' => [['line_id' => (string) (8000000 + (int) $ref), 'variant_id' => '40123', 'qty' => 1, 'price_inc' => 6000, 'discount_inc' => 0, 'cancelled' => false,
-                'refund_inc' => 0, 'free' => false]],
-            'delivery' => ['method_id' => '5', 'method' => 'DPD', 'charged_inc' => 499, 'refund_inc' => 0], 'order_refund_inc' => $refundInc, 'grand_inc' => 6499,
-            'parcels' => []], 'api');
+        $lines = [['line_id' => (string) (8000000 + (int) $o['ref']), 'variant_id' => '40123', 'qty' => 1, 'price_inc' => 6000, 'discount_inc' => 0, 'cancelled' => false,
+            'refund_inc' => 0, 'free' => false]];
+        if ($o['decoy']) {
+            // a refund on a cancelled line: it takes nothing off the profit (final review a4), so it never makes a chargeback uncertain
+            $lines[] = ['line_id' => (string) (9000000 + (int) $o['ref']), 'variant_id' => '40124', 'qty' => 1, 'price_inc' => 3000, 'discount_inc' => 0, 'cancelled' => true,
+                'refund_inc' => 3000, 'free' => false];
+        }
+        (new OrderSnapshots(self::$db))->store($ch, (string) $o['ref'], ['v' => 1, 'version' => $o['ver'], 'order_no' => $o['no'], 'status' => 'completed',
+            'placed_at' => '2026-11-10T09:00:00Z', 'paid_at' => $o['paid'] === null ? null : $o['paid'] . 'T10:00:00Z', 'gateway' => 'paypal', 'currency' => 'GBP',
+            'parent_ref' => null, 'lines' => $lines, 'delivery' => ['method_id' => '5', 'method' => 'DPD', 'charged_inc' => 499, 'refund_inc' => 0],
+            'order_refund_inc' => $o['refund'], 'grand_inc' => 6499, 'parcels' => []], 'api');
     }
 
-    public function testRandomSequencesStayConsistentConvergedAndOffsetAsWorkedOut(): void
+    /** An order's paid day: mostly 18-24 Nov, sometimes before the first day read from PayPal (a Vape and Go order of 28 Oct), sometimes not paid. */
+    private static function paidDay(string $k): ?string
+    {
+        $r = mt_rand(0, 9);
+        return match (true) {
+            $r < 2 => null,
+            $r === 2 && $k !== 'e1' => '2026-10-28',
+            default => sprintf('2026-11-%02d', mt_rand(18, 24)),
+        };
+    }
+
+    public function testRandomSequencesMatchTheirOwnTruth(): void
     {
         $n = max(1, (int) (getenv('CW_PP_FUZZ_N') ?: 10));
         $seed = (int) (getenv('CW_PP_FUZZ_SEED') ?: 20261125);
         mt_srand($seed);
         $vpg = (int) $this->site('vapeandgo', 'live')->channelId;
         $ef = (int) $this->site('electrofag', 'live')->channelId;
-        $this->setting('profit.paypal_from_vapeandgo', '"2026-11-01"');
-        $this->setting('profit.paypal_from_electrofag', '"2026-11-01"');
-        $this->setting('profit.paypal_merchant_vapeandgo', '"TESTACCOUNT"');
-        $wide = '"^([0-9]{4,6})-[0-9]{10}$"';
-        $this->setting('profit.paypal_form_electrofag', $wide);
-        $http = new FakePaypalHttp([]);
-        $api = new PaypalApi(PaypalKey::fromArray(self::KEY, 'vapeandgo'), $http, static function (int $s): void {
-        });
+        $chOf = ['vapeandgo' => $vpg, 'electrofag' => $ef];
+        $this->setting('profit.paypal_from_vapeandgo', '"' . self::VPG_FROM . '"');
+        $this->setting('profit.paypal_from_electrofag', '"' . self::EF_FROM . '"');
+        $this->setting('profit.paypal_form_electrofag', self::WIDE);
         $caller = Caller::system('paypal_test');
+        $fees = new PaypalFees(self::$db, static fn (): \DateTimeImmutable => new \DateTimeImmutable(self::PP_NOW, new \DateTimeZone('UTC')));
+        $http = new FakePaypalHttp([], '', null, '2026-12-06T02:00:00Z');
+        $days = ['2026-10-28'];
+        for ($d = '2026-11-14'; $d <= '2026-12-06'; $d = (new \DateTimeImmutable($d))->modify('+1 day')->format('Y-m-d')) {
+            $days[] = $d;
+        }
+        $expectDays = []; // "channel|day" => [fee_cost, fee_other], every finished sequence's truth
         $t0 = microtime(true);
         for ($s = 1; $s <= $n; $s++) {
             $tag = "seed {$seed} sequence {$s}";
-            // the world of this sequence: its own orders and PayPal ids
-            $orders = [
-                'v1' => ['ch' => $vpg, 'ref' => (string) (600000 + $s * 10 + 1), 'no' => (string) (1300000 + $s * 10 + 1), 'paid' => true, 'refund' => 0, 'ver' => 1],
-                'v2' => ['ch' => $vpg, 'ref' => (string) (600000 + $s * 10 + 2), 'no' => (string) (1300000 + $s * 10 + 2), 'paid' => true, 'refund' => 0, 'ver' => 1],
-                'e1' => ['ch' => $ef, 'ref' => (string) (600000 + $s * 10 + 3), 'no' => (string) (50000 + $s * 10 + 3), 'paid' => true, 'refund' => 0, 'ver' => 1],
-            ];
-            foreach ($orders as $k => $o) {
-                $orders[$k]['refund'] = [0, 0, 2000, 3000, 6000][mt_rand(0, 4)];
-                $orders[$k]['paid'] = mt_rand(0, 4) > 0;
-                self::order($o['ch'], $o['ref'], $o['no'], $orders[$k]['paid'] ? '2026-11-0' . mt_rand(1, 4) . 'T10:00:00Z' : null, 1, $orders[$k]['refund']);
+            $account = sprintf('fz%05d', $s);
+            $this->account($account);
+            $api = new PaypalApi(PaypalKey::fromArray(['account' => $account] + self::KEY, $account), $http, static function (int $sec): void {
+            });
+            // the world's truth: CW's orders, the Hayati order, a Vape and Go number of no CW order
+            $orders = [];
+            foreach (['v1' => 'vapeandgo', 'v2' => 'vapeandgo', 'e1' => 'electrofag'] as $k => $shop) {
+                $i = ['v1' => 1, 'v2' => 2, 'e1' => 3][$k];
+                $orders[$k] = ['shop' => $shop, 'ref' => (string) (700000 + $s * 10 + $i), 'no' => $shop === 'vapeandgo' ? (string) (1400000 + $s * 10 + $i)
+                    : (string) (60000 + $s * 10 + $i), 'paid' => self::paidDay($k), 'refund' => [0, 0, 2000, 3000][mt_rand(0, 3)], 'decoy' => mt_rand(0, 3) === 0, 'ver' => 1];
+                self::order($chOf[$shop], $orders[$k]);
             }
+            $numbers = ['v1' => ['vapeandgo', $orders['v1']['no']], 'v2' => ['vapeandgo', $orders['v2']['no']], 'e1' => ['electrofag', $orders['e1']['no']],
+                'h1' => ['hayati', (string) (3000 + $s)], 'vx' => ['vapeandgo', (string) (1490000 + $s)]];
+            $inv = static function (string $t) use ($numbers): array {
+                [$shop, $no] = $numbers[$t];
+                return $shop === 'hayati' ? ['invoice_id' => 'faaeeb-' . $no, 'custom_field' => $no] : ['invoice_id' => $no . '-1763700000', 'custom_field' => $no . '-1763700000'];
+            };
             $id = static fn (string $k): string => sprintf('FZ%05d%s', $s, $k);
             $pool = [];
-            $ver = [];
-            $put = static function (string $key, array $row) use (&$pool, &$ver): void {
-                $ver[$key] = ($ver[$key] ?? 0) + 1;
-                $at = new \DateTimeImmutable((string) $row['transaction_initiation_date']);
-                $row['transaction_updated_date'] = $at->modify('+' . $ver[$key] . ' minutes')->format('Y-m-d\TH:i:s\Z');
+            // every version PayPal gives is newer than the one before it (a strictly later update time, after every row's own time)
+            $stamp = new \DateTimeImmutable('2026-12-05T21:00:00Z');
+            $put = static function (string $key, array $row) use (&$pool, &$stamp): void {
+                $stamp = $stamp->modify('+1 minute');
+                $row['transaction_updated_date'] = $stamp->format('Y-m-d\TH:i:s\Z');
                 $pool[$key] = $row;
             };
-            $no = static fn (string $o): string => $orders[$o]['no'];
-            $at = static fn (int $d, int $h): string => sprintf('2026-11-%02dT%02d:%02d:00Z', $d, $h, mt_rand(0, 59));
-            $put('S1', PaypalTx::sale($id('S1'), $at(2, 9), '60.00', '-1.50', $no('v1')));
-            $put('S2', PaypalTx::sale($id('S2'), $at(2, 10), '60.00', '-1.50', $no('e1')));
+            $at = static fn (string $day, int $h): string => sprintf('%sT%02d:%02d:00Z', $day, $h, mt_rand(0, 59));
+            $day = static fn (string $from, int $span): string => (new \DateTimeImmutable($from))->modify('+' . mt_rand(0, $span) . ' days')->format('Y-m-d');
+            $put('S1', PaypalTx::row($id('S1'), 'T0006', $at('2026-11-20', 9), '60.00', '-1.50', null, 'S', $inv('v1')));
+            $put('S2', PaypalTx::row($id('S2'), 'T0006', $at('2026-11-20', 10), '60.00', '-1.50', null, 'S', $inv('e1')));
+            $put('S4', PaypalTx::row($id('S4'), 'T0006', $at('2026-11-20', 11), '25.00', '-0.80', null, 'S', $inv('h1')));
             if (mt_rand(0, 1) === 1) {
-                $put('S3', PaypalTx::sale($id('S3'), $at(2, 11), '20.00', '-0.60', null));
+                $put('S3', PaypalTx::sale($id('S3'), $at('2026-11-21', 11), '20.00', '-0.60', null));
             }
+            $sales = ['v1' => 'S1', 'e1' => 'S2', 'h1' => 'S4'];
             $cbs = [];
             for ($c = 1, $m = mt_rand(1, 3); $c <= $m; $c++) {
-                $target = ['v1', 'v1', 'v2', 'e1'][mt_rand(0, 3)];
-                $byRef = mt_rand(0, 2) === 0;
-                $row = PaypalTx::row($id('C' . $c), 'T1201', $at(3 + $c, 12), '-' . [10, 20, 30, 40, 60][mt_rand(0, 4)] . '.00', null, $byRef ? null : $no($target),
-                    ['S', 'S', 'S', 'P', 'D'][mt_rand(0, 4)], $byRef ? ['paypal_reference_id' => $target === 'e1' ? $id('S2') : $id('S1')] : []);
-                $put('C' . $c, $row);
+                $target = ['v1', 'v1', 'v2', 'e1', 'h1', 'vx'][mt_rand(0, 5)];
+                $byRef = isset($sales[$target]) && mt_rand(0, 2) === 0;
+                $cday = $day('2026-11-26', 8);
+                $over = $byRef ? ['paypal_reference_id' => $id($sales[$target])] : $inv($target);
+                $amount = '-' . [10, 20, 30, 40, 60][mt_rand(0, 4)] . '.00';
+                $put('C' . $c, PaypalTx::row($id('C' . $c), 'T1201', $at($cday, 12), $amount, null, null, ['S', 'S', 'S', 'P', 'D'][mt_rand(0, 4)], $over));
                 $cbs[] = 'C' . $c;
+                if (mt_rand(0, 3) === 0) {
+                    // its reversal (money back), as it is targeted
+                    $put('X' . $c, PaypalTx::row($id('X' . $c), 'T1202', $at((new \DateTimeImmutable($cday))->modify('+1 day')->format('Y-m-d'), 12), ltrim($amount, '-'),
+                        null, null, 'S', $over));
+                }
                 if (mt_rand(0, 1) === 1) {
-                    $put('F' . $c, PaypalTx::row($id('F' . $c), 'T0106', $at(3 + $c, 13), '-14.00', null, null, 'S', ['paypal_reference_id' => $id('C' . $c)]));
+                    $put('F' . $c, PaypalTx::row($id('F' . $c), 'T0106', $at($cday, 13), '-14.00', null, null, 'S', ['paypal_reference_id' => $id('C' . $c)]));
                 }
             }
             if (mt_rand(0, 1) === 1) {
-                $put('R1', PaypalTx::refund($id('R1'), $at(3, 8), '-' . [10, 20][mt_rand(0, 1)] . '.00', '0.20', $no(['v1', 'e1'][mt_rand(0, 1)])));
+                $put('R1', PaypalTx::row($id('R1'), 'T1107', $at($day('2026-11-22', 12), 8), '-' . [10, 20, 30][mt_rand(0, 2)] . '.00', '0.20', null, 'S',
+                    $inv(['v1', 'v2', 'e1', 'h1'][mt_rand(0, 3)])));
             }
             $older = [];
             $narrowed = false;
+            $read = function (array $served) use ($http, $fees, $caller, $api, $id, $tag, &$older): void {
+                $before = [];
+                foreach (array_keys($older) as $k) {
+                    $before[$k] = self::$db->one('SELECT status, pp_updated_at, amount_pence FROM paypal_txn WHERE account = ? AND txn_id = ?', [$api->account(), $id($k)]);
+                }
+                $http->set(array_values($served));
+                $fees->run($caller, $api, '2026-11-14', '2026-12-05', 'nightly');
+                foreach ($before as $k => $b) {
+                    if ($b !== null) {
+                        self::assertSame($b, self::$db->one('SELECT status, pp_updated_at, amount_pence FROM paypal_txn WHERE account = ? AND txn_id = ?',
+                            [$api->account(), $id($k)]), "{$tag}: an older version changed {$k}");
+                    }
+                }
+                $older = [];
+            };
             for ($op = 0, $ops = mt_rand(3, 6); $op < $ops; $op++) {
                 switch (mt_rand(0, 6)) {
                     case 0: // a chargeback's status or amount changes (a newer version)
@@ -136,88 +210,188 @@ final class PaypalFuzzTest extends StockTestCase
                         $pool[$k]['transaction_amount']['value'] = '-' . [10, 20, 30, 60][mt_rand(0, 3)] . '.00';
                         $put($k, $pool[$k]);
                         break;
-                    case 1: // a chargeback or the first sale corrected to another order (another shop's too)
-                        $k = mt_rand(0, 1) === 0 ? 'S1' : $cbs[mt_rand(0, count($cbs) - 1)];
-                        $o = ['v1', 'v2', 'e1'][mt_rand(0, 2)];
-                        $pool[$k]['invoice_id'] = $pool[$k]['custom_field'] = $no($o) . '-1763700000';
+                    case 1: // the first sale, or a chargeback of its own invoice, corrected to another order (another shop's too)
+                        $byInvoice = array_values(array_filter($cbs, static fn (string $k): bool => isset($pool[$k]['invoice_id'])));
+                        $k = mt_rand(0, 1) === 0 || $byInvoice === [] ? 'S1' : $byInvoice[mt_rand(0, count($byInvoice) - 1)];
+                        $pool[$k] = $inv(['v1', 'v2', 'e1', 'h1'][mt_rand(0, 3)]) + $pool[$k];
                         $put($k, $pool[$k]);
                         break;
                     case 2: // an order's refunds or payment change in CW
                         $o = ['v1', 'v2', 'e1'][mt_rand(0, 2)];
                         $orders[$o]['ver']++;
                         $orders[$o]['refund'] = [0, 2000, 3000, 6000][mt_rand(0, 3)];
-                        $orders[$o]['paid'] = mt_rand(0, 3) > 0;
-                        self::order($orders[$o]['ch'], $orders[$o]['ref'], $orders[$o]['no'], $orders[$o]['paid'] ? '2026-11-03T10:00:00Z' : null, $orders[$o]['ver'],
-                            $orders[$o]['refund']);
+                        $orders[$o]['paid'] = self::paidDay($o);
+                        self::order($chOf[$orders[$o]['shop']], $orders[$o]);
                         break;
                     case 3: // an older version of a row served (another status): never applied
-                        $k = array_rand($pool);
+                        $k = (string) array_rand($pool);
                         $o = $pool[$k];
                         $o['transaction_updated_date'] = (new \DateTimeImmutable((string) $o['transaction_initiation_date']))->format('Y-m-d\TH:i:s\Z');
                         $o['transaction_status'] = $o['transaction_status'] === 'S' ? 'P' : 'S';
                         $older[$k] = $o;
                         break;
-                    case 4: // Electrofag's form narrowed, or put back
+                    case 4: // Electrofag's form narrowed (its numbers of six digits only), or put back
                         $narrowed = !$narrowed;
-                        $this->setting('profit.paypal_form_electrofag', $narrowed ? '"^([0-9]{6})-[0-9]{10}$"' : $wide);
+                        $this->setting('profit.paypal_form_electrofag', $narrowed ? '"^([0-9]{6})-[0-9]{10}$"' : self::WIDE);
                         break;
                     case 5: // decided with no PayPal read (--decide)
-                        self::fees()->decideAll($caller, 'vapeandgo', null);
+                        $fees->decideAll($caller, $account, null);
                         break;
-                    default: // a PayPal refund of an order
-                        $put('R2', PaypalTx::refund($id('R2'), $at(5, 8), '-20.00', '0.30', $no(['v1', 'v2', 'e1'][mt_rand(0, 2)])));
+                    default: // a PayPal refund of an order (read again: a newer version of the same refund, its order corrected)
+                        $put('R2', PaypalTx::row($id('R2'), 'T1107', (string) ($pool['R2']['transaction_initiation_date'] ?? $at($day('2026-11-22', 12), 8)), '-20.00',
+                            '0.30', null, 'S', $inv(['v1', 'v2', 'e1', 'h1'][mt_rand(0, 3)])));
                 }
-                // a read of the days (the older versions, if any, served instead of the kept ones for this read only)
-                $served = $pool;
-                foreach ($older as $k => $o) {
-                    $served[$k] = $o;
+                $read(array_merge($pool, $older));
+            }
+            // the forms put back, and a last read of every row as PayPal has it now
+            if ($narrowed) {
+                $this->setting('profit.paypal_form_electrofag', self::WIDE);
+            }
+            $read($pool);
+
+            // ---- the truth, worked out from the generated world alone ------------------------------------------------------------------
+            $byTxn = [];
+            foreach ($pool as $k => $r) {
+                $byTxn[(string) $r['transaction_id']] = $k;
+            }
+            $capture = static function (?string $text): ?array {
+                if ($text === null || $text === '') {
+                    return null;
                 }
-                $before = [];
-                foreach (array_keys($older) as $k) {
-                    $before[$k] = self::$db->one('SELECT status, pp_updated_at, amount_pence FROM paypal_txn WHERE txn_id = ?', [$id($k)]);
-                }
-                $http->set(array_values($served));
-                self::fees()->run($caller, $api, '2026-11-01', '2026-11-07', 'nightly');
-                foreach ($before as $k => $b) {
-                    if ($b !== null) {
-                        self::assertSame($b, self::$db->one('SELECT status, pp_updated_at, amount_pence FROM paypal_txn WHERE txn_id = ?', [$id($k)]), "{$tag}: an older version changed {$k}");
+                foreach (self::FORMS as $shop => $form) {
+                    if (preg_match($form, $text, $mm) === 1) {
+                        return [$shop, $mm[1]];
                     }
                 }
-                $older = [];
-            }
-            if ($narrowed) {
-                $this->setting('profit.paypal_form_electrofag', $wide);
-                $http->set(array_values($pool));
-                self::fees()->run($caller, $api, '2026-11-01', '2026-11-07', 'nightly');
-            }
-            // consistent: the checks, the days
-            self::assertSame([], PaypalInvariants::check(self::$db), $tag);
-            foreach ([$vpg, $ef] as $ch) {
-                for ($d = 1; $d <= 7; $d++) {
-                    $diff = array_values(array_filter(ProfitDays::differences(self::$db, $ch, sprintf('2026-11-%02d', $d)), static fn (string $l): bool => !str_contains($l, 'row of zeros')));
-                    self::assertSame([], $diff, "{$tag}: the days are a rebuild");
+                return null;
+            };
+            $kindOf = static fn (string $code): string => ['T0006' => 'sale', 'T1107' => 'refund', 'T1201' => 'chargeback', 'T1202' => 'chargeback', 'T0106' => 'fee'][$code];
+            // whose order a row is: a refund, chargeback or fee by its reference to a row of this world (its sale; a fee's chargeback), else its invoice
+            $whose = static function (string $k) use (&$whose, $pool, $byTxn, $capture, $kindOf): ?array {
+                $r = $pool[$k];
+                $ref = $r['paypal_reference_id'] ?? null;
+                if ($kindOf((string) $r['transaction_event_code']) !== 'sale' && $ref !== null && isset($byTxn[$ref])) {
+                    return $whose($byTxn[$ref]);
                 }
+                return $capture($r['invoice_id'] ?? null) ?? $capture($r['custom_field'] ?? null);
+            };
+            $orderOf = static function (?array $w) use ($orders): ?string {
+                foreach ($orders as $k => $o) {
+                    if ($w !== null && $o['shop'] === $w[0] && $o['no'] === $w[1]) {
+                        return $k;
+                    }
+                }
+                return null;
+            };
+            $pence = static fn (string $v): int => (int) round(((float) $v) * 100);
+            $expected = [];
+            $contrib = [];
+            foreach ($pool as $k => $r) {
+                $kind = $kindOf((string) $r['transaction_event_code']);
+                $status = (string) $r['transaction_status'];
+                $rday = substr((string) $r['transaction_initiation_date'], 0, 10);
+                $amount = $pence((string) $r['transaction_amount']['value']);
+                $fee = isset($r['fee_amount']) ? $pence((string) $r['fee_amount']['value']) : 0;
+                $cost = in_array($kind, ['sale', 'refund'], true) ? -$fee : -($amount + $fee);
+                $w = $whose($k);
+                $e = ['count_state' => null, 'look_reason' => null, 'alloc_dest' => null, 'alloc_channel' => null, 'alloc_order_ref' => null, 'alloc_day' => null,
+                    'alloc_pence' => 0];
+                $shop = $w[0] ?? 'vapeandgo';
+                $start = $shop === 'electrofag' ? self::EF_FROM : self::VPG_FROM;
+                $ok = $orderOf($w);
+                if ($status === 'D') {
+                    $e['count_state'] = 'not_counted';
+                } elseif ($shop === 'hayati') {
+                    $e['count_state'] = 'outside';
+                } elseif ($rday < $start) {
+                    $e['count_state'] = 'before_start';
+                } elseif ($status === 'P') {
+                    $e['count_state'] = 'pending';
+                } else {
+                    $e['count_state'] = 'counts';
+                    if ($kind === 'chargeback' && $ok !== null) {
+                        $cw = $orders[$ok]['paid'] === null ? 0 : $orders[$ok]['refund'];
+                        // paid before the first day read from PayPal (1 Nov): any refund in CW is not known to be on PayPal (PPF43)
+                        $early = $orders[$ok]['paid'] !== null && $orders[$ok]['paid'] < self::VPG_FROM && $cw > 0;
+                        $pp = 0;
+                        foreach ($pool as $k2 => $r2) {
+                            $s2 = (string) $r2['transaction_status'];
+                            if ($kindOf((string) $r2['transaction_event_code']) === 'refund' && in_array($s2, ['S', 'V'], true) && $orderOf($whose($k2)) === $ok
+                                && $pence((string) $r2['transaction_amount']['value']) < 0) {
+                                $pp -= $pence((string) $r2['transaction_amount']['value']);
+                            }
+                        }
+                        if ($early || $cw - $pp > 0) {
+                            $e = ['count_state' => 'look', 'look_reason' => 'refund_not_on_paypal'] + $e;
+                            $expected[$k] = $e;
+                            continue;
+                        }
+                    }
+                    if ($cost !== 0) {
+                        $ch = $chOf[$shop];
+                        if ($ok !== null) {
+                            $e = ['alloc_dest' => 'order', 'alloc_channel' => $ch, 'alloc_order_ref' => $orders[$ok]['ref'], 'alloc_day' => $kind === 'sale' ? null : $rday,
+                                'alloc_pence' => $cost] + $e;
+                            $on = $kind === 'sale' ? $orders[$ok]['paid'] : $rday;
+                            if ($on !== null) {
+                                $contrib[$ch . '|' . $on] ??= [0, 0];
+                                $contrib[$ch . '|' . $on][0] += $cost;
+                            }
+                        } else {
+                            $e = ['alloc_dest' => 'shop', 'alloc_channel' => $ch, 'alloc_day' => $rday, 'alloc_pence' => $cost] + $e;
+                            $contrib[$ch . '|' . $rday] ??= [0, 0];
+                            $contrib[$ch . '|' . $rday][1] += $cost;
+                        }
+                    }
+                }
+                $expected[$k] = $e;
             }
-            // converged: every row of the sequence decided again changes nothing
-            $mine = array_map('intval', self::$db->column('SELECT id FROM paypal_txn WHERE txn_id LIKE ?', [sprintf('FZ%05d%%', $s)]));
-            self::$db->exec('UPDATE paypal_txn SET due = 1, due_since = UTC_TIMESTAMP(6) WHERE id IN (' . implode(', ', array_fill(0, count($mine), '?')) . ')', $mine);
-            self::assertSame(0, self::fees()->decideAll($caller, 'vapeandgo', null), "{$tag}: deciding the rows again moved one (not converged)");
-            // the offsets, worked out on their own
+            // every row of the sequence as the truth says
+            foreach ($expected as $k => $e) {
+                $got = self::$db->one('SELECT count_state, look_reason, alloc_dest, alloc_channel, alloc_order_ref, alloc_day, alloc_pence FROM paypal_txn '
+                    . 'WHERE account = ? AND txn_id = ?', [$account, $id($k)]);
+                self::assertNotNull($got, "{$tag}: {$k} stored");
+                $got = ['count_state' => $got['count_state'], 'look_reason' => $got['look_reason'], 'alloc_dest' => $got['alloc_dest'],
+                    'alloc_channel' => $got['alloc_channel'] === null ? null : (int) $got['alloc_channel'], 'alloc_order_ref' => $got['alloc_order_ref'],
+                    'alloc_day' => $got['alloc_day'], 'alloc_pence' => (int) $got['alloc_pence']];
+                ksort($e);
+                ksort($got);
+                self::assertSame($e, $got, "{$tag}: {$k} is where its truth says");
+            }
+            // every day of both shops: the truth of every sequence so far
+            $touched = [];
             foreach ($orders as $o) {
-                $row = self::$db->one('SELECT day, parent_ref, line_refund_inc + order_refund_inc + delivery_refund_inc AS r FROM sale_order WHERE channel_id = ? AND order_ref = ?',
-                    [$o['ch'], $o['ref']]);
-                $cw = $row === null || $row['day'] === null || $row['parent_ref'] !== null ? 0 : (int) $row['r'];
-                $pp = (int) self::$db->value("SELECT COALESCE(SUM(-amount_pence), 0) FROM paypal_txn WHERE shop_channel = ? AND order_no = ? AND kind = 'refund' "
-                    . "AND status IN ('S', 'V') AND count_state IN ('counts', 'before_start') AND amount_pence < 0", [$o['ch'], $o['no']]);
-                $left = max(0, $cw - $pp);
-                foreach (self::$db->all("SELECT id, amount_pence, refund_offset_pence, count_state, match_state FROM paypal_txn WHERE kind = 'chargeback' AND shop_channel = ? "
-                    . "AND match_order_ref = ? AND count_state = 'counts' ORDER BY initiated_at, id", [$o['ch'], $o['ref']]) as $c) {
-                    $use = -(int) $c['amount_pence'] > 0 ? min(-(int) $c['amount_pence'], $left) : 0;
-                    $left -= $use;
-                    self::assertSame($use, (int) $c['refund_offset_pence'], "{$tag}: chargeback row {$c['id']}'s refund offset");
+                if ($o['paid'] !== null) {
+                    $touched[$chOf[$o['shop']] . '|' . $o['paid']] = true;
                 }
-                self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM paypal_txn WHERE kind = 'chargeback' AND refund_offset_pence > 0 AND count_state <> 'counts' "
-                    . 'AND txn_id LIKE ?', [sprintf('FZ%05d%%', $s)]), "{$tag}: an offset on a chargeback that does not count");
+            }
+            foreach ($contrib as $key => [$c, $o]) {
+                $expectDays[$key] ??= [0, 0];
+                $expectDays[$key][0] += $c;
+                $expectDays[$key][1] += $o;
+                $touched[$key] = true;
+            }
+            $have = [];
+            foreach (self::$db->all('SELECT channel_id, day, fee_cost, fee_other FROM profit_day WHERE channel_id IN (?, ?) AND (fee_cost <> 0 OR fee_other <> 0)', [$vpg, $ef]) as $r) {
+                $have[$r['channel_id'] . '|' . $r['day']] = [(int) $r['fee_cost'], (int) $r['fee_other']];
+            }
+            $want = array_filter($expectDays, static fn (array $v): bool => $v !== [0, 0]);
+            ksort($want);
+            ksort($have);
+            self::assertSame($want, $have, "{$tag}: the profit days hold every sequence's truth");
+            // converged: every row of the sequence decided again changes nothing
+            self::$db->exec('UPDATE paypal_txn SET due = 1, due_since = UTC_TIMESTAMP(6) WHERE account = ?', [$account]);
+            self::assertSame(0, $fees->decideAll($caller, $account, null), "{$tag}: deciding the rows again moved one (not converged)");
+            // the checks and a rebuild of the days (the sequence's own days every 25th sequence; every day of both shops at the last)
+            if ($s % 25 === 0 || $s === $n) {
+                self::assertSame([], PaypalInvariants::check(self::$db), $tag);
+                $check = $s === $n ? array_merge(...array_map(static fn (int $ch): array => array_map(static fn (string $d): string => $ch . '|' . $d, $days), [$vpg, $ef]))
+                    : array_keys($touched);
+                foreach ($check as $key) {
+                    [$ch, $d] = explode('|', $key);
+                    $diff = array_values(array_filter(ProfitDays::differences(self::$db, (int) $ch, $d), static fn (string $l): bool => !str_contains($l, 'row of zeros')));
+                    self::assertSame([], $diff, "{$tag}: the days are a rebuild ({$key})");
+                }
             }
         }
         fwrite(STDERR, sprintf("[paypal fuzz] %d sequences (seed %d) in %.1f s\n", $n, $seed, microtime(true) - $t0));

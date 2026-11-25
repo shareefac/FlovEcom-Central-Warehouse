@@ -28,6 +28,13 @@ final class FakePaypalHttp implements PaypalHttp
      * September, T1111, came in October's read, the month it was released; the replay of the real rows needs it).
      */
     public bool $byUpdated = false;
+    /**
+     * Changes a page's answer before it is sent (the tests of what an answer proves: a shorter interval, a page without its refresh time, another
+     * page number): (answer, query, request number) => answer.
+     *
+     * @var (\Closure(array<string, mixed>, array<string, string>, int): array<string, mixed>)|null
+     */
+    public ?\Closure $alter = null;
 
     /**
      * @param list<array<string, mixed>> $rows transaction_info objects
@@ -82,9 +89,13 @@ final class FakePaypalHttp implements PaypalHttp
         $page = (int) $q['page'];
         $pages = (int) ceil(count($hits) / $size);
         $slice = array_slice($hits, ($page - 1) * $size, $size);
-        return ['status' => 200, 'body' => json_encode(['transaction_details' => array_map(static fn (array $r): array => ['transaction_info' => $r], $slice),
+        $answer = ['transaction_details' => array_map(static fn (array $r): array => ['transaction_info' => $r], $slice),
             'account_number' => $this->accountNumber, 'start_date' => $q['start_date'], 'end_date' => $q['end_date'], 'last_refreshed_datetime' => $this->refreshed,
-            'page' => $page, 'total_items' => count($hits), 'total_pages' => $pages], JSON_THROW_ON_ERROR)];
+            'page' => $page, 'total_items' => count($hits), 'total_pages' => $pages];
+        if ($this->alter !== null) {
+            $answer = ($this->alter)($answer, $q, count($this->calls));
+        }
+        return ['status' => 200, 'body' => json_encode($answer, JSON_THROW_ON_ERROR)];
     }
 
     /** A connection that never answered (for $fail). */

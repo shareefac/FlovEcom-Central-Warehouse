@@ -126,8 +126,10 @@ final class PaypalFeesR1Test extends StockTestCase
         self::order($this->ef, '2002', '5458', '2026-11-06T08:30:00Z');
     }
 
-    public function testAChargebacksMoneyCountsOnlyBeyondWhatCwHoldsAsARefund(): void
+    public function testAChargebackOnAnOrderWithARefundNotOnPaypalNeedsALook(): void
     {
+        // round 3 (the lead's decision a3, PPF43; it replaces PPF23's offset): a refund in CW that no PayPal refund of the order shows could be
+        // the chargeback's own money (staff marking the order refunded) or money paid besides it (by bank, before the backfill): staff decide
         $this->shops();
         self::order($this->vpg, '1002', '1312002', '2026-11-04T09:00:00Z', 2, 1000); // the shop refunded £10 of it in its admin
         $http = new FakePaypalHttp([
@@ -137,16 +139,25 @@ final class PaypalFeesR1Test extends StockTestCase
         ]);
         self::readPp($http);
         $cb = self::row('2A0000000000000B2');
-        self::assertSame([3000, 1000, 2000, 1000], [(int) $cb['cost_pence'], (int) $cb['refund_offset_pence'], (int) $cb['alloc_pence'], (int) $cb['refund_seen_pence']],
-            'the £30 taken back: £10 of it CW holds as a refund already, £20 counts');
+        self::assertSame(['look', 'refund_not_on_paypal', 3000, 0, 0, 1000, null], [$cb['count_state'], $cb['look_reason'], (int) $cb['cost_pence'],
+            (int) $cb['refund_offset_pence'], (int) $cb['alloc_pence'], (int) $cb['refund_seen_pence'], $cb['alloc_dest']], 'never a guessed offset');
         self::assertSame(1400, (int) self::row('2A0000000000000B3')['alloc_pence'], 'the chargeback fee always counts');
-        self::assertSame(['2026-11-04|fee_cost' => 150, '2026-11-07|fee_cost' => 3400], self::days($this->vpg));
-        // the shop refunds the rest later: the next run takes the whole £30 off (only the fee is left)
+        self::assertSame(['2026-11-04|fee_cost' => 150, '2026-11-07|fee_cost' => 1400], self::days($this->vpg));
+        // PayPal's own refund of the order's £10 read: CW's refund is PayPal's (money out besides the chargeback), the £30 counts whole
+        $http->set([PaypalTx::sale('2A0000000000000B1', '2026-11-04T09:01:00Z', '64.99', '-1.50', '1312002'),
+            PaypalTx::row('2A0000000000000B2', 'T1201', '2026-11-07T12:00:00Z', '-30.00', null, '1312002'),
+            PaypalTx::row('2A0000000000000B3', 'T0106', '2026-11-07T12:05:00Z', '-14.00', null, '1312002'),
+            PaypalTx::refund('2A0000000000000B4', '2026-11-05T12:00:00Z', '-10.00', '0.20', '1312002')]);
+        self::readPp($http);
+        $cb = self::row('2A0000000000000B2');
+        self::assertSame(['counts', 0, 3000, 0], [$cb['count_state'], (int) $cb['refund_offset_pence'], (int) $cb['alloc_pence'], (int) $cb['refund_seen_pence']]);
+        self::assertSame(['2026-11-04|fee_cost' => 150, '2026-11-05|fee_cost' => -20, '2026-11-07|fee_cost' => 4400], self::days($this->vpg));
+        // the shop refunds £20 more in its admin (not on PayPal): a look again
         self::order($this->vpg, '1002', '1312002', '2026-11-04T09:00:00Z', 3, 3000);
         self::readPp($http, '2026-11-24', '2026-11-24');
         $cb = self::row('2A0000000000000B2');
-        self::assertSame([3000, 3000, 0, null], [(int) $cb['refund_offset_pence'], (int) $cb['refund_seen_pence'], (int) $cb['alloc_pence'], $cb['alloc_dest']]);
-        self::assertSame(['2026-11-04|fee_cost' => 150, '2026-11-07|fee_cost' => 1400], self::days($this->vpg));
+        self::assertSame(['look', 'refund_not_on_paypal', 2000, null], [$cb['count_state'], $cb['look_reason'], (int) $cb['refund_seen_pence'], $cb['alloc_dest']]);
+        self::assertSame(['2026-11-04|fee_cost' => 150, '2026-11-05|fee_cost' => -20, '2026-11-07|fee_cost' => 1400], self::days($this->vpg));
         self::assertDaysRebuild($this->vpg);
     }
 
@@ -169,8 +180,8 @@ final class PaypalFeesR1Test extends StockTestCase
         self::assertSame(['look', 'form_lost'], [self::row('2A0000000000000H1')['count_state'], self::row('2A0000000000000H1')['look_reason']]);
         self::assertSame($vpg, self::days($this->vpg), 'nothing moved to Vape and Go');
         self::assertSame([], self::days($this->ef));
-        // two shops' forms for one invoice: a row first read so needs a look, never a guess; a row whose shop was captured before keeps it (the
-        // evidence of the forms it was read by, final review a7, PPF36), read again or not
+        // two shops' forms for one invoice: a row first read so needs a look, never a guess; a row whose shop was captured before needs a look
+        // too when it is read again (a positive overlap is held, never settled by the capture of the forms it was read by: round 3)
         $this->setting('profit.paypal_shops_vapeandgo', '"vapeandgo,electrofag,hayati"');
         $this->setting('profit.paypal_form_hayati', '"^([0-9]{7})-[0-9]{10}$"');
         $http->set([PaypalTx::sale('2A0000000000000E1', '2026-11-06T09:00:00Z', '20.00', '-0.70', '5457'),
@@ -179,9 +190,9 @@ final class PaypalFeesR1Test extends StockTestCase
             PaypalTx::sale('2A0000000000000V2', '2026-11-04T10:01:00Z', '30.00', '-0.90', '1312002')]);
         self::readPp($http);
         self::assertSame(['look', 'form_overlap'], [self::row('2A0000000000000V2')['count_state'], self::row('2A0000000000000V2')['look_reason']]);
-        self::assertSame(['counts', '1001', 'vapeandgo'], [self::row('2A0000000000000V1')['count_state'], self::row('2A0000000000000V1')['match_order_ref'],
-            self::row('2A0000000000000V1')['invoice_shop']]);
-        self::assertSame($vpg, self::days($this->vpg), 'the new row of two forms counts nowhere');
+        self::assertSame(['look', 'form_overlap', 'overlap'], [self::row('2A0000000000000V1')['count_state'], self::row('2A0000000000000V1')['look_reason'],
+            self::row('2A0000000000000V1')['invoice_state']]);
+        self::assertSame([], self::days($this->vpg), 'the rows of two forms count nowhere: nothing moved to another shop');
         self::assertSame(['2026-11-06|fee_cost' => 70], self::days($this->ef), 'Electrofag back on its order');
         self::assertContains('paypal_needs_look', array_column(PaypalFees::health(self::$db, new \DateTimeImmutable(self::PP_NOW . 'Z')), 'kind'));
         self::assertDaysRebuild($this->vpg);
