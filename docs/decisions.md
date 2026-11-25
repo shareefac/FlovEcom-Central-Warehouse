@@ -21565,3 +21565,13 @@ weighs the next delivery against one unit fewer on hand (100 at £2.00 and 100 m
 leaves it out like every row a website booked (RB2: `from_website`). 0081 does not need 0080: the Migrator applies whatever file is pending in
 name order, so either may go live first (Migration0081Test); but a release must hold every file its schema has applied, so whichever goes
 second is built on the first (the kit's re-pin).
+
+**NR9. The shops' connectors must know the three new answers first (amends SC3).** A cancel now answers `cancelled_written_off` per
+unit, and an uncancel `uncancelled_from_write_off` or `uncancelled_after_write_off`. The connector's unit sweep (unit_sweep.php,
+`CW_US_EXPECTED_RESULTS`) logs any answer not in its list as `unit_event_anomaly`, and for an uncancel raises the alert
+`unit_sweep_uncancelled` ("CW did not put the units back"), which would be false. So each shop's connector release adds `cancelled_written_off`
+to its cancel list and the two others to its uncancel list (`uncancelled_after_write_off` logged as a warning, like
+`uncancelled_after_verify`: CW opened a count review) BEFORE this release goes live; the go-live kit's check STOPs while a connector it can
+read lacks them, and until the lead has looked at the others (`CONNECTORS_SEEN`). CW's answers stay honest (no old name reused for a new
+outcome). Until the connectors are ready, the release could also go live with the setting at `verify` (no new answer is ever given), but
+0081 seeds `write_off` (the owner's rule), so the kit orders it: connectors first, then CW.
