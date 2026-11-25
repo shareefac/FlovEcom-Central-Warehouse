@@ -309,7 +309,9 @@ final class PaypalFeesTest extends StockTestCase
         $this->setting('profit.paypal_not_on_order_alarm', '"0.50"');
         self::assertSame(['paypal_needs_look', 'paypal_not_on_order'], array_column(PaypalFees::health(self::$db, new \DateTimeImmutable('2026-11-12T05:20:00Z')), 'kind'));
         // 27 hours later with no run: not read
-        self::assertContains('paypal_not_read', array_column(PaypalFees::health(self::$db, new \DateTimeImmutable('2026-11-26T08:30:00Z')), 'kind'));
+        $late = array_column(PaypalFees::health(self::$db, new \DateTimeImmutable('2026-11-26T08:30:00Z')), 'kind');
+        self::assertContains('paypal_not_read', $late);
+        self::assertContains('paypal_stale', $late, 'PayPal\'s own data complete only up to 25 Nov 02:00: 30 hours old (fix round 1)');
         // the Real profit: Vape and Go's fees line is its PayPal money of the month
         $real = (new ExpenseViews(self::$db))->realProfit('2026-11-01', '2026-11-30', $ch, false);
         self::assertSame([5870, '2026-11-01'], [$real[0]['fees'], $real[0]['fees_from']]);
