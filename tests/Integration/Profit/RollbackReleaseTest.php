@@ -31,8 +31,9 @@ final class RollbackReleaseTest extends IntegrationTestCase
     public const BEFORE_LAST = '0079_expenses.sql';
     /**
      * The migration files the rollback release takes from this release (README of build/A, "Undo"; CW-1155: RR20; the delivery bills: DL22).
-     * PayPal's fees (CW-1172, docs/decisions.md PPF20): the release before is 0e3db2a (the expenses, live), whose last is 0079; the plain rollback
-     * source is 0e3db2a's code with 0080 added, byte for byte (no undo release is built: CW is fixed forward).
+     * PayPal's fees (CW-1172, docs/decisions.md PPF20): the release before is f044e2f (the expense page layout, live 25 Nov 09:49; 0e3db2a
+     * before it), whose last is 0079; the plain rollback source is f044e2f's code with 0080 added, byte for byte (no undo release is built: CW
+     * is fixed forward).
      */
     public const ROLLBACK_FILES = ['0080_paypal_fees.sql'];
 
