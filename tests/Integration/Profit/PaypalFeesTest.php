@@ -32,6 +32,7 @@ final class PaypalFeesTest extends StockTestCase
         'shop' => 'vapeandgo', 'account' => 'vapeandgo'];
     private const PP_NOW = '2026-11-25 05:20:00';
 
+    private int $ef = 0;
     /** @var array<string, string> settings a test changed, put back after it */
     private array $settingsBefore = [];
 
@@ -120,7 +121,9 @@ final class PaypalFeesTest extends StockTestCase
             PaypalTx::row('1A0000000000000B3', 'T0106', '2026-11-07T12:05:00Z', '-14.00', null, '1312002'),
             PaypalTx::row('1A0000000000000B4', 'T0114', '2026-11-07T12:06:00Z', '-12.00', null, '1312002'),
             PaypalTx::sale('1A0000000000000C1', '2026-11-05T10:00:00Z', '20.00', '-0.60', '1312009'),
-            PaypalTx::sale('1A0000000000000D1', '2026-11-05T11:00:00Z', '10.00', '-0.30', null) + ['invoice_id' => 'faaeeb-1234', 'custom_field' => '1234'],
+            PaypalTx::sale('1A0000000000000D1', '2026-11-05T11:00:00Z', '10.00', '-0.30', null),
+            PaypalTx::sale('1A0000000000000D2', '2026-11-05T11:30:00Z', '12.00', '-0.40', null) + ['invoice_id' => 'faaeeb-3090', 'custom_field' => '3090'],
+            PaypalTx::sale('1A0000000000000L1', '2026-11-06T09:00:00Z', '20.00', '-0.70', '5457'),
             PaypalTx::row('1A0000000000000E1', 'T1501', '2026-11-05T11:00:00Z', '-10.00', null, null, 'P'),
             PaypalTx::row('1A0000000000000E2', 'T0403', '2026-11-05T12:00:00Z', '-900.00', null),
             PaypalTx::row('1A0000000000000E3', 'T0107', '2026-11-05T13:00:00Z', '-1.00', null),
@@ -140,6 +143,9 @@ final class PaypalFeesTest extends StockTestCase
         self::order($ch, '1002', '1312002', '2026-11-04T09:00:00Z');
         self::order($ch, '1003', '1312003', null);
         self::order($ch, '1004', '1312004', '2026-11-08T09:59:00Z');
+        // Electrofag: the same PayPal account (the owner, 25 Nov 2026), its order numbers of 4 digits; its fees not switched on yet
+        $this->ef = (int) $this->site('electrofag', 'live')->channelId;
+        self::order($this->ef, '2001', '5457', '2026-11-06T08:59:00Z');
         return [$ch, new FakePaypalHttp(self::month())];
     }
 
@@ -147,7 +153,7 @@ final class PaypalFeesTest extends StockTestCase
     {
         [$ch, $http] = $this->shopWithOrders();
         $r = self::fees()->run(self::system(), self::api($http), '2026-10-31', '2026-11-24', 'backfill');
-        self::assertSame([4, 16, 16, 0], [$r['windows'], $r['read'], $r['new'], $r['changed']]);
+        self::assertSame([4, 18, 18, 0], [$r['windows'], $r['read'], $r['new'], $r['changed']]);
         $rows = self::rows();
         $where = static fn (string $k): array => [$rows[$k]['kind'], $rows[$k]['count_state'], $rows[$k]['match_state'], $rows[$k]['alloc_dest'], $rows[$k]['alloc_order_ref'],
             $rows[$k]['alloc_day'], (int) $rows[$k]['alloc_pence']];
@@ -158,7 +164,11 @@ final class PaypalFeesTest extends StockTestCase
         self::assertSame(['fee', 'counts', 'order', 'order', '1002', '2026-11-07', 1400], $where('1A0000000000000B3|T0106'), 'the chargeback fee');
         self::assertSame(['fee', 'counts', 'order', 'order', '1002', '2026-11-07', 1200], $where('1A0000000000000B4|T0114'), 'the dispute fee');
         self::assertSame(['sale', 'counts', 'no_order', 'shop', null, '2026-11-05', 60], $where('1A0000000000000C1|T0006'), 'a number no CW order has (yet)');
-        self::assertSame(['sale', 'counts', 'no_number', 'shop', null, '2026-11-05', 30], $where('1A0000000000000D1|T0006'), 'another shop\'s invoice form');
+        self::assertSame(['sale', 'counts', 'no_number', 'shop', null, '2026-11-05', 30], $where('1A0000000000000D1|T0006'), 'no invoice: the main shop\'s line');
+        self::assertSame(['sale', 'outside', null, null, null, null, 0], $where('1A0000000000000D2|T0006'), 'Hayati Vapes: kept, never counted');
+        self::assertSame(['hayati', '3090'], [$rows['1A0000000000000D2|T0006']['form_shop'], $rows['1A0000000000000D2|T0006']['order_no']]);
+        self::assertSame(['sale', 'before_start', null, null, null, null, 0], $where('1A0000000000000L1|T0006'), 'Electrofag not switched on: never on Vape and Go');
+        self::assertSame([(string) $this->ef, 'electrofag'], [(string) $rows['1A0000000000000L1|T0006']['shop_channel'], $rows['1A0000000000000L1|T0006']['form_shop']]);
         self::assertSame(['ignore', 'not_counted', null, null, null, null, 0], $where('1A0000000000000E1|T1501'), 'a hold');
         self::assertSame(['ignore', 'not_counted', null, null, null, null, 0], $where('1A0000000000000E2|T0403'), 'money to the bank');
         self::assertSame(['unknown', 'look', null, null, null, null, 0], $where('1A0000000000000E3|T0107'), 'never guessed');
@@ -193,13 +203,13 @@ final class PaypalFeesTest extends StockTestCase
         $days = self::days($ch);
         $hist = (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn_history');
         $r = self::fees()->run(self::system(), self::api($http), '2026-10-31', '2026-11-24', 'backfill');
-        self::assertSame([16, 0, 0, 0], [$r['read'], $r['new'], $r['changed'], $r['allocated']], 'the same rows again: nothing new, changed or moved');
+        self::assertSame([18, 0, 0, 0], [$r['read'], $r['new'], $r['changed'], $r['allocated']], 'the same rows again: nothing new, changed or moved');
         self::assertSame($days, self::days($ch));
         self::assertSame($hist, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn_history'));
-        self::assertSame(16, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn'));
+        self::assertSame(18, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn'));
         // PayPal says the pending sale is done now: the same row, changed in place with its history, its fee on its order's day
         $month = self::month();
-        $month[11] = PaypalTx::sale('1A0000000000000F1', '2026-11-08T10:00:00Z', '25.00', '-0.50', '1312004', 'S');
+        $month[13] = PaypalTx::sale('1A0000000000000F1', '2026-11-08T10:00:00Z', '25.00', '-0.50', '1312004', 'S');
         $http->set($month);
         $r = self::fees()->run(self::system(), self::api($http), '2026-11-02', '2026-11-24', 'nightly');
         self::assertSame([0, 1, 1], [$r['new'], $r['changed'], $r['allocated']]);
@@ -212,7 +222,7 @@ final class PaypalFeesTest extends StockTestCase
         $h = self::$db->one("SELECT before_json, after_json FROM paypal_txn_history WHERE txn_row = ? AND what = 'changed'", [(int) $row['id']]);
         self::assertSame(['P', 'S'], [json_decode((string) $h['before_json'], true)['status'], json_decode((string) $h['after_json'], true)['status']]);
         self::assertSame(50, self::days($ch)['2026-11-08|fee_cost'] ?? null);
-        self::assertSame(16, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn'), 'never a second row');
+        self::assertSame(18, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn'), 'never a second row');
         self::assertDaysRebuild($ch);
     }
 
@@ -260,8 +270,8 @@ final class PaypalFeesTest extends StockTestCase
         self::assertSame(['failed', 1], [(string) self::$db->value('SELECT state FROM paypal_run ORDER BY id DESC LIMIT 1'),
             (int) self::$db->value('SELECT windows FROM paypal_run ORDER BY id DESC LIMIT 1')]);
         self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM paypal_txn WHERE day >= '2026-11-07'"), 'nothing of the failed window');
-        self::assertSame(9, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn'), 'the first window (31 Oct - 6 Nov) is stored whole');
-        self::assertSame(9, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn WHERE due = 1'), 'its rows due: decided by the next run');
+        self::assertSame(11, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn'), 'the first window (31 Oct - 6 Nov) is stored whole');
+        self::assertSame(11, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn WHERE due = 1'), 'its rows due: decided by the next run');
         self::assertSame([], self::days($ch), 'nothing counted before it is decided');
         $kinds = array_column(PaypalFees::health(self::$db, new \DateTimeImmutable(self::PP_NOW . 'Z')), 'kind');
         self::assertContains('paypal_failed', $kinds);
@@ -308,5 +318,50 @@ final class PaypalFeesTest extends StockTestCase
         $this->setting('profit.paypal_from_vapeandgo', '"2026-11-01"');
         self::fees()->refused('vapeandgo', 'the PayPal key file of vapeandgo is missing: nothing was read');
         self::assertContains('paypal_failed', $kinds());
+    }
+
+    public function testTheSharedAccountPutsEachShopsRowsOnItsOwnShop(): void
+    {
+        [$ch, $http] = $this->shopWithOrders();
+        $month = self::month();
+        $month[] = PaypalTx::sale('1A0000000000000L2', '2026-11-06T10:00:00Z', '30.00', '-0.90', '5999'); // an Electrofag number no CW order has
+        $http->set($month);
+        self::fees()->run(self::system(), self::api($http), '2026-10-31', '2026-11-24', 'backfill');
+        $vpg = self::days($ch);
+        self::assertSame([], self::days($this->ef), 'Electrofag not switched on: nothing counted, and nothing of it on Vape and Go');
+        // Electrofag switched on from 1 Nov: the next run puts its rows on its own order and its own "not on an order" line
+        $this->setting('profit.paypal_from_electrofag', '"2026-11-01"');
+        $r = self::fees()->run(self::system(), self::api($http), '2026-11-20', '2026-11-24', 'nightly');
+        self::assertSame(2, $r['allocated']);
+        $rows = self::rows();
+        self::assertSame(['counts', 'order', 'order', '2001', 70], [$rows['1A0000000000000L1|T0006']['count_state'], $rows['1A0000000000000L1|T0006']['match_state'],
+            $rows['1A0000000000000L1|T0006']['alloc_dest'], $rows['1A0000000000000L1|T0006']['alloc_order_ref'], (int) $rows['1A0000000000000L1|T0006']['alloc_pence']]);
+        self::assertSame(['no_order', 'shop', (string) $this->ef], [$rows['1A0000000000000L2|T0006']['match_state'], $rows['1A0000000000000L2|T0006']['alloc_dest'],
+            (string) $rows['1A0000000000000L2|T0006']['alloc_channel']]);
+        self::assertSame(['2026-11-06|fee_cost' => 70, '2026-11-06|fee_other' => 90], self::days($this->ef));
+        self::assertSame($vpg, self::days($ch), 'Vape and Go\'s days did not move');
+        self::assertSame('outside', $rows['1A0000000000000D2|T0006']['count_state'], 'Hayati Vapes still never counted');
+        self::assertDaysRebuild($ch);
+        self::assertDaysRebuild($this->ef);
+        // the account's shops changed (Electrofag taken off the list): every row decided again once; Electrofag's numbers are unrecognised now
+        // and go on the main shop's line (a setting fault the "not on an order" alarm shows), and back when it is put back
+        $this->setting('profit.paypal_shops_vapeandgo', '"vapeandgo,hayati"');
+        self::fees()->run(self::system(), self::api($http), '2026-11-20', '2026-11-24', 'nightly');
+        self::assertSame([], self::days($this->ef));
+        self::assertSame(90 + 70 + 90, self::days($ch)['2026-11-05|fee_other'] + self::days($ch)['2026-11-06|fee_other']);
+        $this->setting('profit.paypal_shops_vapeandgo', '"vapeandgo,electrofag,hayati"');
+        self::fees()->run(self::system(), self::api($http), '2026-11-20', '2026-11-24', 'nightly');
+        self::assertSame(['2026-11-06|fee_cost' => 70, '2026-11-06|fee_other' => 90], self::days($this->ef));
+        self::assertSame($vpg, self::days($ch));
+        self::assertDaysRebuild($ch);
+        // a form that is not a pattern with one (part): the run is refused, nothing decided, the alert says it
+        $this->setting('profit.paypal_form_hayati', '"faaeeb-[0-9]+"');
+        try {
+            self::fees()->run(self::system(), self::api($http), '2026-11-20', '2026-11-24', 'nightly');
+            self::fail('refused');
+        } catch (CwException $e) {
+            self::assertSame('paypal_bad_form', $e->errorCode);
+        }
+        self::assertContains('paypal_failed', array_column(PaypalFees::health(self::$db, new \DateTimeImmutable(self::PP_NOW . 'Z')), 'kind'));
     }
 }

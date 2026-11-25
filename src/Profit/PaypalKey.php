@@ -7,9 +7,10 @@ namespace CW\Profit;
 use CW\CwException;
 
 /**
- * The shop's PayPal REST app key, read from its key file on the CW server (docs/decisions.md PF11; the owner, 24 Nov 2026: CW uses the
- * shop's existing key). The file's path is app.env's `paypal_key_file_<shop code>` (or CW_PAYPAL_KEY_FILE_<SHOP>); it is a JSON object of
- * exactly client_id, client_secret, api_base, shop and account, owned by root, readable by its owner and group only and written by nobody
+ * A PayPal account's REST app key, read from its key file on the CW server (docs/decisions.md PF11; the owner, 24 Nov 2026: CW uses the
+ * shop's existing key). The file's path is app.env's `paypal_key_file_<account>` (or CW_PAYPAL_KEY_FILE_<ACCOUNT>); it is a JSON object of
+ * exactly client_id, client_secret, api_base, shop (the account's main shop: PaypalFees::run refuses a key whose shop is not the account's
+ * main shop) and account, owned by root, readable by its owner and group only and written by nobody
  * else (root:www-data 0640 as the go-live kit places it; 0600, 0440 and 0400 pass too). It is never in git, never printed, never logged: a
  * refusal names what is wrong with the file, never what it holds. CW calls only POST /v1/oauth2/token and GET /v1/reporting/transactions
  * with it (PaypalApi::PATHS).
@@ -30,22 +31,22 @@ final class PaypalKey
     ) {
     }
 
-    /** The app.env key of a shop's key file. */
-    public static function configKey(string $shop): string
+    /** The app.env key of an account's key file. */
+    public static function configKey(string $account): string
     {
-        return 'paypal_key_file_' . $shop;
+        return 'paypal_key_file_' . $account;
     }
 
     /**
-     * The key of $shop from its file. Refused (403 paypal_key_refused) when the file is missing, not a plain file, has another owner or a
-     * mode others can read or anyone but its owner can write, is not the JSON above, or is for another shop.
+     * The key of $account from its file. Refused (403 paypal_key_refused) when the file is missing, not a plain file, has another owner or a
+     * mode others can read or anyone but its owner can write, is not the JSON above, or is for another account.
      */
-    public static function load(?string $path, string $shop): self
+    public static function load(?string $path, string $account): self
     {
-        $no = static fn (string $why): CwException => new CwException('paypal_key_refused', "the PayPal key file of {$shop} {$why}: nothing was read", 403,
-            ['shop' => $shop]);
+        $no = static fn (string $why): CwException => new CwException('paypal_key_refused', "the PayPal key file of {$account} {$why}: nothing was read", 403,
+            ['account' => $account]);
         if ($path === null || $path === '' || $path[0] !== '/') {
-            throw $no('is not set (app.env ' . self::configKey($shop) . ': a full path)');
+            throw $no('is not set (app.env ' . self::configKey($account) . ': a full path)');
         }
         clearstatcache(true, $path);
         $st = @lstat($path);
@@ -73,7 +74,7 @@ final class PaypalKey
         } catch (\JsonException) {
             throw $no('is not JSON');
         }
-        return self::fromArray(is_array($j) ? $j : [], $shop);
+        return self::fromArray(is_array($j) ? $j : [], $account);
     }
 
     /**
@@ -81,10 +82,10 @@ final class PaypalKey
      *
      * @param array<mixed> $j
      */
-    public static function fromArray(#[\SensitiveParameter] array $j, string $shop): self
+    public static function fromArray(#[\SensitiveParameter] array $j, string $account): self
     {
-        $no = static fn (string $why): CwException => new CwException('paypal_key_refused', "the PayPal key file of {$shop} {$why}: nothing was read", 403,
-            ['shop' => $shop]);
+        $no = static fn (string $why): CwException => new CwException('paypal_key_refused', "the PayPal key file of {$account} {$why}: nothing was read", 403,
+            ['account' => $account]);
         $keys = array_keys($j);
         sort($keys);
         $want = self::FIELDS;
@@ -103,11 +104,11 @@ final class PaypalKey
         if (!in_array($j['api_base'], self::HOSTS, true)) {
             throw $no('names an api_base that is not PayPal\'s (' . implode(', ', self::HOSTS) . ')');
         }
-        if (preg_match('/^[a-z][a-z0-9_]{0,31}$/D', $j['account']) !== 1) {
-            throw $no('names an account that is not a short lower-case name');
+        if (preg_match('/^[a-z][a-z0-9_]{0,31}$/D', $j['account']) !== 1 || preg_match('/^[a-z][a-z0-9_]{0,31}$/D', $j['shop']) !== 1) {
+            throw $no('names an account or a shop that is not a short lower-case name');
         }
-        if ($j['shop'] !== $shop) {
-            throw $no('is for another shop');
+        if ($j['account'] !== $account) {
+            throw $no('is for another account');
         }
         return new self($j['client_id'], $j['client_secret'], $j['api_base'], $j['shop'], $j['account']);
     }

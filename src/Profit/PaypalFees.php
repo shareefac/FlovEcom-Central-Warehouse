@@ -47,13 +47,20 @@ final class PaypalFees
     public const STATUS_COUNTS = ['S', 'V'];
     /** What PayPal says of a row, compared on a re-read (a change of one of them is a change of the row, PF2). */
     private const FACTS = ['ref_txn_id', 'ref_type', 'status', 'initiated_at', 'pp_updated_at', 'day', 'currency', 'amount_pence', 'fee_currency', 'fee_pence',
-        'invoice_form', 'custom_form', 'order_no'];
+        'invoice_state', 'invoice_ref', 'custom_state', 'custom_ref'];
     /** Where a row counts (decide()'s outcome). */
-    private const PLACE = ['count_state', 'look_reason', 'match_state', 'candidates', 'alloc_dest', 'alloc_channel', 'alloc_order_ref', 'alloc_day', 'alloc_pence'];
+    private const PLACE = ['count_state', 'look_reason', 'form_shop', 'order_no', 'match_state', 'candidates', 'shop_channel', 'alloc_dest', 'alloc_channel',
+        'alloc_order_ref', 'alloc_day', 'alloc_pence'];
     private const RETRY = 'paypal_retry';
 
     /** @var \Closure(): \DateTimeImmutable */
     private readonly \Closure $clock;
+    /** The run in progress (rematch() records the forms it decides by on it). */
+    private ?int $runId = null;
+    /** How long the last rematch() of decideAll() took (the full-size timing, PF15). */
+    public float $lastRematchSec = 0.0;
+    /** @var array<string, float> its two parts (the orders reached CW since; the first fee day) */
+    public array $rematchParts = [];
 
     /**
      * @param (\Closure(): \DateTimeImmutable)|null $clock CW's now (tests move it)
@@ -72,6 +79,61 @@ final class PaypalFees
         $v = $db->value('SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ?', ['profit.paypal_from_' . $shopCode]);
         $d = $v === null ? null : json_decode((string) $v, true);
         return is_string($d) && preg_match('/^20\d{2}-\d{2}-\d{2}$/D', $d) === 1 ? $d : null;
+    }
+
+    /**
+     * The shops a PayPal account takes payments for (profit.paypal_shops_<account>: shop codes separated by commas, the FIRST the account's
+     * main shop, whose "not on an order" line takes the money no shop's form claims), each with how its order number looks in a PayPal invoice
+     * (profit.paypal_form_<shop>: a pattern with ONE (part), the number). The owner, 25 Nov 2026: ONE account takes Vape and Go's, Electrofag's
+     * and Hayati Vapes' payments (docs/decisions.md PF21). A code CW has no shop of (hayati: a WooCommerce shop) is a shop outside CW: its rows
+     * are kept, never counted (id null). [] when the setting is missing or names none; a shop without a pattern that compiles is refused.
+     *
+     * @return list<array{id: ?int, code: string, name: string, form: string}>
+     */
+    public static function accountShops(Db $db, string $account): array
+    {
+        $codes = self::text($db, 'profit.paypal_shops_' . $account);
+        if ($codes === null || $codes === '') {
+            return [];
+        }
+        $out = [];
+        foreach (array_values(array_unique(array_map('trim', explode(',', $codes)))) as $code) {
+            if (preg_match('/^[a-z][a-z0-9_]{0,31}$/D', $code) !== 1) {
+                throw new CwException('paypal_bad_shops', "profit.paypal_shops_{$account} names a shop code that is not one: nothing read", 422);
+            }
+            $form = self::text($db, 'profit.paypal_form_' . $code);
+            // a pattern from ^ to $ with exactly one (part) that compiles: anything else refuses the run (never a guess at whose a row is)
+            if ($form === null || preg_match('/^\^[^()]*\([^()]+\)[^()]*\$$/D', $form) !== 1 || @preg_match('/' . str_replace('/', '\/', $form) . '/D', '') === false) {
+                throw new CwException('paypal_bad_form', "the order-number pattern of {$code} (profit.paypal_form_{$code}) is missing or not a pattern with one (part): nothing read", 422);
+            }
+            $c = $db->one('SELECT id, code, name FROM channel WHERE code = ?', [$code]);
+            $out[] = ['id' => $c === null ? null : (int) $c['id'], 'code' => $code, 'name' => $c === null ? $code : (string) $c['name'],
+                'form' => '/' . str_replace('/', '\/', $form) . '/D'];
+        }
+        if ($out[0]['id'] === null) {
+            throw new CwException('paypal_bad_shops', "the main shop of the PayPal account {$account} ({$out[0]['code']}) is not a shop CW has: nothing read", 422);
+        }
+        return $out;
+    }
+
+    /** The shops and forms an account decides by, as a short fingerprint (a change re-decides every row of the account once: rematch()). */
+    public static function formsSig(array $shops): string
+    {
+        return substr(hash('sha256', json_encode(array_map(static fn (array $s): array => [$s['code'], $s['id'], $s['form']], $shops), JSON_THROW_ON_ERROR)), 0, 16);
+    }
+
+    private static function text(Db $db, string $key): ?string
+    {
+        $v = $db->value('SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ?', [$key]);
+        $d = $v === null ? null : json_decode((string) $v, true);
+        return is_string($d) ? $d : null;
+    }
+
+    /** @return list<string> every account with a shops setting (profit.paypal_shops_<account>), in name order */
+    public static function accounts(Db $db): array
+    {
+        return array_map(static fn (mixed $k): string => substr((string) $k, strlen('profit.paypal_shops_')),
+            $db->column("SELECT setting_key FROM app_setting WHERE setting_key LIKE 'profit.paypal\\_shops\\_%' ORDER BY setting_key"));
     }
 
     /** How many days back the nightly reads again (profit.paypal_reread_days, 1 to 31). */
@@ -99,7 +161,7 @@ final class PaypalFees
      * A window that cannot be read whole stores nothing of itself and ends the run as failed (the windows before it stay stored, their rows
      * due until decided); a decision that cannot be made now (an order busy) leaves its rows due for the next run.
      *
-     * @return array{run: int, windows: int, pages: int, read: int, new: int, changed: int, allocated: int, refreshed: ?string}
+     * @return array{run: int, windows: int, pages: int, read: int, new: int, changed: int, allocated: int, refreshed: ?string, seconds: array<string, float>}
      */
     public function run(Caller $caller, PaypalApi $api, string $fromDay, string $toDay, string $kind): array
     {
@@ -107,8 +169,16 @@ final class PaypalFees
         if (!in_array($kind, ['nightly', 'backfill'], true) || !self::isDay($fromDay) || !self::isDay($toDay) || $fromDay > $toDay) {
             throw new CwException('paypal_bad_days', 'a run reads whole UK days, the first not after the last', 422);
         }
-        $shop = $this->shop($api->shop());
         $account = $api->account();
+        $shops = self::accountShops($this->db, $account);
+        if ($shops === []) {
+            throw new CwException('paypal_no_shops', "the PayPal account {$account} serves no shop CW has (Settings › Profit: profit.paypal_shops_{$account}): nothing read", 422);
+        }
+        // the key file names the account's main shop: one for another shop is refused (a key placed for the wrong account; PF11)
+        if ($shops[0]['code'] !== $api->shop()) {
+            throw new CwException('paypal_key_refused', "the PayPal key of {$account} is for {$api->shop()}, the account's main shop is {$shops[0]['code']}: nothing read", 403);
+        }
+        $shop = $shops[0];
         return $this->locked($account, function () use ($caller, $api, $fromDay, $toDay, $kind, $shop, $account): array {
             $now = Clock::db(($this->clock)());
             // a run of this account that died (no other one can be running: this one holds the account's lock) is said to have failed; its
@@ -117,15 +187,23 @@ final class PaypalFees
                 [$now, $account]);
             $runId = $this->db->insert('INSERT INTO paypal_run (account, channel_id, kind, from_day, to_day, actor, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
                 [$account, $shop['id'], $kind, $fromDay, $toDay, $caller->actor, $now]);
-            $sum = ['run' => $runId, 'windows' => 0, 'pages' => 0, 'read' => 0, 'new' => 0, 'changed' => 0, 'allocated' => 0, 'refreshed' => null];
+            $this->runId = $runId;
+            $sum = ['run' => $runId, 'windows' => 0, 'pages' => 0, 'read' => 0, 'new' => 0, 'changed' => 0, 'allocated' => 0, 'refreshed' => null,
+                'seconds' => ['paypal' => 0.0, 'parse' => 0.0, 'store' => 0.0, 'decide' => 0.0]];
             try {
                 foreach (self::windows($fromDay, $toDay, ($this->clock)()) as [$a, $b]) {
+                    $t = microtime(true);
                     $w = $api->window($a, $b);
+                    $sum['seconds']['paypal'] += microtime(true) - $t;
+                    $t = microtime(true);
                     $rows = [];
                     foreach ($w['rows'] as $i => $ti) {
                         $rows[] = PaypalRow::parse($ti, $i + 1);
                     }
+                    $sum['seconds']['parse'] += microtime(true) - $t;
+                    $t = microtime(true);
                     $s = $this->store($runId, $account, $shop['id'], $rows, $caller);
+                    $sum['seconds']['store'] += microtime(true) - $t;
                     $sum['windows']++;
                     $sum['pages'] += $w['pages'];
                     $sum['read'] += count($rows);
@@ -134,11 +212,17 @@ final class PaypalFees
                     $sum['refreshed'] = $w['refreshed'] ?? $sum['refreshed'];
                     $this->progress($runId, $sum);
                 }
+                $t = microtime(true);
                 $sum['allocated'] = $this->decideAll($caller, $account, $runId);
+                $sum['seconds']['decide'] = microtime(true) - $t;
+                $sum['seconds']['rematch'] = $this->lastRematchSec;
+                $sum['seconds'] = array_map(static fn (float $x): float => round($x, 2), $sum['seconds']);
             } catch (CwException | \PDOException $e) {
                 $why = $e instanceof CwException ? $e->getMessage() : 'database error ' . (Db::driverCode($e) ?? 'unknown');
                 $this->finish($runId, $sum, 'failed', mb_substr($why, 0, 255));
                 throw $e;
+            } finally {
+                $this->runId = null;
             }
             $this->finish($runId, $sum, 'ok', null);
             return $sum;
@@ -154,7 +238,9 @@ final class PaypalFees
     public function decideAll(Caller $caller, string $account, ?int $runId): int
     {
         self::authorise($caller);
+        $t = microtime(true);
         $this->rematch($account);
+        $this->lastRematchSec = microtime(true) - $t;
         $changed = 0;
         $seen = [];
         while (true) {
@@ -177,37 +263,67 @@ final class PaypalFees
     }
 
     /**
-     * A run that could not start because the shop's key was refused (missing, wrong mode, another shop's: PF11), recorded as a failed run of
-     * the shop (account: the shop's code; nothing read) so the health alert says it at once (paypal_failed). Never the key's content.
+     * A run that could not start because the account's key was refused (missing, wrong mode, another account's: PF11), recorded as a failed
+     * run of the account (its main shop; nothing read) so the health alert says it at once (paypal_failed). Never the key's content.
      */
-    public function refused(string $shopCode, string $why): void
+    public function refused(string $account, string $why): void
     {
-        $ch = $this->db->value('SELECT id FROM channel WHERE code = ?', [$shopCode]);
-        if ($ch === null || preg_match('/^[a-z][a-z0-9_]{0,31}$/D', $shopCode) !== 1) {
+        try {
+            $shops = preg_match('/^[a-z][a-z0-9_]{0,31}$/D', $account) === 1 ? self::accountShops($this->db, $account) : [];
+        } catch (CwException) {
+            $shops = []; // its shops' settings are wrong too: the run itself says so
+        }
+        if ($shops === []) {
             return;
         }
         $now = Clock::db(($this->clock)());
         $today = $this->today();
         $this->db->exec("INSERT INTO paypal_run (account, channel_id, kind, from_day, to_day, state, error, actor, started_at, finished_at) "
-            . "VALUES (?, ?, 'nightly', ?, ?, 'failed', ?, 'system:paypal_fees', ?, ?)", [$shopCode, (int) $ch, $today, $today, mb_substr($why, 0, 255), $now, $now]);
+            . "VALUES (?, ?, 'nightly', ?, ?, 'failed', ?, 'system:paypal_fees', ?, ?)", [$account, $shops[0]['id'], $today, $today, mb_substr($why, 0, 255), $now, $now]);
     }
 
     /**
-     * Rows decided before whose decision may be another now: a number no CW order had (or two had) that a CW order of the shop now has, and
-     * rows the shop's first fee day now puts on the other side (the setting changed). Marked due (they are decided next).
+     * Rows decided before whose decision may be another now: a number no CW order had (or two had) that a CW order of one of the account's
+     * shops now has, and rows a shop's first fee day now puts on the other side (the setting changed). Marked due (they are decided next).
+     * Plain indexed reads, then marks by id (MySQL planned an UPDATE with a correlated EXISTS row by row: 12 s at the real size; PF15).
      */
     public function rematch(string $account): int
     {
-        $n = $this->db->exec("UPDATE paypal_txn t SET t.due = 1 WHERE t.account = ? AND t.due = 0 AND t.match_state IN ('no_order', 'ambiguous') "
-            . 'AND EXISTS (SELECT 1 FROM sale_order o WHERE o.channel_id = t.channel_id AND o.order_no = t.order_no)', [$account]);
-        foreach ($this->db->all('SELECT DISTINCT t.channel_id, c.code FROM paypal_txn t JOIN channel c ON c.id = t.channel_id WHERE t.account = ?', [$account]) as $r) {
+        $t0 = microtime(true);
+        $shops = self::accountShops($this->db, $account);
+        $n = 0;
+        // the shops or their forms changed since the last ok run decided: every row of the account decided again, once (PF21)
+        $sig = self::formsSig($shops);
+        $last = $this->db->value("SELECT forms_sig FROM paypal_run WHERE account = ? AND state = 'ok' AND forms_sig IS NOT NULL ORDER BY id DESC LIMIT 1", [$account]);
+        if ($last !== null && $last !== $sig) {
+            $n += $this->db->exec('UPDATE paypal_txn SET due = 1 WHERE account = ? AND due = 0', [$account]);
+        }
+        if ($this->runId !== null) {
+            $this->db->exec('UPDATE paypal_run SET forms_sig = ? WHERE id = ?', [$sig, $this->runId]);
+        }
+        $waiting = $this->db->all("SELECT id, shop_channel, order_no FROM paypal_txn WHERE account = ? AND match_state IN ('no_order', 'ambiguous') AND due = 0 "
+            . 'AND order_no IS NOT NULL ORDER BY id', [$account]);
+        $found = self::orders($this->db, array_map(static fn (array $r): array => [(int) $r['shop_channel'], (string) $r['order_no']], $waiting));
+        $ids = [];
+        foreach ($waiting as $r) {
+            if (isset($found[(int) $r['shop_channel'] . '|' . $r['order_no']])) {
+                $ids[] = (int) $r['id'];
+            }
+        }
+        foreach (array_chunk($ids, 1000) as $chunk) {
+            $n += $this->db->exec('UPDATE paypal_txn SET due = 1 WHERE due = 0 AND id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')', $chunk);
+        }
+        $this->rematchParts = ['orders' => round(microtime(true) - $t0, 3)];
+        $t0 = microtime(true);
+        foreach ($this->db->all('SELECT DISTINCT t.shop_channel, c.code FROM paypal_txn t JOIN channel c ON c.id = t.shop_channel WHERE t.account = ?', [$account]) as $r) {
             $from = self::feesFrom($this->db, (string) $r['code']);
             $n += $from === null
-                ? $this->db->exec("UPDATE paypal_txn SET due = 1 WHERE account = ? AND channel_id = ? AND due = 0 AND count_state IN ('counts', 'pending')",
-                    [$account, (int) $r['channel_id']])
-                : $this->db->exec("UPDATE paypal_txn SET due = 1 WHERE account = ? AND channel_id = ? AND due = 0 AND ((count_state = 'before_start' AND day >= ?) "
-                    . "OR (count_state IN ('counts', 'pending') AND day < ?))", [$account, (int) $r['channel_id'], $from, $from]);
+                ? $this->db->exec("UPDATE paypal_txn SET due = 1 WHERE account = ? AND shop_channel = ? AND due = 0 AND count_state IN ('counts', 'pending')",
+                    [$account, (int) $r['shop_channel']])
+                : $this->db->exec("UPDATE paypal_txn SET due = 1 WHERE account = ? AND shop_channel = ? AND due = 0 AND ((count_state = 'before_start' AND day >= ?) "
+                    . "OR (count_state IN ('counts', 'pending') AND day < ?))", [$account, (int) $r['shop_channel'], $from, $from]);
         }
+        $this->rematchParts['switch'] = round(microtime(true) - $t0, 3);
         return $n;
     }
 
@@ -266,12 +382,13 @@ final class PaypalFees
     }
 
     /**
-     * The health alert's PayPal problems (docs/decisions.md PF14), per shop switched on (its first fee day set and reached):
-     *   paypal_not_read      no ok run of the shop's account for STALE_HOURS (or none ever)
-     *   paypal_failed        the shop's newest run failed (its reason in CW's words)
+     * The health alert's PayPal problems (docs/decisions.md PF14), per PayPal account with a shop switched on (its first fee day set and
+     * reached), said in the account's main shop:
+     *   paypal_not_read      no ok run of the account for STALE_HOURS (or none ever)
+     *   paypal_failed        the account's newest run failed (its reason in CW's words)
      *   paypal_needs_look    rows not understood (an unknown code, another currency, a fee on an ignored row, a wrong sign, an unknown status)
-     *                        since the shop's first fee day: never counted until a person looks
-     *   paypal_not_on_order  a day of the last re-read days whose money on no CW order is above the setting
+     *                        since the account's first fee day: never counted until a person looks
+     *   paypal_not_on_order  a day of the last re-read days whose money on no CW order (the main shop's line) is above the setting
      *
      * @return list<array{key: string, kind: string, channel: string, channel_id: int, name: string, mode: null, detail: string, data: array<string, int|string|null>}>
      */
@@ -282,42 +399,53 @@ final class PaypalFees
         }
         $today = ReportRefresh::ukDay(Clock::db($now));
         $out = [];
-        foreach ($db->all('SELECT id, code, name FROM channel ORDER BY id') as $c) {
-            $from = self::feesFrom($db, (string) $c['code']);
-            if ($from === null || $from > $today) {
+        foreach (self::accounts($db) as $account) {
+            try {
+                $shops = self::accountShops($db, $account);
+            } catch (CwException $e) {
+                // the account's shops or forms are set wrong: no row of it can be put on a shop, so it is said at once
+                $out[] = ['key' => 'paypal_failed:' . $account, 'kind' => 'paypal_failed', 'detail' => $e->getMessage(), 'channel' => null, 'channel_id' => null,
+                    'name' => 'PayPal ' . $account, 'mode' => null, 'data' => ['account' => $account, 'run' => 0, 'error' => $e->getMessage()]];
                 continue;
             }
-            $ch = (int) $c['id'];
-            $base = ['channel' => (string) $c['code'], 'channel_id' => $ch, 'name' => (string) $c['name'], 'mode' => null];
-            $last = $db->value("SELECT MAX(finished_at) FROM paypal_run WHERE channel_id = ? AND state = 'ok'", [$ch]);
+            $froms = array_filter(array_map(static fn (array $s): ?string => self::feesFrom($db, $s['code']), $shops), static fn (?string $d): bool => $d !== null && $d <= $today);
+            if ($shops === [] || $froms === []) {
+                continue;
+            }
+            $from = min($froms);
+            $main = $shops[0];
+            $ch = $main['id'];
+            $base = ['channel' => $main['code'], 'channel_id' => $ch, 'name' => $main['name'], 'mode' => null];
+            $last = $db->value("SELECT MAX(finished_at) FROM paypal_run WHERE account = ? AND state = 'ok'", [$account]);
             $hours = $last === null ? null : (int) floor(($now->getTimestamp() - Clock::fromDb((string) $last)->getTimestamp()) / 3600);
             if ($hours === null || $hours >= self::STALE_HOURS) {
-                $out[] = ['key' => 'paypal_not_read:' . $c['code'], 'kind' => 'paypal_not_read', 'detail' => $hours === null
-                    ? sprintf('%s: PayPal has never been read (its fees count from %s)', $c['name'], $from)
-                    : sprintf('%s: PayPal not read for %d hours (limit %d): its fees are not up to date', $c['name'], $hours, self::STALE_HOURS),
-                    'data' => ['hours' => $hours, 'limit' => self::STALE_HOURS, 'from' => $from]] + $base;
+                $out[] = ['key' => 'paypal_not_read:' . $account, 'kind' => 'paypal_not_read', 'detail' => $hours === null
+                    ? sprintf('%s: PayPal (account %s) has never been read (its fees count from %s)', $main['name'], $account, $from)
+                    : sprintf('%s: PayPal (account %s) not read for %d hours (limit %d): its fees are not up to date', $main['name'], $account, $hours, self::STALE_HOURS),
+                    'data' => ['account' => $account, 'hours' => $hours, 'limit' => self::STALE_HOURS, 'from' => $from]] + $base;
             }
             // the newest run failed (PayPal not read whole, an order busy, the key refused): said at once, with CW's own words of why
-            $newest = $db->one('SELECT id, state, error, finished_at FROM paypal_run WHERE channel_id = ? ORDER BY id DESC LIMIT 1', [$ch]);
+            $newest = $db->one('SELECT id, state, error, finished_at FROM paypal_run WHERE account = ? ORDER BY id DESC LIMIT 1', [$account]);
             if ($newest !== null && $newest['state'] === 'failed') {
-                $out[] = ['key' => 'paypal_failed:' . $c['code'], 'kind' => 'paypal_failed', 'detail' => sprintf('%s: the last PayPal run failed: %s', $c['name'],
-                    (string) $newest['error']), 'data' => ['run' => (int) $newest['id'], 'error' => (string) $newest['error']]] + $base;
+                $out[] = ['key' => 'paypal_failed:' . $account, 'kind' => 'paypal_failed', 'detail' => sprintf('%s: the last PayPal run (account %s) failed: %s', $main['name'],
+                    $account, (string) $newest['error']), 'data' => ['account' => $account, 'run' => (int) $newest['id'], 'error' => (string) $newest['error']]] + $base;
             }
-            $look = $db->one("SELECT COUNT(*) AS n, MAX(day) AS newest FROM paypal_txn WHERE channel_id = ? AND count_state = 'look' AND day >= ?", [$ch, $from]) ?? [];
+            $look = $db->one("SELECT COUNT(*) AS n, MAX(day) AS newest FROM paypal_txn WHERE account = ? AND count_state = 'look' AND day >= ?", [$account, $from]) ?? [];
             if ((int) ($look['n'] ?? 0) > 0) {
-                $out[] = ['key' => 'paypal_needs_look:' . $c['code'], 'kind' => 'paypal_needs_look', 'detail' => sprintf('%s: %d PayPal rows CW does not understand (newest %s): '
-                    . 'not counted until they are looked at (bin/paypal_fees.php --status)', $c['name'], (int) $look['n'], (string) $look['newest']),
-                    'data' => ['count' => (int) $look['n'], 'newest' => (string) $look['newest']]] + $base;
+                $out[] = ['key' => 'paypal_needs_look:' . $account, 'kind' => 'paypal_needs_look', 'detail' => sprintf('%s: %d PayPal rows CW does not understand (newest %s): '
+                    . 'not counted until they are looked at (bin/paypal_fees.php --status)', $main['name'], (int) $look['n'], (string) $look['newest']),
+                    'data' => ['account' => $account, 'count' => (int) $look['n'], 'newest' => (string) $look['newest']]] + $base;
             }
             $alarm = self::alarmPence($db);
             $since = (new \DateTimeImmutable($today))->modify('-' . self::rereadDays($db) . ' days')->format('Y-m-d');
-            $over = $db->all("SELECT alloc_day, SUM(alloc_pence) AS p FROM paypal_txn WHERE alloc_channel = ? AND alloc_dest = 'shop' AND alloc_day >= ? AND alloc_day >= ? "
-                . 'GROUP BY alloc_day HAVING p > ? ORDER BY alloc_day', [$ch, $since, $from, $alarm]);
+            $over = $db->all("SELECT alloc_day, SUM(alloc_pence) AS p FROM paypal_txn WHERE account = ? AND alloc_dest = 'shop' AND alloc_day >= ? AND alloc_day >= ? "
+                . 'GROUP BY alloc_day HAVING p > ? ORDER BY alloc_day', [$account, $since, $from, $alarm]);
             if ($over !== []) {
                 $top = $over[count($over) - 1];
-                $out[] = ['key' => 'paypal_not_on_order:' . $c['code'], 'kind' => 'paypal_not_on_order', 'detail' => sprintf('%s: %d day(s) with more than %s of PayPal money '
-                    . 'on no CW order (newest %s: %s)', $c['name'], count($over), ProfitViews::gbp($alarm), (string) $top['alloc_day'], ProfitViews::gbp((int) $top['p'])),
-                    'data' => ['days' => count($over), 'limit' => ProfitViews::gbp($alarm), 'day' => (string) $top['alloc_day'], 'pence' => ProfitViews::gbp((int) $top['p'])]] + $base;
+                $out[] = ['key' => 'paypal_not_on_order:' . $account, 'kind' => 'paypal_not_on_order', 'detail' => sprintf('%s: %d day(s) with more than %s of PayPal money '
+                    . 'on no CW order (newest %s: %s)', $main['name'], count($over), ProfitViews::gbp($alarm), (string) $top['alloc_day'], ProfitViews::gbp((int) $top['p'])),
+                    'data' => ['account' => $account, 'days' => count($over), 'limit' => ProfitViews::gbp($alarm), 'day' => (string) $top['alloc_day'],
+                        'pence' => ProfitViews::gbp((int) $top['p'])]] + $base;
             }
         }
         return $out;
@@ -335,8 +463,14 @@ final class PaypalFees
         return ProfitDays::snapshot($db, static function (Db $db) use ($account): array {
             $runs = $db->all('SELECT id, kind, from_day, to_day, state, windows, pages, rows_read, rows_new, rows_changed, allocated, refreshed_to, error, started_at, finished_at '
                 . 'FROM paypal_run WHERE account = ? ORDER BY id DESC LIMIT 5', [$account]);
-            $shop = $db->one('SELECT c.id, c.code FROM paypal_run r JOIN channel c ON c.id = r.channel_id WHERE r.account = ? ORDER BY r.id DESC LIMIT 1', [$account]);
-            $from = $shop === null ? null : self::feesFrom($db, (string) $shop['code']);
+            $shops = [];
+            try {
+                foreach (self::accountShops($db, $account) as $sh) {
+                    $shops[$sh['code']] = $sh['id'] === null ? 'outside CW: kept, never counted' : (self::feesFrom($db, $sh['code']) ?? 'not switched on');
+                }
+            } catch (CwException $e) {
+                $shops = ['(settings)' => $e->getMessage()];
+            }
             $states = $db->all('SELECT kind, count_state, COUNT(*) AS n, SUM(cost_pence) AS cost FROM paypal_txn WHERE account = ? GROUP BY kind, count_state ORDER BY kind, count_state',
                 [$account]);
             $money = $db->all("SELECT kind, alloc_dest, COALESCE(match_state, '') AS match_state, COUNT(*) AS n, SUM(alloc_pence) AS pence FROM paypal_txn "
@@ -347,7 +481,9 @@ final class PaypalFees
                 . 'ORDER BY day DESC, id DESC LIMIT 50', [$account]);
             $wait = $db->one("SELECT SUM(due = 1) AS due, SUM(count_state = 'pending') AS pending, MIN(IF(count_state = 'pending', day, NULL)) AS oldest_pending "
                 . 'FROM paypal_txn WHERE account = ?', [$account]) ?? [];
-            return ['account' => $account, 'shop' => $shop['code'] ?? null, 'from' => $from, 'runs' => $runs, 'states' => $states, 'money' => $money,
+            $byShop = $db->all("SELECT c.code, t.alloc_dest, COUNT(*) AS n, SUM(t.alloc_pence) AS pence FROM paypal_txn t JOIN channel c ON c.id = t.alloc_channel "
+                . 'WHERE t.account = ? AND t.alloc_dest IS NOT NULL GROUP BY c.code, t.alloc_dest ORDER BY c.code, t.alloc_dest', [$account]);
+            return ['account' => $account, 'shops' => $shops, 'by_shop' => $byShop, 'runs' => $runs, 'states' => $states, 'money' => $money,
                 'unpaid' => ['rows' => (int) ($unpaid['n'] ?? 0), 'pence' => (int) ($unpaid['pence'] ?? 0)], 'look' => $look,
                 'due' => (int) ($wait['due'] ?? 0), 'pending' => (int) ($wait['pending'] ?? 0), 'oldest_pending' => $wait['oldest_pending'] ?? null];
         });
@@ -355,9 +491,9 @@ final class PaypalFees
 
     /**
      * The nightly's first day: the re-read days back from today, earlier when a costed row still pending is (at most PENDING_DAYS back),
-     * never before the shop's first fee day.
+     * never before the first fee day of the account's shops.
      */
-    public function nightlyFrom(string $account, string $shopCode): string
+    public function nightlyFrom(string $account): string
     {
         $today = ReportRefresh::ukDay(Clock::db(($this->clock)()));
         $from = (new \DateTimeImmutable($today))->modify('-' . self::rereadDays($this->db) . ' days')->format('Y-m-d');
@@ -366,7 +502,8 @@ final class PaypalFees
         if ($pending !== null && (string) $pending < $from) {
             $from = (string) $pending;
         }
-        $start = self::feesFrom($this->db, $shopCode);
+        $froms = array_filter(array_map(fn (array $s): ?string => self::feesFrom($this->db, $s['code']), self::accountShops($this->db, $account)));
+        $start = $froms === [] ? null : min($froms);
         return $start !== null && $start > $from ? min($start, $today) : $from;
     }
 
@@ -400,13 +537,11 @@ final class PaypalFees
         return $this->db->transaction(function (Db $db) use ($runId, $account, $channelId, $byKey, $caller): array {
             $now = Clock::db(($this->clock)());
             $have = [];
-            foreach (array_chunk(array_keys($byKey), 500) as $chunk) {
-                $params = [$account];
-                foreach ($chunk as $k) {
-                    array_push($params, ...explode('|', $k));
-                }
-                foreach ($db->all('SELECT * FROM paypal_txn WHERE account = ? AND (txn_id, event_code) IN (' . implode(', ', array_fill(0, count($chunk), '(?, ?)')) . ') FOR UPDATE',
-                    $params) as $t) {
+            // by the unique key's first two columns (account, txn_id: an index range per id), the event code compared here
+            $ids = array_values(array_unique(array_map(static fn (string $k): string => explode('|', $k)[0], array_keys($byKey))));
+            foreach (array_chunk($ids, 500) as $chunk) {
+                foreach ($db->all('SELECT * FROM paypal_txn WHERE account = ? AND txn_id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') FOR UPDATE',
+                    [$account, ...$chunk]) as $t) {
                     $have[$t['txn_id'] . '|' . $t['event_code']] = $t;
                 }
             }
@@ -476,19 +611,35 @@ final class PaypalFees
     {
         $bills = new DeliveryBills($this->db);
         return $bills->guardedWrite(function (Db $db) use ($ids, $runId, $caller): array {
-            $rows = $db->all('SELECT t.*, c.code AS shop_code FROM paypal_txn t JOIN channel c ON c.id = t.channel_id WHERE t.id IN ('
-                . implode(', ', array_fill(0, count($ids), '?')) . ') ORDER BY t.id FOR UPDATE', $ids);
-            $from = [];
-            foreach ($rows as $r) {
-                $from[(string) $r['shop_code']] ??= [self::feesFrom($db, (string) $r['shop_code'])];
+            $rows = $db->all('SELECT * FROM paypal_txn WHERE id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ') ORDER BY id FOR UPDATE', $ids);
+            $accounts = array_values(array_unique(array_column($rows, 'account')));
+            if (count($accounts) !== 1) {
+                throw new \LogicException('one PayPal account a decision');
             }
-            $lookup = self::orders($db, $rows);
+            // the account's shops and their forms, read once a plan (checklist 13); each row's shop by its invoice's form, then the orders of
+            // that shop with its number; each CW shop's first fee day
+            $shops = self::accountShops($db, (string) $accounts[0]);
+            $from = [];
+            foreach ($shops as $sh) {
+                if ($sh['id'] !== null) {
+                    $from[$sh['id']] = self::feesFrom($db, $sh['code']);
+                }
+            }
+            $forms = [];
+            $keys = [];
+            foreach ($rows as $r) {
+                $forms[(int) $r['id']] = $f = self::form($r, $shops);
+                if ($f['id'] !== null && $f['no'] !== null) {
+                    $keys[] = [$f['id'], $f['no']];
+                }
+            }
+            $lookup = self::orders($db, $keys);
             $before = [];
             $after = [];
             $watch = [];
             $plans = [];
             foreach ($rows as $r) {
-                $place = self::place($r, $from[(string) $r['shop_code']][0], $lookup);
+                $place = self::place($r, $forms[(int) $r['id']], $shops[0]['id'], $from, $lookup);
                 $plans[(int) $r['id']] = [$r, $place];
                 // its money as it counts now (before) and as it will (after); an order whose money counts on a day of its own is guarded too
                 // (watch: its row is what the write's foreign key reads, so no snapshot holds it meanwhile)
@@ -510,52 +661,101 @@ final class PaypalFees
             return ['before' => $before, 'after' => $after, 'watch' => $watch,
                 // the orders of the numbers read again last, right before the commit: one stored meanwhile (a second of a number, or the first)
                 // makes the plan old (checklist 11: a match is exactly one order, re-checked under the write's guards)
-                'verify' => static fn (Db $db): bool => self::orders($db, $rows) === $lookup,
+                'verify' => static fn (Db $db): bool => self::orders($db, $keys) === $lookup,
                 'write' => function (Db $db) use ($plans, $runId, $caller): int {
+                    // a few statements whatever the chunk (the guards are held: the hold budget at full size, PF15): the changed rows in ONE
+                    // update (a CASE per column), their history in ONE insert, the others' due marks cleared in one more
                     $now = Clock::db(($this->clock)());
-                    $changed = 0;
+                    $changed = [];
                     $keep = [];
                     foreach ($plans as $id => [$r, $place]) {
-                        $old = array_intersect_key($r, array_flip(self::PLACE));
-                        $old = self::norm($old);
+                        $old = self::norm(array_intersect_key($r, array_flip(self::PLACE)));
                         $new = self::norm($place);
                         if ($old === $new) {
                             $keep[] = $id;
-                            continue;
+                        } else {
+                            $changed[$id] = [(int) $r['version'] + 1, $old, $new];
                         }
+                    }
+                    if ($changed !== []) {
+                        $ids = array_keys($changed);
                         $set = [];
                         $params = [];
                         foreach (self::PLACE as $f) {
-                            $set[] = "{$f} = ?";
-                            $params[] = $place[$f];
+                            $set[] = "{$f} = CASE id" . str_repeat(' WHEN ? THEN ?', count($ids)) . ' END';
+                            foreach ($changed as $id => [, , $new]) {
+                                array_push($params, $id, $new[$f]);
+                            }
                         }
-                        $db->exec('UPDATE paypal_txn SET ' . implode(', ', $set) . ', due = 0, version = version + 1, changed_at = ? WHERE id = ?', [...$params, $now, $id]);
-                        $db->exec("INSERT INTO paypal_txn_history (txn_row, version, what, before_json, after_json, run_id, actor, at) VALUES (?, ?, 'allocated', ?, ?, ?, ?, ?)",
-                            [$id, (int) $r['version'] + 1, self::json($old), self::json($new), $runId, $caller->actor, $now]);
-                        $changed++;
+                        $n = $db->exec('UPDATE paypal_txn SET ' . implode(', ', $set) . ', due = 0, version = version + 1, changed_at = ? WHERE id IN ('
+                            . implode(', ', array_fill(0, count($ids), '?')) . ')', [...$params, $now, ...$ids]);
+                        if ($n !== count($ids)) {
+                            throw new \LogicException("PayPal rows decided: {$n} of " . count($ids) . ' changed');
+                        }
+                        $params = [];
+                        foreach ($changed as $id => [$version, $old, $new]) {
+                            array_push($params, $id, $version, self::json($old), self::json($new), $runId, $caller->actor, $now);
+                        }
+                        $db->exec("INSERT INTO paypal_txn_history (txn_row, version, what, before_json, after_json, run_id, actor, at) VALUES "
+                            . implode(', ', array_fill(0, count($changed), "(?, ?, 'allocated', ?, ?, ?, ?, ?)")), $params);
                     }
                     foreach (array_chunk($keep, 1000) as $chunk) {
                         $db->exec('UPDATE paypal_txn SET due = 0 WHERE id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')', $chunk);
                     }
+                    $changed = count($changed);
                     return $changed;
                 }];
         });
     }
 
     /**
-     * Where one row counts (PF5-PF7), in this order: not understood (an unknown code, a fee on an ignored row, another currency, a wrong
-     * sign, an unknown status: look, never counted); ignored (not counted); denied (not counted); before the shop's first fee day (or the
-     * shop not switched on: before_start); pending (read again later); else it counts: a cost of 0 nowhere, else on its order (exactly one
-     * CW order of the shop has its number) or on the shop's "not on an order" line.
+     * The shop a row belongs to by its invoice (else its custom field): the ONE shop of the account whose order-number form it matches, with
+     * the number; none, or two shops' forms: unrecognised (code null: the account's main shop's "not on an order" line, PF21).
+     *
+     * @param array<string, mixed> $r
+     * @param list<array{id: ?int, code: string, name: string, form: string}> $shops
+     * @return array{code: ?string, id: ?int, no: ?string}
+     */
+    private static function form(array $r, array $shops): array
+    {
+        foreach (['invoice_ref', 'custom_ref'] as $f) {
+            if ($r[$f] === null) {
+                continue;
+            }
+            $hits = [];
+            foreach ($shops as $sh) {
+                if (preg_match($sh['form'], (string) $r[$f], $m) === 1 && preg_match('/^[0-9]{1,12}$/D', $m[1] ?? '') === 1) {
+                    $hits[] = ['code' => $sh['code'], 'id' => $sh['id'], 'no' => $m[1]];
+                }
+            }
+            if (count($hits) === 1) {
+                return $hits[0];
+            }
+            if ($hits !== []) {
+                break; // two shops' forms: never guessed
+            }
+        }
+        return ['code' => null, 'id' => null, 'no' => null];
+    }
+
+    /**
+     * Where one row counts (PF5-PF7, PF21), in this order: not understood (an unknown code, a fee on an ignored row, another currency, a wrong
+     * sign, an unknown status: look, never counted); ignored (not counted); denied (not counted). Then its shop, by its invoice's form: a shop
+     * CW does not hold (Hayati Vapes) is outside (kept, never counted); no shop's form: the account's main shop. Before that shop's first fee
+     * day (or that shop not switched on: Electrofag until its day): before_start, never on another shop's lines; pending: read again later;
+     * else it counts: a cost of 0 nowhere, else on its order (exactly one order of its shop has its number: a sale's fee on the order's paid
+     * day, the others on their own day) or on its shop's "not on an order" line (a number of no order, or of two).
      *
      * @param array<string, mixed> $r a paypal_txn row
-     * @param array<string, list<array{0: string}>> $lookup order number => the shop's orders with it
+     * @param array{code: ?string, id: ?int, no: ?string} $form form()
+     * @param array<int, ?string> $from the account's CW shops => their first fee day
+     * @param array<string, list<string>> $lookup "channel|number" => the refs of that shop's orders with it
      * @return array<string, mixed> the PLACE columns
      */
-    private static function place(array $r, ?string $from, array $lookup): array
+    private static function place(array $r, array $form, int $main, array $from, array $lookup): array
     {
-        $none = ['look_reason' => null, 'match_state' => null, 'candidates' => 0, 'alloc_dest' => null, 'alloc_channel' => null, 'alloc_order_ref' => null,
-            'alloc_day' => null, 'alloc_pence' => 0];
+        $none = ['look_reason' => null, 'form_shop' => null, 'order_no' => null, 'match_state' => null, 'candidates' => 0, 'shop_channel' => null, 'alloc_dest' => null,
+            'alloc_channel' => null, 'alloc_order_ref' => null, 'alloc_day' => null, 'alloc_pence' => 0];
         $kind = (string) $r['kind'];
         $status = (string) $r['status'];
         $look = match (true) {
@@ -566,61 +766,64 @@ final class PaypalFees
             !in_array($status, ['S', 'V', 'P', 'D'], true) => 'status',
             default => null,
         };
+        $named = ['form_shop' => $form['code'], 'order_no' => $form['no']] + $none;
         if ($look !== null) {
-            return ['count_state' => 'look', 'look_reason' => $look] + $none;
+            return ['count_state' => 'look', 'look_reason' => $look] + $named;
         }
         if ($kind === 'ignore' || $status === 'D') {
-            return ['count_state' => 'not_counted'] + $none;
+            return ['count_state' => 'not_counted'] + $named;
         }
-        if ($from === null || (string) $r['day'] < $from) {
-            return ['count_state' => 'before_start'] + $none;
+        if ($form['code'] !== null && $form['id'] === null) {
+            return ['count_state' => 'outside'] + $named; // a shop CW does not hold (Hayati Vapes): kept, never counted, never on another shop's line
+        }
+        $ch = $form['id'] ?? $main;
+        $shop = ['shop_channel' => $ch] + $named;
+        $start = $from[$ch] ?? null;
+        if ($start === null || (string) $r['day'] < $start) {
+            return ['count_state' => 'before_start'] + $shop;
         }
         if ($status === 'P') {
-            return ['count_state' => 'pending'] + $none;
+            return ['count_state' => 'pending'] + $shop;
         }
-        $cost = (int) $r['cost_pence'];
-        $orderNo = $r['order_no'] === null ? null : (string) $r['order_no'];
-        $hits = $orderNo === null ? [] : ($lookup[$orderNo] ?? []);
-        $match = $orderNo === null ? 'no_number' : match (count($hits)) {
+        $hits = $form['no'] === null ? [] : ($lookup[$ch . '|' . $form['no']] ?? []);
+        $match = $form['no'] === null ? 'no_number' : match (count($hits)) {
             0 => 'no_order',
             1 => 'order',
             default => 'ambiguous',
         };
-        $place = ['count_state' => 'counts', 'match_state' => $match, 'candidates' => $match === 'ambiguous' ? min(255, count($hits)) : 0] + $none;
+        $place = ['count_state' => 'counts', 'match_state' => $match, 'candidates' => $match === 'ambiguous' ? min(255, count($hits)) : 0] + $shop;
+        $cost = (int) $r['cost_pence'];
         if ($cost === 0) {
             return $place;
         }
         if ($match === 'order') {
             // a sale's fee on the order's paid day (owner rule 1); a refund's fee back, a chargeback's money and fees on their own day (rules 2, 3)
-            return ['alloc_dest' => 'order', 'alloc_channel' => (int) $r['channel_id'], 'alloc_order_ref' => $hits[0],
-                'alloc_day' => $kind === 'sale' ? null : (string) $r['day'], 'alloc_pence' => $cost] + $place;
+            return ['alloc_dest' => 'order', 'alloc_channel' => $ch, 'alloc_order_ref' => $hits[0], 'alloc_day' => $kind === 'sale' ? null : (string) $r['day'],
+                'alloc_pence' => $cost] + $place;
         }
-        // no CW order: the shop's "not on an order" line, on its own day (owner rule 4)
-        return ['alloc_dest' => 'shop', 'alloc_channel' => (int) $r['channel_id'], 'alloc_order_ref' => null, 'alloc_day' => (string) $r['day'], 'alloc_pence' => $cost]
-            + $place;
+        // no order of its shop (or no shop's form: the main shop): that shop's "not on an order" line, on its own day (owner rule 4)
+        return ['alloc_dest' => 'shop', 'alloc_channel' => $ch, 'alloc_order_ref' => null, 'alloc_day' => (string) $r['day'], 'alloc_pence' => $cost] + $place;
     }
 
     /**
-     * The shop's orders of these rows' numbers (each row's own shop), by number: the refs, sorted (the plan's lookup and the verify's).
+     * The orders of each (shop, number), by "channel|number": their refs sorted (the plan's lookup and the verify's).
      *
-     * @param list<array<string, mixed>> $rows
+     * @param list<array{0: int, 1: string}> $keys
      * @return array<string, list<string>>
      */
-    private static function orders(Db $db, array $rows): array
+    private static function orders(Db $db, array $keys): array
     {
         $by = [];
-        foreach ($rows as $r) {
-            if ($r['order_no'] !== null) {
-                $by[(int) $r['channel_id']][(string) $r['order_no']] = true;
-            }
+        foreach ($keys as [$ch, $no]) {
+            $by[$ch][$no] = true;
         }
-        $out = [];
         ksort($by);
+        $out = [];
         foreach ($by as $ch => $nos) {
             foreach (array_chunk(array_map('strval', array_keys($nos)), 500) as $chunk) {
                 foreach ($db->all('SELECT order_no, order_ref FROM sale_order WHERE channel_id = ? AND order_no IN (' . implode(', ', array_fill(0, count($chunk), '?'))
                     . ') ORDER BY order_no, order_ref', [$ch, ...$chunk]) as $o) {
-                    $out[(string) $o['order_no']][] = (string) $o['order_ref'];
+                    $out[$ch . '|' . $o['order_no']][] = (string) $o['order_ref'];
                 }
             }
         }
@@ -656,7 +859,7 @@ final class PaypalFees
         $out = [];
         foreach (self::PLACE as $f) {
             $v = $p[$f] ?? null;
-            $out[$f] = in_array($f, ['candidates', 'alloc_channel', 'alloc_pence'], true) && $v !== null ? (int) $v : ($v === null ? null : (string) $v);
+            $out[$f] = in_array($f, ['candidates', 'shop_channel', 'alloc_channel', 'alloc_pence'], true) && $v !== null ? (int) $v : ($v === null ? null : (string) $v);
         }
         return $out;
     }
@@ -719,16 +922,6 @@ final class PaypalFees
             return null;
         }
         return Clock::db((new \DateTimeImmutable($t))->setTimezone(Clock::utc()));
-    }
-
-    /** @return array{id: int, code: string} the shop of a key */
-    private function shop(string $code): array
-    {
-        $id = $this->db->value('SELECT id FROM channel WHERE code = ?', [$code]);
-        if ($id === null) {
-            throw new CwException('paypal_no_shop', "the PayPal key is for {$code}, a shop CW does not have", 422);
-        }
-        return ['id' => (int) $id, 'code' => $code];
     }
 
     private static function isDay(string $d): bool

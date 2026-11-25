@@ -13,9 +13,9 @@ use CW\Db;
  *
  *  PP1. a decided row (not due) counts its whole cost in exactly one place, or nowhere: counts with a cost not 0 = one place holding exactly
  *       its cost (an order, or the shop's "not on an order" line); anything else = no place and 0 (every penny once, none twice).
- *  PP2. a row on an order is on an order of its own account's shop that carries its number (never another shop's, never another number's);
- *       a sale's fee counts on the order's paid day (no day of its own), every other kind on its own UK day; a row on the shop's line is in its
- *       own account's shop, on its own day.
+ *  PP2. a row counts only in its own shop (the shop of its invoice's form; with no shop's form, the account's main shop: never another
+ *       shop's line, PF21); on an order: one of that shop's orders that carries its number (never another number's), a sale's fee on the
+ *       order's paid day (no day of its own), every other kind on its own UK day; on the shop's line: on its own day.
  *  PP3. kind and cost are what the event code and the amounts say (PaypalCodes): a stored row never disagrees with the rules it was read by.
  *  PP4. no row is due for more than STALE hours after it was last read or changed (a run that stopped half-way is finished by the next one).
  *  PP5. no run is still "running" STALE hours after it started (one that died: its rows stay due for the next one).
@@ -35,9 +35,10 @@ final class PaypalInvariants
                 . " as {$r['alloc_pence']}p";
         }
         foreach ($db->all("SELECT t.id, t.kind, t.alloc_dest FROM paypal_txn t LEFT JOIN sale_order o ON o.channel_id = t.alloc_channel AND o.order_ref = t.alloc_order_ref "
-            . "WHERE (t.alloc_dest = 'order' AND (t.alloc_channel <> t.channel_id OR o.order_ref IS NULL OR o.order_no <> t.order_no OR t.order_no IS NULL "
+            . "WHERE (t.alloc_dest IS NOT NULL AND (t.shop_channel IS NULL OR t.alloc_channel <> t.shop_channel OR (t.form_shop IS NULL AND t.shop_channel <> t.channel_id))) "
+            . "OR (t.alloc_dest = 'order' AND (o.order_ref IS NULL OR o.order_no <> t.order_no OR t.order_no IS NULL "
             . "OR (t.kind = 'sale') <> (t.alloc_day IS NULL) OR (t.alloc_day IS NOT NULL AND t.alloc_day <> t.day))) "
-            . "OR (t.alloc_dest = 'shop' AND (t.alloc_channel <> t.channel_id OR t.alloc_day <> t.day)) ORDER BY t.id LIMIT " . self::MAX_PER_CHECK) as $r) {
+            . "OR (t.alloc_dest = 'shop' AND t.alloc_day <> t.day) ORDER BY t.id LIMIT " . self::MAX_PER_CHECK) as $r) {
             $v[] = "PP2 PayPal row {$r['id']} ({$r['kind']}): counted on {$r['alloc_dest']} it does not belong to, or on another day than its own";
         }
         // 5,000 rows a read (about 100,000 a year: the memory stays small at any size, checklist 26)

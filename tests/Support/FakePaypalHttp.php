@@ -21,6 +21,13 @@ final class FakePaypalHttp implements PaypalHttp
     private array $rows;
     /** @var array<string, int> unix time of each row's initiation */
     private array $at = [];
+    /** @var array<string, int> unix time of each row's last update */
+    private array $upd = [];
+    /**
+     * Whether a row is also served in the window of its transaction_updated_date (as PayPal did on 24 Nov 2026: a dispute hold's release of
+     * September, T1111, came in October's read, the month it was released; the replay of the real rows needs it).
+     */
+    public bool $byUpdated = false;
 
     /**
      * @param list<array<string, mixed>> $rows transaction_info objects
@@ -39,6 +46,7 @@ final class FakePaypalHttp implements PaypalHttp
         $this->at = [];
         foreach ($this->rows as $i => $r) {
             $this->at[$i] = (new \DateTimeImmutable((string) $r['transaction_initiation_date']))->getTimestamp();
+            $this->upd[$i] = (new \DateTimeImmutable((string) ($r['transaction_updated_date'] ?? $r['transaction_initiation_date'])))->getTimestamp();
         }
     }
 
@@ -65,7 +73,7 @@ final class FakePaypalHttp implements PaypalHttp
         $to = (new \DateTimeImmutable($q['end_date']))->getTimestamp();
         $hits = [];
         foreach ($this->rows as $i => $r) {
-            if ($this->at[$i] >= $from && $this->at[$i] <= $to) {
+            if (($this->at[$i] >= $from && $this->at[$i] <= $to) || ($this->byUpdated && $this->upd[$i] >= $from && $this->upd[$i] <= $to)) {
                 $hits[] = $r;
             }
         }

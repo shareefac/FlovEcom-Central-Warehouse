@@ -64,6 +64,13 @@ final class Settings
         // order" alarm in pounds a day (the first fee days are plain dates: empty = not switched on)
         'profit.paypal_reread_days' => ['min' => 1, 'max' => 31],
         'profit.paypal_not_on_order_alarm' => ['min' => '0', 'max' => '100000'],
+        // 0080 (PF21): the shops the PayPal account takes payments for (the main shop first), and how each shop's order number looks in a PayPal
+        // invoice (a pattern with ONE (part): the number; PaypalFees checks it compiles, else the run is refused and the alert says so)
+        'profit.paypal_shops_vapeandgo' => ['pattern' => '/^[a-z][a-z0-9_]{0,31}(,[a-z][a-z0-9_]{0,31})*$/D',
+            'pattern_says' => 'shop codes separated by commas, the main shop first, like vapeandgo,electrofag,hayati'],
+        'profit.paypal_form_vapeandgo' => ['pattern' => '/^\^[^()]*\([^()]+\)[^()]*\$$/D', 'pattern_says' => 'a pattern from ^ to $ with one (part): the order number'],
+        'profit.paypal_form_electrofag' => ['pattern' => '/^\^[^()]*\([^()]+\)[^()]*\$$/D', 'pattern_says' => 'a pattern from ^ to $ with one (part): the order number'],
+        'profit.paypal_form_hayati' => ['pattern' => '/^\^[^()]*\([^()]+\)[^()]*\$$/D', 'pattern_says' => 'a pattern from ^ to $ with one (part): the order number'],
         'reorder.short_weight' => ['min' => '0', 'max' => '1'],
         'reorder.promo_price_drop' => ['min' => '0', 'max' => '1'],
         'reorder.promo_units_uplift' => ['min' => '1', 'max' => '100'],

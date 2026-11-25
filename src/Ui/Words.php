@@ -2993,6 +2993,10 @@ final class Words
         'profit.paypal_from_vapeandgo' => 'Vape and Go\'s PayPal fees count from',
         'profit.paypal_from_electrofag' => 'Electrofag\'s PayPal fees count from',
         'profit.paypal_from_vapebig' => 'Vape Big\'s PayPal fees count from',
+        'profit.paypal_shops_vapeandgo' => 'Shops paid through the PayPal account (main shop first)',
+        'profit.paypal_form_vapeandgo' => 'How a Vape and Go order number looks in a PayPal invoice',
+        'profit.paypal_form_electrofag' => 'How an Electrofag order number looks in a PayPal invoice',
+        'profit.paypal_form_hayati' => 'How a Hayati Vapes order number looks in a PayPal invoice',
         'profit.paypal_reread_days' => 'Days the nightly PayPal read goes back',
         'profit.paypal_not_on_order_alarm' => 'Alarm above this many pounds of PayPal money on no order in a day',
     ];
