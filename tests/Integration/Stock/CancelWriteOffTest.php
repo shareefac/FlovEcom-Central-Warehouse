@@ -36,10 +36,19 @@ final class CancelWriteOffTest extends StockTestCase
         return $this->ok($this->res->uncancel($site, $ref, $units, $key ?? $this->key('uncancel')));
     }
 
-    /** @return array<string, string> unit => result */
+    /**
+     * unit => its answer: the result, and the outcome after a "|" when the answer has one (NR10: the result is one the shops' connectors know,
+     * the precise outcome is an additive field they ignore).
+     *
+     * @return array<string, string>
+     */
     private static function results(OpResult $r): array
     {
-        return array_column($r->body['units'], 'result', 'unit_id');
+        $out = [];
+        foreach ($r->body['units'] as $u) {
+            $out[$u['unit_id']] = $u['result'] . (isset($u['outcome']) ? '|' . $u['outcome'] : '');
+        }
+        return $out;
     }
 
     /** @return array<string, int> movement_type[/note] bucket => net units booked under $key */
@@ -140,8 +149,9 @@ final class CancelWriteOffTest extends StockTestCase
         $value = (new CostHints(self::$db))->average([$sku]);
 
         $r = $this->cancel($site, '1', ['a', 'p'], false, 'cnl-w');
-        self::assertSame(['order_ref' => '1', 'status' => 'committed', 'units' => [['unit_id' => 'a', 'result' => 'cancelled_written_off'],
-            ['unit_id' => 'p', 'result' => 'cancelled_written_off']]], $r->body);
+        self::assertSame(['order_ref' => '1', 'status' => 'committed', 'units' => [['unit_id' => 'a', 'result' => 'cancelled', 'outcome' => 'written_off'],
+            ['unit_id' => 'p', 'result' => 'cancelled', 'outcome' => 'written_off']]], $r->body,
+            'NR10: the result a restockable cancel gives (the shops\' connectors know it), the write-off in the additive outcome');
         $this->assertBal(17, 1, 0, $sku);
         $this->assertBal(0, 0, 0, $sku, 'VERIFY');
         self::assertSame(16, $this->view($site, 'V1')['available'], 'the units leave allocated and the shelf together: availability does not move');
@@ -165,9 +175,12 @@ final class CancelWriteOffTest extends StockTestCase
         self::assertSame($value, (new CostHints(self::$db))->average([$sku]), 'a write-off never moves the average cost (only units that come in do)');
         self::assertSame(['cancelled', 'allocated', 'cancelled'], [$this->unitState($site, 'a'), $this->unitState($site, 'b'), $this->unitState($site, 'p')]);
 
-        // replayed under its key: the stored answer, nothing booked twice
+        // replayed under its key: the stored answer (with its outcome), nothing booked twice
         $again = $this->cancel($site, '1', ['a', 'p'], false, 'cnl-w');
+        self::assertTrue($again->replayed);
         self::assertEquals($r->body, $again->body, 'the stored answer (its keys in the stored JSON\'s order)');
+        self::assertSame(['written_off', 'written_off'], array_column($again->body['units'], 'outcome'));
+        self::assertStringContainsString('"outcome": "written_off"', (string) self::$db->value("SELECT response_body FROM idempotency WHERE idem_key = 'cnl-w'"));
         self::assertCount(2, $this->writeOffs('cnl-w'));
         // cancelled again under another key: already cancelled, nothing booked
         self::assertSame(['a' => 'already_cancelled'], self::results($this->cancel($site, '1', ['a'], false)));
@@ -183,7 +196,7 @@ final class CancelWriteOffTest extends StockTestCase
         $sku = $this->item('strict', 5); // its opening has no cost
         $this->listing($site, 'V1', $sku);
         $this->commit($site, '1', [self::line('V1', 'a')]);
-        self::assertSame(['a' => 'cancelled_written_off'], self::results($this->cancel($site, '1', ['a'], false, 'cnl-n')));
+        self::assertSame(['a' => 'cancelled|written_off'], self::results($this->cancel($site, '1', ['a'], false, 'cnl-n')));
         $this->assertBal(4, 0, 0, $sku);
         $row = $this->writeOffs('cnl-n')[0];
         self::assertSame([null, null, null], [$row['unit_cost'], $row['cost_currency'], $row['cost_source']], 'no cost is known: none is made up');
@@ -261,7 +274,7 @@ final class CancelWriteOffTest extends StockTestCase
         $this->ship($site, '1', ['a']); // shelf 0
         $this->commit($site, '2', [self::line('V1', 'b')], 'unreserved'); // sold with nothing on the shelf: available -1
         $flags = (int) self::$db->value('SELECT COUNT(*) FROM oversell_event');
-        self::assertSame(['b' => 'cancelled_written_off'], self::results($this->cancel($site, '2', ['b'], false)));
+        self::assertSame(['b' => 'cancelled|written_off'], self::results($this->cancel($site, '2', ['b'], false)));
         $this->assertBal(-1, 0, 0, $sku);
         self::assertSame(1, self::reviews('negative_on_hand'), 'the shelf below zero is looked at, as for any movement');
         self::assertSame($flags, (int) self::$db->value('SELECT COUNT(*) FROM oversell_event'), 'availability did not fall: no oversell flag');
@@ -284,7 +297,8 @@ final class CancelWriteOffTest extends StockTestCase
         $feed = self::feed();
 
         $r = $this->uncancel($site, '1', ['a'], 'unc-1');
-        self::assertSame(['order_ref' => '1', 'status' => 'committed', 'units' => [['unit_id' => 'a', 'result' => 'uncancelled_from_write_off']], 'oversell' => []], $r->body);
+        self::assertSame(['order_ref' => '1', 'status' => 'committed', 'units' => [['unit_id' => 'a', 'result' => 'uncancelled', 'outcome' => 'write_off_taken_back']],
+            'oversell' => []], $r->body);
         self::assertSame($before, [$this->bal($sku), $this->view($site, 'V1')['available'], (new CostHints(self::$db))->average([$sku])],
             'the shelf, the allocated figure, availability and the average cost are exactly as before the cancel');
         self::assertSame($feed, self::feed(), 'availability never moved: no feed row');
@@ -299,13 +313,13 @@ final class CancelWriteOffTest extends StockTestCase
         // a second uncancel changes nothing; the unit ships as any paid unit
         self::assertSame(['a' => 'not_cancelled'], self::results($this->uncancel($site, '1', ['a'])));
         // round again: written off, taken back, written off
-        self::assertSame(['a' => 'cancelled_written_off'], self::results($this->cancel($site, '1', ['a'], false)));
-        self::assertSame(['a' => 'uncancelled_from_write_off'], self::results($this->uncancel($site, '1', ['a'])));
-        self::assertSame(['a' => 'cancelled_written_off'], self::results($this->cancel($site, '1', ['a'], false)));
+        self::assertSame(['a' => 'cancelled|written_off'], self::results($this->cancel($site, '1', ['a'], false)));
+        self::assertSame(['a' => 'uncancelled|write_off_taken_back'], self::results($this->uncancel($site, '1', ['a'])));
+        self::assertSame(['a' => 'cancelled|written_off'], self::results($this->cancel($site, '1', ['a'], false)));
         $this->assertBal(9, 1, 0, $sku);
         self::assertSame(['b' => 'shipped'], self::results($this->ship($site, '1', ['b'])));
         $this->assertBal(8, 0, 0, $sku);
-        self::assertSame(['a' => 'uncancelled_from_write_off'], self::results($this->uncancel($site, '1', ['a'])));
+        self::assertSame(['a' => 'uncancelled|write_off_taken_back'], self::results($this->uncancel($site, '1', ['a'])));
         self::assertSame(['a' => 'shipped'], self::results($this->ship($site, '1', ['a'])));
         $this->assertBal(8, 0, 0, $sku);
         self::assertSame(0, self::reviews());
@@ -329,7 +343,7 @@ final class CancelWriteOffTest extends StockTestCase
         $this->assertBal(9, 1, 0, $sku);
 
         $r = $this->uncancel($site, '1', ['a'], 'unc-c');
-        self::assertSame(['a' => 'uncancelled_after_write_off'], self::results($r));
+        self::assertSame(['a' => 'uncancelled_after_verify|after_write_off'], self::results($r));
         self::assertSame([], $r->body['oversell']);
         $this->assertBal(9, 2, 0, $sku);
         self::assertSame(7, $this->view($site, 'V1')['available'], 'the count replaced the figure: CW does not guess the unit is back; lower, never higher');
@@ -358,7 +372,7 @@ final class CancelWriteOffTest extends StockTestCase
         $this->now = $this->now->modify('+5 minutes');
         $this->book('count', $sku, 1, 'MAIN', Clock::iso(Clock::db($this->now)));
         $r = $this->uncancel($site, '1', ['a']);
-        self::assertSame(['a' => 'uncancelled_after_write_off'], self::results($r));
+        self::assertSame(['a' => 'uncancelled_after_verify|after_write_off'], self::results($r));
         self::assertSame([['sku_code' => sprintf('CW-%06d', $sku), 'kind' => 'uncancel_short', 'shortfall' => 1, 'available_after' => -1]], $r->body['oversell']);
         self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM oversell_event WHERE kind = 'uncancel_short'"));
     }
@@ -374,7 +388,7 @@ final class CancelWriteOffTest extends StockTestCase
         $this->cancel($site, '1', ['b'], false); // parked
         $this->assertBal(8, 0, 0, $sku);
         $this->assertBal(1, 0, 0, $sku, 'VERIFY');
-        self::assertSame(['a' => 'uncancelled_from_write_off'], self::results($this->uncancel($site, '1', ['a'])));
+        self::assertSame(['a' => 'uncancelled|write_off_taken_back'], self::results($this->uncancel($site, '1', ['a'])));
         self::notRestockable('write_off');
         self::assertSame(['b' => 'uncancelled_from_verify'], self::results($this->uncancel($site, '1', ['b'])));
         $this->assertBal(10, 2, 0, $sku);
@@ -395,7 +409,7 @@ final class CancelWriteOffTest extends StockTestCase
         self::notRestockable('write_off');
         $this->assertBal(7, 0, 0, $sku);
         $r = $this->uncancel($site, '1', ['a', 'b', 'c', 'd'], 'unc-m');
-        self::assertSame(['a' => 'uncancelled_from_write_off', 'b' => 'uncancelled_from_write_off', 'c' => 'uncancelled', 'd' => 'uncancelled_from_verify'],
+        self::assertSame(['a' => 'uncancelled|write_off_taken_back', 'b' => 'uncancelled|write_off_taken_back', 'c' => 'uncancelled', 'd' => 'uncancelled_from_verify'],
             self::results($r));
         $this->assertBal(10, 4, 0, $sku);
         $this->assertBal(0, 0, 0, $sku, 'VERIFY');
