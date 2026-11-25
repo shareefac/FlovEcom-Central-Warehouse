@@ -178,6 +178,11 @@ final class DeliveryBillsController
         try {
             $c = (new RoyalMailBills($ctx->db))->check($ctx->caller(), $account, RoyalMailBillKind::render($bill), $replace, ['read_by' => 'claude', 'ai_read' => $id]);
         } catch (CwException $e) {
+            if (in_array($e->errorCode, ['busy', 'writes_held'], true)) {
+                // the bills busy just now (another Store, the kit's hold): the reading kept for this page to try again, never read again
+                $reader->giveBack($ctx->caller(), $id, $bill);
+                return $back($e->httpStatus, $e->getMessage() . ' ' . Words::AIREAD['try_again']);
+            }
             $reader->checked($id, false, $e->errorCode);
             // CW's own reader refused Claude's reading: said so, never corrected (AI4)
             return $back($e->httpStatus, $e->errorCode === 'bad_file' ? Words::AIREAD['rm_not_tie'] . ' ' . $e->getMessage() : $e->getMessage());

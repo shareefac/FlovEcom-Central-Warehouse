@@ -62,7 +62,7 @@
 <?php elseif (in_array($key, \CW\Settings::SECRET_WHOLE, true)): ?>
     <label><?= $word('SETTING_EDIT', 'value') ?>
       <span class="hint"><?= $e($hint) ?> <?= $word('SETTING_EDIT', 'secret_whole') ?></span>
-      <input type="password" name="value" value="<?= $e($raw) ?>" maxlength="255" autocomplete="off" spellcheck="false"<?php if ($errorCode === 'bad_value'): ?> aria-invalid="true"<?php endif; ?>>
+      <input type="password" name="value" value="<?= $e($raw) ?>" maxlength="255" autocomplete="new-password" spellcheck="false"<?php if ($errorCode === 'bad_value'): ?> aria-invalid="true"<?php endif; ?>>
     </label>
 <?php else: ?>
     <label><?= $word('SETTING_EDIT', 'value') ?>

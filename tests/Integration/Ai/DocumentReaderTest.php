@@ -148,6 +148,13 @@ final class DocumentReaderTest extends IntegrationTestCase
         $a = $r->take($job, $id);
         self::assertSame(['0706703000', '9070000001', 2, '5.08'], [$a['account'], $a['invoice_number'], count($a['lines']), $a['lines'][0]['net']]);
         self::assertSame('ai_taken', self::refused(fn () => $r->take($job, $id))->errorCode);
+        // the person's own check busy just now (the bills' lock): the answer given back, taken again, never read a second time
+        $r->giveBack($other, $id, $a);
+        self::assertSame('taken', $r->view($job, $id)['state'], 'another person never gives a reading back');
+        $r->giveBack($job, $id, $a);
+        self::assertSame('done', $r->view($job, $id)['state']);
+        self::assertSame($a, $r->take($job, $id));
+        self::assertCount(1, $f->sent);
         self::assertSame(['taken', null], [$r->view($job, $id)['state'], self::$db->value('SELECT answer FROM ai_read WHERE id = ?', [$id])], 'the answer gone once shown');
         $r->checked($id, false, 'bad_file');
         $r->checked($id, true);

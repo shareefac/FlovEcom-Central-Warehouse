@@ -11475,6 +11475,7 @@ final class Words
         'next_expense_invoice' => 'Type the expense from the invoice as before.',
         'rm_not_tie' => 'CW\'s reading of the PDF does not add up to the bill\'s total: try the bill page\'s own text or send it to the CW team.',
         'taken' => 'This reading was shown already. If its check was not stored, upload the document again.',
+        'try_again' => 'Claude\'s reading is kept: open the same page again in a minute (it is not read a second time).',
         'check_by_claude' => 'CW read this bill from the PDF or photo with Claude, then checked it as it checks a pasted bill: its lines add up to its totals to '
             . 'the penny. Compare a few lines with the PDF before you press Store.',
         'off_switch' => 'Claude reads a PDF or a photo only when "Claude reads uploads" is switched on (Settings > Rules and numbers).',

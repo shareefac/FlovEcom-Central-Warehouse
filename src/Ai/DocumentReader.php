@@ -311,6 +311,18 @@ final class DocumentReader
     }
 
     /**
+     * The answer given back to its job when the person's own check could not run just now (the bills' lock busy, the kit's hold): the reading is
+     * `done` again for its person's page to take, never read by Claude a second time (a busy Store keeps its check open the same way, DL79).
+     *
+     * @param array<string, mixed> $answer what take() gave
+     */
+    public function giveBack(Caller $caller, int $id, array $answer): void
+    {
+        $this->db->exec("UPDATE ai_read SET state = 'done', answer = ?, taken_at = NULL WHERE id = ? AND staff_user_id = ? AND state = 'taken'",
+            [json_encode($answer, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE), $id, (int) $caller->staffUserId]);
+    }
+
+    /**
      * What CW's own checks made of a reading its person took (ai_call.checked, once): passed (a Royal Mail bill's check page shown; an expense
      * form filled), or refused with the refusal's code (the bill's lines did not add up, an unknown product, ...).
      */

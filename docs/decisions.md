@@ -21522,7 +21522,10 @@ own address (`/ui/profit/delivery/read/{id}`, `/ui/profit/expenses/read/{id}`), 
 script); `bin/ai_read.php` (cron, every minute, one run at a time by its lock, about 55 s a run, looking every 2 s) reads the jobs one at a
 time with no time limit of the web's (its own deadline: 600 s a call). Once read, the person's own page takes the answer and runs the place's
 own checks as the person. A job is its person's only (another person: 404); the routes are the places' own permissions (delivery.upload,
-expenses.edit), checked again by the service, and again by the runner when it reads (a job taken away meanwhile: `not_allowed`).
+expenses.edit), checked again by the service, and again by the runner when it reads (a job taken away meanwhile: `not_allowed`). One effect
+per form (checklist 10): the same file sent again from the same place by the same person, with the same typed fields, while its reading
+waits, goes or is not shown yet, is that reading (a double click never pays twice; under the person's own lock). Whatever breaks inside a
+read ends its job at once (failed, `other`, the exception's class said, never its message); a stream that breaks while read is `connection`.
 
 **AI4. A Royal Mail bill: Claude copies, CW's own reader decides.** Claude copies the top block (account, invoice number, date, net, VAT,
 gross, currency), EVERY line (service date, product code, quantity, description, the reference cell as printed with its sales order,
@@ -21532,7 +21535,8 @@ page reader's text (`RoyalMailBillKind::render`: the shape of the owner's pasted
 follows from the codes, an unknown product refuses the bill, the account is the one chosen, the same bill twice ...). The check page is the
 same (a line says Claude read it: "compare a few lines with the PDF before you press Store"); Store is the same; the check's audit row says
 `read_by: claude` and the job. A reading that does not add up is refused and says so ("CW's reading of the PDF does not add up to the bill's
-total: try the bill page's own text or send it to the CW team"), never corrected. Before that, a count of the lines that is not Claude's own
+total: try the bill page's own text or send it to the CW team"), never corrected; the bills busy just now (another Store, the kit's hold):
+the reading is given back to its job for the same page to try again in a minute, never read a second time. Before that, a count of the lines that is not Claude's own
 count refuses the answer (a reading that lost or doubled lines). £ example: the synthetic week of the tests (AiKindsTest), 12 lines, £2,284.45 net: read
 from the PDF it is the SAME bill as its saved page (the same rows and fingerprint: "the same file" if both are uploaded).
 
