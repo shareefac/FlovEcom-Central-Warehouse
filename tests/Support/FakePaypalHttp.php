@@ -10,7 +10,7 @@ use CW\Profit\PaypalHttpFailed;
 /**
  * PayPal's Transaction Search as the tests see it (docs/decisions.md PPF10): a token for the right Basic credentials, and the rows whose
  * transaction_initiation_date is inside [start_date, end_date] served page by page (page_size, page, total_items, total_pages,
- * last_refreshed_datetime), as PayPal does. Nothing leaves the test: no network. $fail may answer a request instead (a 503, a lost
+ * last_refreshed_datetime, account_number: the merchant), as PayPal does. Nothing leaves the test: no network. $fail may answer a request instead (a 503, a lost
  * connection, a 401) by its number; every request is recorded (method, path, query) with no header kept.
  */
 final class FakePaypalHttp implements PaypalHttp
@@ -34,7 +34,8 @@ final class FakePaypalHttp implements PaypalHttp
      * @param (\Closure(int, string, array<string, string>): (array{status: int, body: string}|null))|null $fail request number (1 = first),
      *   path, query => an answer instead of PayPal's, or null; may throw PaypalHttpFailed
      */
-    public function __construct(array $rows, private readonly string $basic = '', public ?\Closure $fail = null, private readonly ?string $refreshed = '2026-11-25T02:00:00Z')
+    public function __construct(array $rows, private readonly string $basic = '', public ?\Closure $fail = null, private readonly ?string $refreshed = '2026-11-25T02:00:00Z',
+        private readonly string $accountNumber = 'TESTACCOUNT')
     {
         $this->set($rows);
     }
@@ -82,7 +83,7 @@ final class FakePaypalHttp implements PaypalHttp
         $pages = (int) ceil(count($hits) / $size);
         $slice = array_slice($hits, ($page - 1) * $size, $size);
         return ['status' => 200, 'body' => json_encode(['transaction_details' => array_map(static fn (array $r): array => ['transaction_info' => $r], $slice),
-            'account_number' => 'TESTACCOUNT', 'start_date' => $q['start_date'], 'end_date' => $q['end_date'], 'last_refreshed_datetime' => $this->refreshed,
+            'account_number' => $this->accountNumber, 'start_date' => $q['start_date'], 'end_date' => $q['end_date'], 'last_refreshed_datetime' => $this->refreshed,
             'page' => $page, 'total_items' => count($hits), 'total_pages' => $pages], JSON_THROW_ON_ERROR)];
     }
 
