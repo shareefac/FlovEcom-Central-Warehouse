@@ -21509,7 +21509,7 @@ row is missing (a release running a moment before 0081) or holds anything else (
 before), then ONE `write_off` row of on_hand −u at the unit's sale warehouse (its snapshot, D44), noted `cancel_not_restockable` (the same
 system note as the VERIFY move of the way before: one name for "not restockable"; the movement type tells the two apart), with the channel,
 order ref and unit id on it, at booking time (D45), in the same transaction under the same locks (reservation → the unit's balances, sorted →
-value clock → feed clock: today's order, the VERIFY balance simply not locked). Result `cancelled_written_off`. No VERIFY move, no recount,
+value clock → feed clock: today's order, the VERIFY balance simply not locked). Answer: result `cancelled`, outcome `written_off` (NR10). No VERIFY move, no recount,
 no document: the order flow's own movements (cancel, ship, return, the VERIFY move) never had one, and a document (number series, approvals,
 reviews) inside an order's transaction would break its lock order (I21) for nothing a person decides. A held unit (never paid, never
 picked) is only freed, as before; a restockable cancel is unchanged. allocated −u and on_hand −u together leave availability where it was:
@@ -21527,8 +21527,8 @@ CostEngine's start price) counts only rises with a cost. So the stored cost is t
 
 **NR4. Uncancel of a written-off unit: the exact inverse (amends D46).** A unit whose LAST cancel wrote it off (lastCancels: the newest
 `cancel` row and a `write_off` of on_hand down noted cancel_not_restockable after it) comes back with on_hand +u at the same warehouse, a
-`write_off` row noted `uncancel_from_write_off`, at booking time, then allocated +u: availability does not move (never an oversell). Result
-`uncancelled_from_write_off`. The take-back carries NO cost of its own: a rise with a cost is a purchase to every average (NR3), so a
+`write_off` row noted `uncancel_from_write_off`, at booking time, then allocated +u: availability does not move (never an oversell). Answer:
+result `uncancelled`, outcome `write_off_taken_back` (NR10). The take-back carries NO cost of its own: a rise with a cost is a purchase to every average (NR3), so a
 take-back at £2.04 would move the average the cancel never moved; without one the unit comes back at exactly the value it left at (on hand ×
 the same average), and the record pairs it with the write-off (same unit, the uncancel's key, invariants 12-13). What the last cancel did
 decides, whatever the setting says now: a unit parked under `verify` comes back from VERIFY (D46) after a switch to `write_off`, and the
@@ -21541,7 +21541,7 @@ verify_counted; ledger ids of one balance follow its lock), or the write-off is 
 snapshot), CW leaves on_hand alone, allocates +u and opens a count_review `uncancel_after_write_off` at the unit's warehouse (dedupe
 `uncancel_write_off:<channel>:<cancel id>`; detail: the reason `counted_since` / `not_its_figure`, the write-off's ledger id and cost, the
 count's ledger id). Availability is then lower than the shelf until a person acts, never higher; a strict/stopped item left below zero gets
-`uncancel_short` (D46). Result `uncancelled_after_write_off`. A hand correction (an adjustment) of the item since is not such a signal: at a
+`uncancel_short` (D46). Answer: result `uncancelled_after_verify`, outcome `after_write_off` (NR10). A hand correction (an adjustment) of the item since is not such a signal: at a
 selling warehouse stock moves all day, and CW cannot tell whose unit a correction was about (at VERIFY it could: D46). Like
 `uncancel_after_verify`, no page lists this review source yet (an existing gap: the review is in count_review for a person; tracker).
 - *Example:* written off (shelf 9), the shelf counted at 9, the cancel taken back: shelf 9, allocated 2, available 7 and a review.
@@ -21566,7 +21566,7 @@ leaves it out like every row a website booked (RB2: `from_website`). 0081 does n
 name order, so either may go live first (Migration0081Test); but a release must hold every file its schema has applied, so whichever goes
 second is built on the first (the kit's re-pin).
 
-**NR9. The shops' connectors must know the three new answers first (amends SC3).** A cancel now answers `cancelled_written_off` per
+**NR9. The shops' connectors must know the three new answers first (amends SC3). SUPERSEDED by NR10 (no connector release).** A cancel now answers `cancelled_written_off` per
 unit, and an uncancel `uncancelled_from_write_off` or `uncancelled_after_write_off`. The connector's unit sweep (unit_sweep.php,
 `CW_US_EXPECTED_RESULTS`) logs any answer not in its list as `unit_event_anomaly`, and for an uncancel raises the alert
 `unit_sweep_uncancelled` ("CW did not put the units back"), which would be false. So each shop's connector release adds `cancelled_written_off`
@@ -21575,3 +21575,19 @@ to its cancel list and the two others to its uncancel list (`uncancelled_after_w
 read lacks them, and until the lead has looked at the others (`CONNECTORS_SEEN`). CW's answers stay honest (no old name reused for a new
 outcome). Until the connectors are ready, the release could also go live with the setting at `verify` (no new answer is ever given), but
 0081 seeds `write_off` (the owner's rule), so the kit orders it: connectors first, then CW.
+
+**NR10. Answers the connectors already know, the precise outcome beside them (the lead, 25 Nov 2026; supersedes NR9's "connectors first").**
+No connector release: the shops' connectors (0.4.17 on all 3 shops) use a unit's `result` only to spot anomalies (unit_sweep.php
+`CW_US_EXPECTED_RESULTS`, and the `uncancelled_after_verify` warning), and a release on 3 shops in Black Friday week would hold the rule back
+while 30-60 units a day still pile into VERIFY. So the write-off way answers with results those connectors know, and says what CW did in an
+ADDITIVE per-unit field `outcome` that they ignore:
+- a cancel written off: result `cancelled` (as a restockable cancel), outcome `written_off`;
+- an uncancel that takes the write-off back exactly: result `uncancelled`, outcome `write_off_taken_back`;
+- an uncancel after a count (NR5): result `uncancelled_after_verify` (the shops' "a person should look" warning: the intent is the same, CW
+  opened a review), outcome `after_write_off`.
+The way before (VERIFY) and every other unit answer exactly as before, with no `outcome` (`cancelled_to_verify`, `uncancelled_from_verify`,
+`uncancelled_after_verify`, a restockable `cancelled`, `already_cancelled`, ...), so their stored answers and replays are unchanged. The
+outcome is part of the stored answer: a replay under the same key returns it byte for byte (WriteOffAnswersRouteTest). Nothing personal is in
+it. No page reads `result` (Sales returns, the order page and Stock movements read the ledger: NR7). The go-live kit's check reads the live
+connector files it can see and STOPs if their expected lists no longer hold the three old results CW now gives (`cancelled`, `uncancelled`,
+`uncancelled_after_verify`).

@@ -80,6 +80,14 @@ final class Reservations
     /** The ledger note of a cancel's write-off (NR2; the same words as the VERIFY move of the way before) and of its take-back (NR4). */
     public const NOTE_NOT_RESTOCKABLE = 'cancel_not_restockable';
     public const NOTE_WRITE_OFF_BACK = 'uncancel_from_write_off';
+    /**
+     * CW-1180 NR10 (the lead, 25 Nov 2026: no connector release): the per-unit `outcome`, an ADDITIVE field beside `result`, of the write-off
+     * way. `result` stays one the shops' connectors know (cancelled; uncancelled; uncancelled_after_verify: "a person should look"), so they
+     * never log an anomaly or raise a false alert; `outcome` says what CW did. The way before (VERIFY) answers as it always did: no outcome.
+     */
+    public const OUTCOME_WRITTEN_OFF = 'written_off';
+    public const OUTCOME_TAKEN_BACK = 'write_off_taken_back';
+    public const OUTCOME_AFTER_WRITE_OFF = 'after_write_off';
 
     private readonly Stock $stock;
     private readonly Idempotency $idem;
@@ -635,7 +643,8 @@ final class Reservations
      * stock.cancel_not_restockable:
      *   - `write_off` (the owner's rule): written off at once at its sale warehouse, ONE `write_off` row of on_hand -u noted
      *     cancel_not_restockable with the order and the unit on it, at booking time (D45), at the item's average cost so far (CostHints::average,
-     *     the stock value's own rule; none when no unit of it came in with a cost: NR3) -> "cancelled_written_off". No VERIFY move, no recount.
+     *     the stock value's own rule; none when no unit of it came in with a cost: NR3) -> result "cancelled" with outcome "written_off" (NR10:
+     *     a result the shops' connectors know, the precise outcome beside it). No VERIFY move, no recount.
      *     allocated -u and on_hand -u together: availability does not move (no feed row, never an oversell);
      *   - `verify` (the way before, D37): moved to VERIFY with a recount -> "cancelled_to_verify".
      * The setting is read in the transaction, once per call; missing or anything else: `verify` (NR1). The average costs are read before any
@@ -679,6 +688,7 @@ final class Reservations
                     }
                     $this->setUnitState($u['channel_id'], $id, 'cancelled');
                     $result = 'cancelled';
+                    $outcome = null;
                     if ($u['sku_id'] !== null) {
                         $m = $this->move('cancel', $caller, $orderRef, $id, $idemKey);
                         $this->stock->apply($u['warehouse_id'], $u['sku_id'], $u['state'], -$u['u'], $m);
@@ -689,7 +699,7 @@ final class Reservations
                                 $this->move('write_off', $caller, $orderRef, $id, $idemKey, self::NOTE_NOT_RESTOCKABLE)
                                 + ['effective_at' => Clock::db($this->now())] // booking time (D45)
                                 + ($cost === null ? [] : ['unit_cost' => $cost, 'cost_source' => 'estimate']));
-                            $result = 'cancelled_written_off';
+                            $outcome = self::OUTCOME_WRITTEN_OFF; // result stays "cancelled" (NR10)
                         } elseif (!$restockable && $u['state'] === 'allocated') {
                             // Doubtful: the goods never left, but staff did not confirm they are back
                             // on the shelf. Park them in VERIFY for a recount; never a write-off here.
@@ -705,7 +715,8 @@ final class Reservations
                             $result = 'cancelled_to_verify';
                         }
                     }
-                    $out[] = ['unit_id' => $id, 'result' => $result];
+                    // NR10: the outcome only where it says more than the result (the write-off way); the way before answers as it always did
+                    $out[] = ['unit_id' => $id, 'result' => $result] + ($outcome === null ? [] : ['outcome' => $outcome]);
                 }
                 return $out;
             });
@@ -897,10 +908,10 @@ final class Reservations
      *     reconcile ("uncancelled_after_verify");
      *   - last cancel wrote the unit off (CW-1180, NR4-NR5: stock.cancel_not_restockable = write_off): the write-off
      *     taken back at its warehouse (on_hand +u, a `write_off` noted uncancel_from_write_off, no cost of its own),
-     *     then allocated +u, so availability does not move ("uncancelled_from_write_off"); when the item was counted at
-     *     that warehouse since, on_hand is left alone, the unit is allocated and a count_review
-     *     `uncancel_after_write_off` asks a person to look ("uncancelled_after_write_off"). What the LAST cancel did
-     *     decides, whatever the setting says now;
+     *     then allocated +u, so availability does not move (result "uncancelled", outcome "write_off_taken_back"); when
+     *     the item was counted at that warehouse since, on_hand is left alone, the unit is allocated and a count_review
+     *     `uncancel_after_write_off` asks a person to look (result "uncancelled_after_verify", outcome "after_write_off":
+     *     NR10, results the shops' connectors know). What the LAST cancel did decides, whatever the setting says now;
      *   - sold while its listing was unlinked, linked since: adopted with today's link, as a commit
      *     without a hold would (R4: the listing rows are read FOR SHARE before any balance);
      *   - not cancelled: a stored per-unit result, nothing changes (not_cancelled, shipped, ...).
@@ -962,6 +973,7 @@ final class Reservations
                     }
                     $this->setUnitState($u['channel_id'], $id, 'allocated');
                     $result = 'uncancelled';
+                    $outcome = null;
                     if ($sku !== null) {
                         $wh = $u['warehouse_id'];
                         $c = $last[strtolower($u['unit_id'])] ?? null;
@@ -970,7 +982,7 @@ final class Reservations
                             [$back, $result] = $this->uncancelFromVerify($caller, $orderRef, $u, $id, $c, $verify, $now, $idemKey);
                             $note = $back ? null : 'after_verify';
                         } elseif ($c !== null && $c['written_off']) {
-                            [$back, $result] = $this->uncancelFromWriteOff($caller, $orderRef, $u, $id, $c, $now, $idemKey);
+                            [$back, $result, $outcome] = $this->uncancelFromWriteOff($caller, $orderRef, $u, $id, $c, $now, $idemKey);
                             $note = $back ? null : 'after_write_off';
                         }
                         $this->stock->apply($wh, $sku, 'allocated', $size, $this->move('uncancel', $caller, $orderRef, $id, $idemKey, $note));
@@ -979,7 +991,7 @@ final class Reservations
                             $fallen[$k] = ($fallen[$k] ?? 0) + $size;
                         }
                     }
-                    $out[] = ['unit_id' => $id, 'result' => $result];
+                    $out[] = ['unit_id' => $id, 'result' => $result] + ($outcome === null ? [] : ['outcome' => $outcome]);
                 }
                 return ['units' => $out, 'oversell' => $this->flagUncancelShort($ch, $resId, $orderRef, $fallen, $skus, $idemKey)];
             });
@@ -1053,14 +1065,15 @@ final class Reservations
 
     /**
      * One written-off unit of an uncancel (CW-1180, NR4-NR5), under the lock of its balance: the exact inverse of its cancel's write-off
-     * when nothing has replaced the figure since, else a count review. Returns [taken back, per-unit result].
+     * when nothing has replaced the figure since, else a count review. Returns [taken back, per-unit result, outcome] (NR10: a result the
+     * shops' connectors know, the outcome an additive field beside it).
      *
-     *  - taken back ("uncancelled_from_write_off"): on_hand +u at the unit's warehouse, a `write_off` row noted uncancel_from_write_off, at
+     *  - taken back (result "uncancelled", outcome "write_off_taken_back"): on_hand +u at the unit's warehouse, a `write_off` row noted uncancel_from_write_off, at
      *    booking time (D45), WITHOUT a cost of its own: every average CW keeps (the stock value's, CostHints::average, CostEngine's start price)
      *    counts each on-hand rise that carries a cost as a purchase, and a write-off (a fall) is in none of them, so a take-back with a cost
      *    would move the average the cancel never moved. The unit comes back at the value it left at: on hand x the same average. The caller then
      *    books allocated +u: availability does not move (never an oversell);
-     *  - not taken back ("uncancelled_after_write_off"): the item was counted at that warehouse after the write-off (a `count` row booked
+     *  - not taken back (result "uncancelled_after_verify": the shops' "a person should look", outcome "after_write_off"): the item was counted at that warehouse after the write-off (a `count` row booked
      *    after it, whatever its counted_at: the count replaced the figure the write-off was part of, as D46's verify_counted), or the
      *    write-off is not the unit's own figure (another balance or size than its snapshot: never guessed at). CW leaves on_hand alone; the
      *    caller allocates +u (availability lower than the shelf until a person acts, never higher) and a count_review
@@ -1068,7 +1081,7 @@ final class Reservations
      *
      * @param array{channel_id: int, unit_id: string, listing_id: int, sku_id: ?int, u: int, warehouse_id: int, state: string, dispatched_at: ?string} $u
      * @param array{cancel_id: int, written_id: ?int, written_wh: ?int, written_sku: ?int, written_qty: ?int, written_cost: ?string} $c the unit's last cancel
-     * @return array{0: bool, 1: string}
+     * @return array{0: bool, 1: string, 2: string}
      */
     private function uncancelFromWriteOff(Caller $caller, string $orderRef, array $u, string $id, array $c, string $now, string $idemKey): array
     {
@@ -1083,13 +1096,14 @@ final class Reservations
         if ($own && $counted === null) {
             $this->stock->apply($wh, $sku, 'on_hand', $u['u'],
                 $this->move('write_off', $caller, $orderRef, $id, $idemKey, self::NOTE_WRITE_OFF_BACK) + ['effective_at' => $now]);
-            return [true, 'uncancelled_from_write_off'];
+            return [true, 'uncancelled', self::OUTCOME_TAKEN_BACK];
         }
         $this->stock->openCountReview($wh, $sku, 'uncancel_after_write_off', null, "{$u['channel_id']}:{$orderRef}:{$id}",
             ['order_ref' => $orderRef, 'unit_id' => $id, 'units' => $u['u'], 'reason' => $own ? 'counted_since' : 'not_its_figure',
                 'write_off_ledger_id' => $c['written_id'], 'write_off_cost' => $c['written_cost'], 'count_ledger_id' => $counted === null ? null : (int) $counted],
             "uncancel_write_off:{$u['channel_id']}:{$c['cancel_id']}");
-        return [false, 'uncancelled_after_write_off'];
+        // the shops' "a person should look" answer (NR10: the intent is the one of uncancelled_after_verify), the precise outcome beside it
+        return [false, 'uncancelled_after_verify', self::OUTCOME_AFTER_WRITE_OFF];
     }
 
     /**

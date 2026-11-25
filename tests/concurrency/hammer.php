@@ -1787,10 +1787,12 @@ final class ValueTrader
         }
         $r = $this->call('cancel.to_verify', fn (): OpResult => $this->res->cancel($this->ch, $ref, $units, false, $ref . '-x'), ['200 *']);
         foreach ($r?->body['units'] ?? [] as $u) {
-            // parked in VERIFY (the way before) or written off at once (CW-1180), as the setting was when the cancel read it
-            $this->counts['unit ' . ($u['result'] ?? '?')] = ($this->counts['unit ' . ($u['result'] ?? '?')] ?? 0) + 1;
-            if (!in_array($u['result'] ?? '', ['cancelled_to_verify', 'cancelled_written_off'], true)) {
-                $this->bad("cancel {$ref} unit {$u['unit_id']}: " . ($u['result'] ?? '?'));
+            // parked in VERIFY (the way before) or written off at once (CW-1180), as the setting was when the cancel read it; a write-off
+            // answers "cancelled" with the outcome "written_off" beside it (NR10)
+            $answer = ($u['result'] ?? '?') . (isset($u['outcome']) ? '/' . $u['outcome'] : '');
+            $this->counts["unit {$answer}"] = ($this->counts["unit {$answer}"] ?? 0) + 1;
+            if (!in_array($answer, ['cancelled_to_verify', 'cancelled/written_off'], true)) {
+                $this->bad("cancel {$ref} unit {$u['unit_id']}: {$answer}");
             }
         }
         if ($r === null || mt_rand(0, 1) === 0) {
@@ -1800,9 +1802,9 @@ final class ValueTrader
         // a VERIFY count, write-off or transfer by another trader meanwhile sends them to review instead.
         $u = $this->call('uncancel.from_verify', fn (): OpResult => $this->res->uncancel($this->ch, $ref, $units, $ref . '-u'), ['200 *']);
         foreach ($u?->body['units'] ?? [] as $x) {
-            $result = (string) ($x['result'] ?? '?');
+            $result = (string) ($x['result'] ?? '?') . (isset($x['outcome']) ? '/' . $x['outcome'] : '');
             $this->counts["unit {$result}"] = ($this->counts["unit {$result}"] ?? 0) + 1;
-            if (!in_array($result, ['uncancelled_from_verify', 'uncancelled_after_verify', 'uncancelled_from_write_off', 'uncancelled_after_write_off'], true)) {
+            if (!in_array($result, ['uncancelled_from_verify', 'uncancelled_after_verify', 'uncancelled/write_off_taken_back', 'uncancelled_after_verify/after_write_off'], true)) {
                 $this->bad("uncancel {$ref} unit {$x['unit_id']}: {$result}");
             }
         }
@@ -1956,7 +1958,7 @@ function scenario5(Report $rep, int $workers, int $seconds, int $seed): void
     $need = ['move.goods_in 200', 'move.write_off 200', 'move.adjustment 200', 'transfer_out 200', 'transfer_in 200', 'ship 200', 'cancel.to_verify 200',
         'count.verify 200', 'uncancel.from_verify 200', 'unit uncancelled_from_verify',
         // CW-1180: both kinds of not-restockable cancel (the setting switched under the traders), the write-off taken back, a MAIN count
-        'unit cancelled_to_verify', 'unit cancelled_written_off', 'unit uncancelled_from_write_off', 'count.main 200', 'setting switched'];
+        'unit cancelled_to_verify', 'unit cancelled/written_off', 'unit uncancelled/write_off_taken_back', 'count.main 200', 'setting switched'];
     $has = static fn (string $prefix): int => array_sum(array_filter($counts, static fn (string $k): bool => str_starts_with($k, $prefix), ARRAY_FILTER_USE_KEY));
     $missing = array_values(array_filter($need, static fn (string $p): bool => $has($p) === 0));
     $rep->check($S, 'every path happened', $missing === [], 'each >= 1', $missing === [] ? 'yes' : 'MISSING ' . implode(', ', $missing));
