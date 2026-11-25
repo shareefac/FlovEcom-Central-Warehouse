@@ -20,8 +20,8 @@ $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
 <?php if (($aiFilled ?? null) !== null): ?>
 <div class="alert ai-filled" role="status">
   <p><?= $e($aiFilled) ?></p>
-<?php foreach ($aiNotes as $n): ?>
-  <p><?= $e($n) ?></p>
+<?php foreach ($aiNotes as $aiNote): ?>
+  <p><?= $e($aiNote) ?></p>
 <?php endforeach; ?>
 </div>
 <?php endif; ?>
@@ -42,7 +42,7 @@ $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
     <fieldset class="expense-file">
       <legend><?= $word('EXPENSES', 'file_title') ?></legend>
 <?php if ($fileAgain): ?>
-      <p class="note" role="status"><?= ($aiFilled ?? null) !== null ? $word('AIREAD', 'file_again') : $word('EXPENSES', 'file_again') ?></p>
+      <p class="note" role="status"><?= $word(($aiFilled ?? null) !== null ? 'AIREAD' : 'EXPENSES', 'file_again') ?></p>
       <input type="hidden" name="file_again" value="1">
 <?php endif; ?>
       <div class="field">

@@ -12,6 +12,7 @@ $tone = ['live' => 'done', 'superseded' => 'off', 'undone' => 'off', 'loading' =
 $accounts ??= [];
 $said ??= null;
 $gbp = static fn (int $p): string => \CW\Profit\DpdInvoiceFile::gbp($p);
+$accept = ($aiOn ?? false) ? '.csv,text/csv,.html,.htm,text/html,.pdf,application/pdf,image/jpeg,image/png,image/webp,image/gif' : '.csv,text/csv,.html,.htm,text/html';
 ?>
 <?= $head(\CW\Ui\Words::MENU['profit_delivery'], intro: 'profit_delivery', aside: $explain('delivery_bills', \CW\Ui\Words::MENU['profit_delivery'])) ?>
 <?php if ($error !== null): ?>
@@ -41,7 +42,7 @@ $gbp = static fn (int $p): string => \CW\Profit\DpdInvoiceFile::gbp($p);
 <?php endforeach; ?>
     </select>
     <label for="d-file"><?= $word('DELIVERY', 'file') ?> <span class="hint"><?= $say('DELIVERY', 'rm_file_hint', $maxMiB) ?></span></label>
-    <input id="d-file" type="file" name="file" accept="<?= ($aiOn ?? false) ? '.csv,text/csv,.html,.htm,text/html,.pdf,application/pdf,image/jpeg,image/png,image/webp,image/gif' : '.csv,text/csv,.html,.htm,text/html' ?>">
+    <input id="d-file" type="file" name="file" accept="<?= $e($accept) ?>">
 <?php if ($aiOn ?? false): ?>
     <p class="hint ai-hint"><?= $word('AIREAD', 'hint_bill') ?></p>
 <?php endif; ?>
