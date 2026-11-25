@@ -21487,3 +21487,109 @@ become an amount ("8,47", "8,", three decimals, a letter, "20,000,000.") says so
 never one typed by hand; which boxes it filled goes with the form in the hidden "hand" (fnet, fvat), so a refused form empties them too
 (Codex's final of 332aba7). A comma is read only as a thousands mark of three figures, so "8,4" says "not an
 amount" at once (a total is seldom typed with thousands commas). The server refuses both on save, as before.
+
+## Claude reads the upload, phase 1 (CW-1182) and the Mac copy of a Royal Mail bill (CW-1181) (branch `ai-reader`, 25 Nov 2026; AI1-AI14; migration 0082)
+
+The owner (CW chat, 25 Nov 2026 ~17:25 UK), after the Royal Mail bill of 23 Nov could not be pasted: "whatever we doing is wrong. wrong way to
+add an invoice you should focus on the claude api connected on all upload places as soon as posssible"; then "I'll create one" (an Anthropic
+API key for CW). Staff drop a PDF or a photo where they upload today; CW sends it to the Claude API and fills the SAME check page or form; CW's
+own checks still decide and a person always presses Store or Save. Phase 1 = Profit > Delivery bills (a Royal Mail bill) and Profit > Expenses
+(an invoice). Nothing goes live without the owner's word.
+
+**AI1. One service, a small class per kind of document (`CW\Ai\DocumentReader`, `CW\Ai\Kind`).** A kind says what Claude is told
+(instructions), the fixed JSON answer (schema, sent as structured outputs: every object closed with `additionalProperties: false`, every field
+required; only what structured outputs take: no lengths, patterns or bounds, CW checks those itself), the answer's limit in tokens, and CW's
+strict reading of the answer (`shape()`: every field in its form or the whole answer refused, naming the field and the line, never what it
+holds). Phase 1 kinds: `royal_mail_bill`, `expense_invoice`. A later kind (a supplier invoice with lines, a goods-in, return, PO or count
+file) is one more class and one more place in `DocumentReader::PLACES`.
+
+**AI2. Anthropic's own PHP SDK, with a PSR-18 client as the seam (`CW\Ai\Claude`).** `anthropic-ai/sdk` v1.14.0 (PHP ^8.1) and
+`guzzlehttp/guzzle` 7.17 (its PSR-18 client) are production packages; `php-http/discovery`'s Composer plugin is not allowed (push_code.sh
+installs with --no-plugins anyway). The call: beta messages, streamed (a five-page bill is minutes of output) and folded with the SDK's
+`MessageAccumulator`; the document as a `document` block (a photo as an `image` block), base64, BEFORE the text; the model and the effort
+from the settings (claude-opus-5-5, medium: set explicitly, its default); no `thinking` (always on for that model; disabling it is a 400);
+the server-side refusal fallback opted in (beta `server-side-fallback-2026-07-01`, `fallbacks: "default"`); the base URL fixed (an
+ANTHROPIC_BASE_URL in the environment never redirects the key), OpenTelemetry off, the key passed in (never read from the environment).
+`stop_reason` is read before any content: `refusal` and `max_tokens` are failures, never half an answer; the text read is the one after the
+last `fallback` block; every attempt's tokens counted (usage.iterations). The SDK's errors, most specific first, become reason codes (auth,
+forbidden, billing, spend_limit, rate_limited, overloaded, server, timeout, connection, bad_request, too_large, other). Tests never call the
+API: the SDK sends through a fake PSR-18 client (`tests/Support/FakeClaude`) that answers with recorded, MADE-UP streams, so the real SDK
+builds the request and reads the answer in every test.
+
+**AI3. Read in the background, never in a web worker.** php-fpm stops a request after 150 s and has 10 workers; a 160-line week is about
+11,000 tokens of answer (2-4 minutes). So the upload only keeps the file and makes a job (`ai_read`, `waiting`) and the page waits on its
+own address (`/ui/profit/delivery/read/{id}`, `/ui/profit/expenses/read/{id}`), looking again every 3 seconds by the Refresh header (no
+script); `bin/ai_read.php` (cron, every minute, one run at a time by its lock, about 55 s a run, looking every 2 s) reads the jobs one at a
+time with no time limit of the web's (its own deadline: 600 s a call). Once read, the person's own page takes the answer and runs the place's
+own checks as the person. A job is its person's only (another person: 404); the routes are the places' own permissions (delivery.upload,
+expenses.edit), checked again by the service, and again by the runner when it reads (a job taken away meanwhile: `not_allowed`).
+
+**AI4. A Royal Mail bill: Claude copies, CW's own reader decides.** Claude copies the top block (account, invoice number, date, net, VAT,
+gross, currency), EVERY line (service date, product code, quantity, description, the reference cell as printed with its sales order,
+net, gross, VAT code), its own count of the lines, the VAT summary rows and the "Surcharge included" amount. CW writes the bill out as the
+page reader's text (`RoyalMailBillKind::render`: the shape of the owner's pasted bills, each line on two lines, no tab) and runs
+`RoyalMailBills::check` on it, so EVERY check of a pasted bill applies unchanged (the lines tie to the net and gross to the penny, the VAT
+follows from the codes, an unknown product refuses the bill, the account is the one chosen, the same bill twice ...). The check page is the
+same (a line says Claude read it: "compare a few lines with the PDF before you press Store"); Store is the same; the check's audit row says
+`read_by: claude` and the job. A reading that does not add up is refused and says so ("CW's reading of the PDF does not add up to the bill's
+total: try the bill page's own text or send it to the CW team"), never corrected. Before that, a count of the lines that is not Claude's own
+count refuses the answer (a reading that lost or doubled lines). £ example: the synthetic week of the tests (AiKindsTest), 12 lines, £2,284.45 net: read
+from the PDF it is the SAME bill as its saved page (the same rows and fingerprint: "the same file" if both are uploaded).
+
+**AI5. An expense's invoice fills the form, Save decides.** The add form (and an expense's Change) has "Fill from the file with Claude"
+while reading is on: the form is sent with its file; once read, the form comes back with the boxes Claude read filled over what was typed, and
+a note saying which. Only what holds together is filled: net + VAT = total (a missing one worked out only from the other two when they are
+printed, never a VAT CW works out), in pounds; the VAT choice the figures match (the server's own rule). A supplier only when it is exactly
+one of CW's (name, any case and spacing: CW keeps no VAT number of an expense supplier), else left to staff with the printed name said; a
+shop only when its exact name is printed as the one billed (the owner's rule: never a shop picked for you); a credit note ticked with its
+amounts as printed. Never a confidence number. £ example: an invoice of £70.60 + £14.12 VAT = £84.72 fills 70.60 / 14.12 / 84.72 and
+"Includes 20% VAT" (£84.72 x 10000 / 12000 = £70.60); one whose boxes say £70.60 + £14.12 but whose total says £90.00 fills no amount and
+says "add up to £84.72, not to its total £90.00". The copy Claude read is deleted: the form asks for the file again (or "Save without a file").
+
+**AI6. DPD stays the CSV.** DPD's weekly PDF is 55-61 pages for 2,300-2,600 parcels (page counts read with pdfinfo; the files were never
+opened: they hold delivery addresses and, on page 1, payment details): copying every parcel would be about 150,000 tokens of answer (over
+the 128,000 one answer may hold, about £2.50 a bill and half an hour), and the CSV DPD sends with it is the exact list. A PDF chosen with DPD
+is refused in words ("upload the CSV file DPD sends with each bill"), nothing sent.
+
+**AI7. Settings, all on the Settings screen ("Claude reads uploads"), audited, with history (0082).** `ai.read_uploads` (Off as installed),
+`ai.anthropic_api_key` (a SECRET: never shown back, never logged; the history and the audit keep a fingerprint; a password box holding only
+"(set: hidden)" while set, sent back as it is the key stays; a key typed into a refused form is never drawn back; a key of the wrong form is
+refused: `sk-ant-...`), `ai.model` (claude-opus-5-5), `ai.effort` (low, medium, high, xhigh, max; medium), `ai.monthly_limit_gbp` (30).
+Reading is on only with the switch on AND a key.
+
+**AI8. The month's limit counts real money, rounded up.** Each call's tokens at the model's prices, two settings in pounds per million tokens
+(`ai.price_input_gbp_per_mtok` 3.20, `ai.price_output_gbp_per_mtok` 16.00: Claude Opus 5.5's $4 / $20 at $1 = £0.80; change both with the
+model), in thousandths of a penny on the log row, rounded UP; the UK month's sum in pence rounded up. At the limit no new reading starts (the
+upload as before still works) and a job waiting is not read. £ example: a week's bill of 15,000 tokens in and 13,000 out costs 4,800 + 20,800
+= 25,600 thousandths = 25.6p; 100 of them a month = £25.60.
+
+**AI9. The log of calls, without content (`ai_call`).** When, who, place, kind, the model asked and the one that answered, the file's type
+and size, tokens in and out, the cost, the result (ok / refused / failed) and its reason code, a refusal's category, the API's request id,
+seconds; and later what CW's own checks made of it (passed / refused + the refusal's code: how often Claude's reading of a bill does not add
+up). Never the key, the document, a field of it or Claude's text. Append-only for the app login except those three columns. Settings > Rules
+and numbers says "This month: N documents read, £x of the £30.00 limit".
+
+**AI10. Privacy: business papers only.** What leaves the server: the document (base64) with CW's fixed instructions and the answer's shape,
+to api.anthropic.com over HTTPS, nothing else of CW (no supplier list, no shop name, no order). The Click & Drop report (customer addresses)
+is never offered to Claude; DPD's PDF is never sent (AI6).
+
+**AI11. Kept only as long as needed.** The file in the spool folder (app.env `ai_spool_dir`, else /var/lib/cw/ai-read, 0700 www-data; the
+file 0600 under a random name) until it is read: deleted right after the call, read or not; the answer in CW's form until its person's page
+takes it (once: `taken`); every minute, whatever the switch, the runner's clean-up: a job left `reading` by a run that stopped (failed,
+`stopped`), a job waiting more than an hour (`too_old`), an answer not taken within an hour (`expired`), any file of the folder older than an
+hour (a crash; only CW's own 32-hex names are touched), job rows a day after they finish (their log rows stay).
+
+**AI12. Every failure in the staff's words, with what to do next** (`Ui\AiReadWords`): "CW could not read this document: <why>" and, for a
+bill, "Upload the bill's saved page or paste its text, or send the PDF to the CW team"; the key wrong: "a person who manages settings
+changes it in Settings > Rules and numbers"; busy: "try again in a minute"; an iPhone's HEIC photo told apart by its own bytes.
+
+**AI13. CW-1181: a tabbed copy whose bill lines come on two lines is read (`RoyalMailBillPage::joinTabbed`).** Chrome on a Mac breaks each
+row where the reference cell starts (a form in the cell): "date, product, quantity, description" then "reference, net, gross, VAT code". A
+row that starts as a bill line, holds fewer than 7 cells and no amount waits for the rest; the next row that ends with two amounts and a VAT
+code (and is no bill line) completes it; words between are its description's. Anything else (a bill line next, money between, the end)
+leaves the half row as it was: refused whole, as before. The same bill as the one-line copy (rows, totals, fingerprint).
+
+**AI14. The go-live kit (`/root/cw_work/kits/aireader_cw1182/`).** 0082 only (two tables, seven settings OFF); before anything switches, the
+kit proves on the box that composer --no-dev installs anthropic-ai/sdk (the pinned version) and that the box reaches api.anthropic.com over
+HTTPS through the SDK itself (a request with NO key must answer 401: no token spent); the spool folder made (0700 www-data); the cron line
+installed by install_cron.sh; the feature lands OFF: the owner pastes the key on the Settings screen later and switches it on.

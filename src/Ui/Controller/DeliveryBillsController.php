@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace CW\Ui\Controller;
 
+use CW\Ai\AiSettings;
+use CW\Ai\DocumentReader;
+use CW\Ai\RoyalMailBillKind;
 use CW\CwException;
 use CW\Profit\DeliveryBills;
 use CW\Profit\DeliveryViews;
@@ -11,6 +14,7 @@ use CW\Profit\DpdInvoiceFile;
 use CW\Profit\RoyalMailBills;
 use CW\Profit\RoyalMailLook;
 use CW\Profit\RoyalMailViews;
+use CW\Ui\AiReadWords;
 use CW\Ui\Context;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
@@ -56,9 +60,18 @@ final class DeliveryBillsController
                 if ($account === null) {
                     throw new CwException('no_account', Words::DELIVERY['rm_no_account'], 422, ['field' => 'account']);
                 }
+                // a PDF or a photo of the bill (CW-1182, AI4): Claude reads it in the background; the page waits, then shows this same check
+                $doc = self::document($ctx);
+                if ($doc !== null) {
+                    return self::startReading($ctx, 'delivery_upload', $doc, ['account' => $account]);
+                }
                 return $this->checkPage($ctx, (new RoyalMailBills($ctx->db))->check($ctx->caller(), $account, self::pageOrText($ctx)));
             } else {
                 $file = InvoicesController::upload($ctx);
+                if (DocumentReader::mediaType($file['path']) === 'application/pdf') {
+                    // DPD's PDF is not read (AI6): the CSV DPD sends with it is the exact list; its PDF is pages of parcels with addresses
+                    throw new CwException('ai_read', Words::AIREAD['dpd_pdf'], 415, ['field' => 'file']);
+                }
                 $bytes = (string) file_get_contents($file['path']);
                 $r = (new DeliveryBills($ctx->db))->upload($ctx->caller(), $carrier, $bytes, $shop);
             }
@@ -83,7 +96,11 @@ final class DeliveryBillsController
         $id = $ctx->id();
         try {
             if (self::pooled($ctx, $id)) {
-                // a Royal Mail bill's corrected file: checked first, then its Store (DL79)
+                // a Royal Mail bill's corrected file: checked first, then its Store (DL79); a PDF or a photo of it read by Claude first (AI4)
+                $doc = self::document($ctx);
+                if ($doc !== null) {
+                    return self::startReading($ctx, 'delivery_replace', $doc, ['replace' => $id]);
+                }
                 return $this->checkPage($ctx, (new RoyalMailBills($ctx->db))->check($ctx->caller(), null, self::pageOrText($ctx), $id));
             } else {
                 $file = InvoicesController::upload($ctx);
@@ -125,16 +142,109 @@ final class DeliveryBillsController
     }
 
     /**
+     * GET read/{id}: a Royal Mail bill Claude is reading for this person (CW-1182; docs/decisions.md AI3, AI4). While it waits or is read: the
+     * waiting page, which looks again every few seconds. Read: its answer taken once, written out as the page reader's text and checked by
+     * RoyalMailBills::check exactly as a pasted bill (the same check page, then Store); a reading whose lines do not add up is refused and says
+     * so, never corrected. Failed: why, in words, with what to do next. Another person's reading: 404.
+     */
+    public function reading(Context $ctx): HtmlResponse
+    {
+        $reader = new DocumentReader($ctx->db);
+        $id = $ctx->id();
+        try {
+            $job = $reader->view($ctx->caller(), $id);
+        } catch (CwException) {
+            return $ctx->error(404, 'not_found', 'there is no such reading', [self::PATH, Words::MENU['profit_delivery']]);
+        }
+        $replace = is_int($job['context']['replace'] ?? null) ? $job['context']['replace'] : null;
+        $account = is_int($job['context']['account'] ?? null) ? $job['context']['account'] : null;
+        $back = fn (int $status, string $words): HtmlResponse => $replace !== null
+            ? $this->billPage($ctx, $replace, $status, new CwException('ai_read', $words, $status), null)
+            : $this->listPage($ctx, $status, new CwException('ai_read', $words, $status), ['carrier' => 'royal_mail', 'account' => $account]);
+        if (in_array($job['state'], ['waiting', 'reading'], true)) {
+            return self::waitPage($ctx, $job, self::PATH . '/read/' . $id, $replace !== null ? self::PATH . '/' . $replace : self::PATH);
+        }
+        if ($job['state'] === 'taken') {
+            return $back(409, Words::AIREAD['taken']);
+        }
+        if ($job['state'] !== 'done') {
+            return $back(422, AiReadWords::failure($job['kind'], $job['reason'], $job['detail']));
+        }
+        try {
+            $bill = $reader->take($ctx->caller(), $id);
+        } catch (CwException $e) {
+            return $e->errorCode === 'ai_taken' ? $back(409, Words::AIREAD['taken']) : $back($e->httpStatus, Words::error($e->errorCode, $e->getMessage()));
+        }
+        try {
+            $c = (new RoyalMailBills($ctx->db))->check($ctx->caller(), $account, RoyalMailBillKind::render($bill), $replace, ['read_by' => 'claude', 'ai_read' => $id]);
+        } catch (CwException $e) {
+            $reader->checked($id, false, $e->errorCode);
+            // CW's own reader refused Claude's reading: said so, never corrected (AI4)
+            return $back($e->httpStatus, $e->errorCode === 'bad_file' ? Words::AIREAD['rm_not_tie'] . ' ' . $e->getMessage() : $e->getMessage());
+        }
+        $reader->checked($id, true);
+        return $this->checkPage($ctx, $c, true);
+    }
+
+    /**
+     * The page that waits for Claude's reading (AI3): what is read, since when, a link to look again and one back; it looks again by itself every
+     * few seconds (the Refresh header: no script needed).
+     *
+     * @param array<string, mixed> $job DocumentReader::view()
+     */
+    public static function waitPage(Context $ctx, array $job, string $again, string $back): HtmlResponse
+    {
+        $since = max(0, \CW\Clock::now()->getTimestamp() - \CW\Clock::fromDb((string) $job['created_at'])->getTimestamp());
+        return $ctx->page('ai_wait', [
+            'what' => Words::has('AIREAD', 'what_' . $job['kind']) ? Words::AIREAD['what_' . $job['kind']] : Words::AIREAD['what_expense_invoice'],
+            'queued' => $job['state'] === 'waiting',
+            'since' => $since,
+            'again' => $again,
+            'back' => $back,
+        ], 200, ['title' => Words::AIREAD['wait_title']])->withHeader('Refresh', '3');
+    }
+
+    /** A reading started for this person in $place: the waiting page; refused (switched off, the limit, the file's type), the reason in words. */
+    private static function startReading(Context $ctx, string $place, string $path, array $context): HtmlResponse
+    {
+        try {
+            $id = (new DocumentReader($ctx->db))->start($ctx->caller(), $place, $path, $context);
+        } catch (CwException $e) {
+            $words = AiReadWords::refusal($e);
+            if ($words === null) {
+                throw $e;
+            }
+            // switched off: a PDF of a Royal Mail bill is read only by Claude; the page's own ways are said (AI4)
+            throw new CwException('ai_read', $words . ($e->errorCode === 'ai_off' ? ' ' . Words::AIREAD['rm_needs_page'] : ''), $e->httpStatus, ['field' => 'file']);
+        }
+        return HtmlResponse::redirect(self::PATH . '/read/' . $id);
+    }
+
+    /** The uploaded file when it is a PDF or a photo (Claude reads it) and no text was pasted; null otherwise (the page's own ways). */
+    private static function document(Context $ctx): ?string
+    {
+        if (trim((string) ($ctx->req->field('text') ?? '')) !== '') {
+            return null;
+        }
+        $file = $ctx->req->file('file');
+        if ($file === null || $file['error'] !== UPLOAD_ERR_OK || $file['path'] === '' || (int) $file['size'] > UiRequest::MAX_UPLOAD_BYTES) {
+            return null;
+        }
+        return DocumentReader::isDocument((string) $file['path']) ? (string) $file['path'] : null;
+    }
+
+    /**
      * A Royal Mail bill checked, nothing stored (DL79; the plan, section 6 step 3): what CW read (its number, account, date, days, that its lines add
      * up to its totals, its rows and totals), where its money would go, the bill it replaces, and the Store button (or "in the profit already").
      *
      * @param array<string, mixed> $c RoyalMailBills::check()
      */
-    private function checkPage(Context $ctx, array $c): HtmlResponse
+    private function checkPage(Context $ctx, array $c, bool $byClaude = false): HtmlResponse
     {
         $p = $c['preview'];
         $views = new RoyalMailViews($ctx->db);
         return $ctx->page('profit_delivery_rm_check', [
+            'byClaude' => $byClaude,
             'check' => $c,
             'bill' => $p,
             'where' => $views->checkWhere($p['where']),
@@ -241,6 +351,7 @@ final class DeliveryBillsController
             'retry' => $retry,
             'maxMiB' => intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576),
             'limit' => DeliveryViews::LIST_LIMIT,
+            'aiOn' => AiSettings::read($ctx->db)->on(),
         ], $status, ['title' => Words::MENU['profit_delivery']]);
     }
 
@@ -288,6 +399,7 @@ final class DeliveryBillsController
         }
         $bill = $b['bill'];
         return $ctx->page('profit_delivery_rm', $b + [
+            'aiOn' => AiSettings::read($ctx->db)->on(),
             'lookPct' => RoyalMailLook::pctText(RoyalMailLook::alarmBp($ctx->db)),
             'canUpload' => $ctx->me()->can(self::PERM_UPLOAD) && $bill['status'] === 'live',
             'error' => $error?->getMessage(),

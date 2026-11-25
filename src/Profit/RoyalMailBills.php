@@ -105,10 +105,14 @@ final class RoyalMailBills
      * ("same"), the bill AS READ kept in carrier_bill_check for its Store: bound to who checked it and the sha256 of the file or text, single
      * use, CHECK_MINUTES long. Never the file (the page may hold names; the bill as read holds what CW stores of it anyway). A person only.
      *
+     * $readBy: who read the bytes when it was not the page's own text (CW-1182, AI4: ['read_by' => 'claude', 'ai_read' => the job]): written on the
+     * check's audit row, so a bill stored from Claude's reading of a PDF says so.
+     *
+     * @param array<string, int|string> $readBy
      * @return array{token: ?string, same: bool, file_sha256: string, bill_sha256: string, replace: ?array{id: int, invoice_no: string, uploaded_at: string},
      *   preview: array<string, mixed>}
      */
-    public function check(Caller $caller, ?int $accountId, string $bytes, ?int $replaceId = null): array
+    public function check(Caller $caller, ?int $accountId, string $bytes, ?int $replaceId = null, array $readBy = []): array
     {
         $this->bills->authoriseWrite($caller);
         $this->notHeld();
@@ -148,9 +152,9 @@ final class RoyalMailBills
         $now = ($this->clock)();
         // the check and its audit written under the bills' lock with the hold read again: a check that started before the kit's hold writes
         // nothing after it (the astra re-check of b581e70, K2 MEDIUM)
-        $this->bills->inLock(function () use ($caller, $account, $bill, $old, $token, $now, $out): void {
+        $this->bills->inLock(function () use ($caller, $account, $bill, $old, $token, $now, $out, $readBy): void {
             $this->notHeld();
-            $this->db->transaction(function (Db $db) use ($caller, $account, $bill, $old, $token, $now, $out): void {
+            $this->db->transaction(function (Db $db) use ($caller, $account, $bill, $old, $token, $now, $out, $readBy): void {
                 // the checks of more than a day ago gone (none was ever the file; a stored one's bill is in carrier_bill_row)
                 $db->exec('DELETE FROM carrier_bill_check WHERE expires_at < ?', [Clock::db($now->modify('-1 day'))]);
                 $id = $db->insert('INSERT INTO carrier_bill_check (token_sha256, staff_user_id, account_id, replace_id, file_sha256, bill_sha256, plan_sha256, bill, created_at, '
@@ -159,7 +163,8 @@ final class RoyalMailBills
                         Clock::db($now->modify('+' . self::CHECK_MINUTES . ' minutes'))]);
                 Audit::write($db, $caller, 'delivery_bill.check', 'carrier_account', (string) $account['id'], null, ['check' => $id, 'carrier' => $account['carrier'],
                     'account' => $bill['account'], 'invoice' => $bill['invoice_no'], 'rows' => count($bill['rows']), 'net_pence' => $bill['net'],
-                    'file_sha256' => $out['file_sha256'], 'sha256' => $bill['sha256']] + ($old === null ? [] : ['replaces' => (int) $old['id']]));
+                    'file_sha256' => $out['file_sha256'], 'sha256' => $bill['sha256']] + ($old === null ? [] : ['replaces' => (int) $old['id']])
+                    + array_intersect_key($readBy, ['read_by' => 1, 'ai_read' => 1]));
             });
         });
         return ['token' => $token] + $out;

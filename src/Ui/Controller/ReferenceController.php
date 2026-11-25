@@ -203,6 +203,9 @@ final class ReferenceController
             // 2-step verification switched off for a while (auth.totp_off_until, TF5): a warning at the top while it is.
             'codeOffUntil' => $ctx->codeOffUntil(),
             'nightly' => self::lastNight($ctx),
+            // Claude reads the upload (0082; docs/decisions.md AI9): the month's reading so far, read only, on its topic's card
+            'aiTopic' => Words::SETTING_TOPIC['ai'],
+            'aiMonth' => $ctx->settings()->has(\CW\Ai\AiSettings::LIMIT) ? self::aiMonth($ctx) : null,
         ], 200, ['title' => Words::SETTINGS_PAGE['title'], 'active' => 'settings']);
     }
 
@@ -236,6 +239,14 @@ final class ReferenceController
         return ['tone' => 'done', 'lead' => $last ? sprintf(Words::NIGHTLY['last'], $at->format('H:i')) : sprintf(Words::NIGHTLY['last_run'], Html::when((string) $run['created_at'])),
             'text' => $text, 'href' => $may ? '/ui/queues/corrections/confirm-all/' . (int) $run['id'] : null, 'link' => $may ? Words::NIGHTLY[$last ? 'open' : 'open_run'] : null,
             'next' => $next];
+    }
+
+    /** "This month: 12 documents read, £3.40 of the £30.00 limit." (AI9): the UK month's calls that read a document, their cost rounded up. */
+    private static function aiMonth(Context $ctx): string
+    {
+        $m = \CW\Ai\AiUsage::month($ctx->db);
+        $limit = \CW\Ai\AiSettings::read($ctx->db)->limitPence;
+        return Words::say('AIREAD', 'month', number_format($m['documents']), number_format($m['pence'] / 100, 2), number_format($limit / 100, 2));
     }
 
     /**

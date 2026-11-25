@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace CW\Ui\Controller;
 
+use CW\Ai\AiSettings;
+use CW\Ai\DocumentReader;
+use CW\Ai\ExpenseInvoiceKind;
 use CW\CwException;
 use CW\Expenses\ExpenseAccess;
 use CW\Expenses\ExpenseFiles;
@@ -14,6 +17,7 @@ use CW\Expenses\ExpenseViews;
 use CW\Expenses\RegularCostMath;
 use CW\Files\FileStore;
 use CW\Profit\ProfitViews;
+use CW\Ui\AiReadWords;
 use CW\Ui\Context;
 use CW\Ui\FormOnce;
 use CW\Ui\Html;
@@ -182,6 +186,134 @@ final class ExpensesController
             return self::deniedWrite($e) ? self::denied($ctx, $e) : $this->form($ctx, $e->httpStatus, $e, $typed, null);
         }
         return FormOnce::redirect($r);
+    }
+
+    /**
+     * POST read: the add form sent with "Fill from the file with Claude" (CW-1182; docs/decisions.md AI5): its file read by Claude in the
+     * background (DocumentReader), what was typed kept with it; the page that waits. Refused (no file, switched off, the limit, the file's
+     * type): the form back as it was typed, with why.
+     */
+    public function read(Context $ctx): HtmlResponse
+    {
+        $typed = self::typed($ctx);
+        try {
+            $id = self::startReading($ctx, 'expense_new', $typed);
+        } catch (CwException $e) {
+            return self::deniedWrite($e) ? self::denied($ctx, $e) : $this->form($ctx, $e->httpStatus, $e, $typed, null);
+        }
+        return HtmlResponse::redirect(self::PATH . '/read/' . $id);
+    }
+
+    /** POST {id}/read: an expense's Change form sent with "Fill from the file with Claude" (AI5): as read(), the expense and its version kept. */
+    public function readChange(Context $ctx): HtmlResponse
+    {
+        $id = $ctx->id();
+        $typed = self::typed($ctx);
+        try {
+            $seen = self::seen($ctx);
+            if ((new ExpenseViews($ctx->db, $ctx->caller()))->expense($id) === null) {
+                return $ctx->error(404, 'not_found', Words::EXPENSES_ERROR['no_such_expense'], [self::PATH, Words::MENU['profit_expenses']]);
+            }
+            $job = self::startReading($ctx, 'expense_change', $typed + ['expense' => $id, 'seen' => $seen]);
+        } catch (CwException $e) {
+            return $this->refused($ctx, $id, $e, $typed, 'change');
+        }
+        return HtmlResponse::redirect(self::PATH . '/read/' . $job);
+    }
+
+    /**
+     * GET read/{id}: the invoice Claude is reading for this person (AI5). While it waits or is read: the waiting page. Read: its answer taken
+     * once and the form filled with it over what was typed (ExpenseInvoiceKind::fill: only what holds together), a note saying which boxes
+     * Claude filled and what is left to staff; the file is asked for again (the copy Claude read is deleted), unless "Save without a file" is
+     * ticked. Failed: the form as typed, with why. Another person's reading: 404.
+     */
+    public function reading(Context $ctx): HtmlResponse
+    {
+        $reader = new DocumentReader($ctx->db);
+        $id = $ctx->id();
+        try {
+            $job = $reader->view($ctx->caller(), $id);
+        } catch (CwException) {
+            return $ctx->error(404, 'not_found', 'there is no such reading', [self::PATH, Words::MENU['profit_expenses']]);
+        }
+        $c = $job['context'];
+        $expense = is_int($c['expense'] ?? null) ? $c['expense'] : null;
+        $typed = self::typedFrom($c);
+        $back = function (int $status, ?CwException $e, array $typed, array $ai) use ($ctx, $expense, $c): HtmlResponse {
+            if ($expense === null) {
+                return $this->form($ctx, $status, $e, $typed, null, $ai);
+            }
+            return $this->one($ctx, $expense, $status, $e, $typed, null, is_int($c['seen'] ?? null) ? $c['seen'] : null, 'change', $ai);
+        };
+        if (in_array($job['state'], ['waiting', 'reading'], true)) {
+            return DeliveryBillsController::waitPage($ctx, $job, self::PATH . '/read/' . $id, $expense !== null ? self::PATH . '/' . $expense : self::PATH . '/new');
+        }
+        // the file the person sent was read (or not) and deleted: Save asks for it again unless "Save without a file" is ticked
+        if ($job['state'] === 'taken') {
+            return $back(409, new CwException('ai_read', Words::AIREAD['taken'], 409), $typed, ['fileAgain' => true]);
+        }
+        if ($job['state'] !== 'done') {
+            return $back(422, new CwException('ai_read', AiReadWords::failure($job['kind'], $job['reason'], $job['detail']), 422, ['field' => 'file']), $typed,
+                ['fileAgain' => true]);
+        }
+        try {
+            $answer = $reader->take($ctx->caller(), $id);
+        } catch (CwException $e) {
+            return $back($e->httpStatus, new CwException('ai_read', $e->errorCode === 'ai_taken' ? Words::AIREAD['taken'] : $e->getMessage(), $e->httpStatus), $typed,
+                ['fileAgain' => true]);
+        }
+        $views = new ExpenseViews($ctx->db, $ctx->caller());
+        $suppliers = array_values(array_filter($views->suppliers(), static fn (array $s): bool => (bool) $s['is_active']));
+        $f = ExpenseInvoiceKind::fill($answer, array_map(static fn (array $s): array => ['id' => (int) $s['id'], 'name' => (string) $s['name']], $suppliers),
+            array_map(static fn (array $s): array => ['id' => (int) $s['id'], 'name' => (string) $s['name']], $views->shops()),
+            (new \CW\Profit\ProfitSettings($ctx->db))->vatBp(), $typed);
+        $reader->checked($id, true);
+        $fields = array_map(static fn (string $k): string => Words::AIREAD['field_' . $k], $f['filled']);
+        $notes = array_map(static fn (array $n): string => Words::say('AIREAD', $n[0], ...$n[1]), $f['notes']);
+        return $back(200, null, $f['typed'], ['filled' => $fields === [] ? Words::AIREAD['filled_none'] : Words::say('AIREAD', 'filled', implode(', ', $fields)),
+            'notes' => $notes, 'fileAgain' => true]);
+    }
+
+    /**
+     * A reading started with the form's file (AI5): refused in words when the reader refuses (no file, switched off, the limit, the type).
+     *
+     * @param array<string, mixed> $context
+     */
+    private static function startReading(Context $ctx, string $place, array $context): int
+    {
+        $file = self::upload($ctx, false);
+        try {
+            if ($file === null) {
+                throw new CwException('no_file', 'no file', 400, ['field' => 'file']);
+            }
+            return (new DocumentReader($ctx->db))->start($ctx->caller(), $place, $file['path'], $context);
+        } catch (CwException $e) {
+            $words = AiReadWords::refusal($e);
+            if ($words === null) {
+                throw $e;
+            }
+            throw new CwException('ai_read', $words, $e->httpStatus, ['field' => 'file']);
+        }
+    }
+
+    /**
+     * The form's fields as a reading kept them (DocumentReader's context): each a string or a tick, as typed() gives them.
+     *
+     * @param array<string, mixed> $c
+     * @return array<string, mixed>
+     */
+    private static function typedFrom(array $c): array
+    {
+        $out = [];
+        foreach (['shop', 'supplier', 'supplier_id', 'supplier_was', 'type', 'invoice_date', 'invoice_no', 'net', 'vat', 'total', 'vat_way', 'hand', 'note'] as $k) {
+            $out[$k] = is_string($c[$k] ?? null) ? $c[$k] : '';
+        }
+        foreach (['new_supplier', 'credit', 'anchor'] as $k) {
+            $out[$k] = ($c[$k] ?? false) === true;
+        }
+        $out['vat_way'] = self::vatWay($out['vat_way']);
+        $out['hand'] = self::hand($out['hand']);
+        return $out;
     }
 
     /** GET {id}: one expense. */
@@ -431,7 +563,7 @@ final class ExpensesController
      *
      * @param array<string, mixed> $typed
      */
-    private function form(Context $ctx, int $status, ?CwException $error, array $typed, ?string $notice): HtmlResponse
+    private function form(Context $ctx, int $status, ?CwException $error, array $typed, ?string $notice, array $ai = []): HtmlResponse
     {
         $views = new ExpenseViews($ctx->db, $ctx->caller());
         $bp = (new \CW\Profit\ProfitSettings($ctx->db))->vatBp();
@@ -449,8 +581,12 @@ final class ExpensesController
             'sameIds' => is_string($error?->detail['confirm'] ?? null) ? $error->detail['confirm'] : '',
             'sameList' => self::sameList($error),
             'maxMb' => intdiv(ExpenseFiles::MAX_BYTES, 1_048_576),
-            'fileAgain' => $error !== null && self::fileChosen($ctx),
+            'fileAgain' => ($error !== null && self::fileChosen($ctx)) || ($ai['fileAgain'] ?? false) === true,
             'formKey' => self::formKey($ctx, $error),
+            // Claude reads the invoice (CW-1182, AI5): the button while reading is on, and what a reading filled
+            'aiOn' => AiSettings::read($ctx->db)->on(),
+            'aiFilled' => $ai['filled'] ?? null,
+            'aiNotes' => $ai['notes'] ?? [],
             // The shops' rate read ONCE for the page: the label and the script's sums from the same reading (Codex's final review, L2).
             'vatPct' => RegularCostMath::percent($bp),
             'vatBp' => $bp,
@@ -483,7 +619,8 @@ final class ExpensesController
      * @param string|null $form the form whose sending this page answers (change, delete; null: a plain look), so the page opens that fold and
      *     says its refusal there (as a regular cost's page: Fable's Low a on f044e2f)
      */
-    private function one(Context $ctx, int $id, int $status, ?CwException $error, ?array $typed, ?string $notice, ?int $seen = null, ?string $form = null): HtmlResponse
+    private function one(Context $ctx, int $id, int $status, ?CwException $error, ?array $typed, ?string $notice, ?int $seen = null, ?string $form = null,
+        array $ai = []): HtmlResponse
     {
         $views = new ExpenseViews($ctx->db, $ctx->caller());
         $x = $views->expense($id);
@@ -523,8 +660,11 @@ final class ExpensesController
             'vatBp' => $bp,
             'listHref' => Html::url(self::PATH, ['month' => substr((string) $x['invoice_date'], 0, 7)]),
             // A change refused because someone else changed it shows their figures and still asks for the file chosen (the Codex check r3, M8).
-            'fileAgain' => $error !== null && self::fileChosen($ctx),
+            'fileAgain' => ($error !== null && self::fileChosen($ctx)) || ($ai['fileAgain'] ?? false) === true,
             'seen' => $seen ?? (int) $x['version'],
+            'aiOn' => AiSettings::read($ctx->db)->on(),
+            'aiFilled' => $ai['filled'] ?? null,
+            'aiNotes' => $ai['notes'] ?? [],
         ], $status, ['title' => $title, 'notice' => $notice]);
     }
 

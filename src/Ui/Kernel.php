@@ -654,6 +654,8 @@ final class Kernel
         $r->add('POST', DeliveryBillsController::PATH . '/upload', DeliveryBillsController::PERM_UPLOAD, $bills->upload(...));
         $r->add('POST', DeliveryBillsController::PATH . '/store', DeliveryBillsController::PERM_UPLOAD, $bills->store(...)); // a checked Royal Mail bill (DL79)
         $r->add('POST', DeliveryBillsController::PATH . '/labels', DeliveryBillsController::PERM_UPLOAD, $bills->labels(...));
+        // a Royal Mail bill's PDF or photo Claude reads for the person who sent it (CW-1182, AI3): the page that waits, then the check
+        $r->add('GET', DeliveryBillsController::PATH . '/read/{id}', DeliveryBillsController::PERM_UPLOAD, $bills->reading(...));
         $r->add('GET', DeliveryBillsController::PATH . '/{id}', DeliveryBillsController::PERM_VIEW, $bills->bill(...));
         $r->add('POST', DeliveryBillsController::PATH . '/{id}/replace', DeliveryBillsController::PERM_UPLOAD, $bills->replace(...));
         $r->add('POST', DeliveryBillsController::PATH . '/{id}/undo', DeliveryBillsController::PERM_UPLOAD, $bills->undo(...));
@@ -664,6 +666,10 @@ final class Kernel
         $r->add('GET', ExpensesController::PATH, ExpensesController::PERM_VIEW, $exp->list(...));
         $r->add('GET', ExpensesController::PATH . '/new', ExpensesController::PERM_EDIT, $exp->newForm(...));
         $r->add('POST', ExpensesController::PATH . '/new', ExpensesController::PERM_EDIT, $exp->add(...));
+        // an invoice's PDF or photo Claude reads to fill the form (CW-1182, AI5): sent from the add form or an expense's Change, then the page that waits
+        $r->add('POST', ExpensesController::PATH . '/read', ExpensesController::PERM_EDIT, $exp->read(...));
+        $r->add('GET', ExpensesController::PATH . '/read/{id}', ExpensesController::PERM_EDIT, $exp->reading(...));
+        $r->add('POST', ExpensesController::PATH . '/{id}/read', ExpensesController::PERM_EDIT, $exp->readChange(...));
         $r->add('GET', ExpensesController::PATH . '/suppliers', ExpensesController::PERM_VIEW, $exp->suppliers(...));
         $r->add('POST', ExpensesController::PATH . '/suppliers/add', ExpensesController::PERM_EDIT, $exp->addSupplier(...));
         $r->add('POST', ExpensesController::PATH . '/suppliers/{id}/change', ExpensesController::PERM_EDIT, $exp->changeSupplier(...));

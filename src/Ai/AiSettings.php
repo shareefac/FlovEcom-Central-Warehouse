@@ -1,0 +1,84 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CW\Ai;
+
+use CW\Db;
+use CW\Settings;
+
+/**
+ * The settings of "Claude reads the upload" (0082; docs/decisions.md AI7), read straight from app_setting on every use (a switch changed on the
+ * Settings screen counts for the next upload and the next reading): the switch (ai.read_uploads, off until a person switches it on), the
+ * Anthropic API key (a SECRET setting: never shown back, never logged; empty = off), the model, the effort, the month's limit in pounds and the
+ * model's two prices in pounds per million tokens (CW counts each call's tokens at them). Reading is on only with the switch on AND a key; a
+ * schema before 0082 has no rows: off.
+ */
+final class AiSettings
+{
+    public const ON = 'ai.read_uploads';
+    public const KEY = 'ai.anthropic_api_key';
+    public const MODEL = 'ai.model';
+    public const EFFORT = 'ai.effort';
+    public const LIMIT = 'ai.monthly_limit_gbp';
+    public const PRICE_IN = 'ai.price_input_gbp_per_mtok';
+    public const PRICE_OUT = 'ai.price_output_gbp_per_mtok';
+    /** The keys 0082 seeds, in the order the screens list them. */
+    public const KEYS = [self::ON, self::KEY, self::MODEL, self::EFFORT, self::LIMIT, self::PRICE_IN, self::PRICE_OUT];
+    public const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+    public const DEFAULT_MODEL = 'claude-opus-5-5';
+
+    private function __construct(
+        public readonly bool $switch,
+        #[\SensitiveParameter] public readonly string $key,
+        public readonly string $model,
+        public readonly string $effort,
+        /** the month's limit in pence (30.00 -> 3000) */
+        public readonly int $limitPence,
+        /** pounds per million input / output tokens, as decimal strings */
+        public readonly string $priceIn,
+        public readonly string $priceOut,
+    ) {
+    }
+
+    public static function read(Db $db): self
+    {
+        $raw = [];
+        foreach ($db->all('SELECT setting_key, value_type, CAST(value_json AS CHAR) AS value_json FROM app_setting WHERE setting_key IN ('
+            . implode(', ', array_fill(0, count(self::KEYS), '?')) . ')', self::KEYS) as $r) {
+            $raw[(string) $r['setting_key']] = Settings::decode((string) $r['value_type'], (string) $r['value_json']);
+        }
+        $text = static fn (string $k, string $default): string => is_string($raw[$k] ?? null) && $raw[$k] !== '' ? $raw[$k] : $default;
+        $effort = $text(self::EFFORT, 'medium');
+        return new self(
+            ($raw[self::ON] ?? false) === true,
+            is_string($raw[self::KEY] ?? null) ? trim($raw[self::KEY]) : '',
+            $text(self::MODEL, self::DEFAULT_MODEL),
+            in_array($effort, self::EFFORTS, true) ? $effort : 'medium',
+            self::pence($text(self::LIMIT, '0')),
+            $text(self::PRICE_IN, '0'),
+            $text(self::PRICE_OUT, '0'),
+        );
+    }
+
+    /** Reading is on: the switch on and a key set. */
+    public function on(): bool
+    {
+        return $this->switch && $this->key !== '';
+    }
+
+    /** Why reading is off, as a code (AI words: off_switch, off_key), or null when it is on. */
+    public function off(): ?string
+    {
+        return !$this->switch ? 'off_switch' : ($this->key === '' ? 'off_key' : null);
+    }
+
+    /** "30" / "30.5" / "30.00" (pounds) as pence; 0 for anything that is not an amount. */
+    public static function pence(string $gbp): int
+    {
+        if (preg_match('/^(\d{1,8})(?:\.(\d{1,6}))?$/D', trim($gbp), $m) !== 1) {
+            return 0;
+        }
+        return (int) $m[1] * 100 + (int) substr(str_pad($m[2] ?? '', 2, '0'), 0, 2);
+    }
+}

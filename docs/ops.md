@@ -2910,6 +2910,19 @@ ERPNext doors to the stores are still closed, and only into an ERPNext that was 
 **Every night of the rollback window** (plan step 5.2) the production server runs the command from cron and copies the directory off CW (the
 write-once storage), so the way back does not need CW on the day. It is set up with the production server's backups.
 
+## Claude reads the upload (CW-1182; `docs/decisions.md` AI1-AI14)
+
+- **What:** on Profit > Delivery bills (a Royal Mail bill) and Profit > Expenses (an invoice) staff may drop a PDF or a photo; Claude reads it
+  and CW fills the same check page or form; a person stores. Off as installed.
+- **Switching it on:** Settings > Rules and numbers > "Claude reads uploads": paste the Anthropic API key (the box keeps "(set: hidden)"), then
+  "Claude reads uploaded PDFs and photos" On. The month's limit (£30) and the model's prices are there too, with "This month: ...".
+- **The runner:** `bin/ai_read.php` every minute from cron (`/var/log/cw/ai_read.log`: a line only when it read or cleaned something up).
+  By hand: `php -d memory_limit=512M bin/ai_read.php --db=cw_prod --once`.
+- **The spool folder:** app.env `ai_spool_dir`, else `/var/lib/cw/ai-read` (0700 www-data). A file stays there only until it is read, never
+  more than an hour.
+- **The log:** `SELECT created_at, place, kind, result, reason, input_tokens, output_tokens, cost_millipence, checked FROM ai_call ORDER BY id DESC`
+  (no content). Switch off at once: the setting Off (or empty the key): nothing more is sent; jobs waiting fail as `off`.
+
 ## The production server (`deploy/production/`; go-live plan "Ops and security for I-Day")
 
 | What | Where |
