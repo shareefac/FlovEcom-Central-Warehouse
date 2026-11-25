@@ -62,7 +62,7 @@ final class PaypalFeesR1Test extends StockTestCase
         });
     }
 
-    private static function run(FakePaypalHttp $http, string $from = '2026-10-31', string $to = '2026-11-24', string $now = self::PP_NOW): array
+    private static function readPp(FakePaypalHttp $http, string $from = '2026-10-31', string $to = '2026-11-24', string $now = self::PP_NOW): array
     {
         return self::fees($now)->run(Caller::system('paypal_test'), self::api($http), $from, $to, 'backfill');
     }
@@ -134,7 +134,7 @@ final class PaypalFeesR1Test extends StockTestCase
             PaypalTx::row('2A0000000000000B2', 'T1201', '2026-11-07T12:00:00Z', '-30.00', null, '1312002'),
             PaypalTx::row('2A0000000000000B3', 'T0106', '2026-11-07T12:05:00Z', '-14.00', null, '1312002'),
         ]);
-        self::run($http);
+        self::readPp($http);
         $cb = self::row('2A0000000000000B2');
         self::assertSame([3000, 1000, 2000, 1000], [(int) $cb['cost_pence'], (int) $cb['refund_offset_pence'], (int) $cb['alloc_pence'], (int) $cb['refund_seen_pence']],
             'the £30 taken back: £10 of it CW holds as a refund already, £20 counts');
@@ -142,7 +142,7 @@ final class PaypalFeesR1Test extends StockTestCase
         self::assertSame(['2026-11-04|fee_cost' => 150, '2026-11-07|fee_cost' => 3400], self::days($this->vpg));
         // the shop refunds the rest later: the next run takes the whole £30 off (only the fee is left)
         self::order($this->vpg, '1002', '1312002', '2026-11-04T09:00:00Z', 3, 3000);
-        self::run($http, '2026-11-24', '2026-11-24');
+        self::readPp($http, '2026-11-24', '2026-11-24');
         $cb = self::row('2A0000000000000B2');
         self::assertSame([3000, 3000, 0, null], [(int) $cb['refund_offset_pence'], (int) $cb['refund_seen_pence'], (int) $cb['alloc_pence'], $cb['alloc_dest']]);
         self::assertSame(['2026-11-04|fee_cost' => 150, '2026-11-07|fee_cost' => 1400], self::days($this->vpg));
@@ -157,7 +157,7 @@ final class PaypalFeesR1Test extends StockTestCase
             PaypalTx::sale('2A0000000000000H1', '2026-11-05T11:30:00Z', '12.00', '-0.40', null) + ['invoice_id' => 'faaeeb-3090', 'custom_field' => '3090'],
             PaypalTx::sale('2A0000000000000V1', '2026-11-03T10:01:00Z', '50.00', '-1.20', '1312001'),
         ]);
-        self::run($http);
+        self::readPp($http);
         $vpg = self::days($this->vpg);
         self::assertSame(['2026-11-06|fee_cost' => 70], self::days($this->ef));
         // Hayati Vapes and Electrofag taken off the account's shops: their rows need a look, never Vape and Go's line
@@ -191,7 +191,7 @@ final class PaypalFeesR1Test extends StockTestCase
             PaypalTx::refund('2A0000000000000E4', '2026-11-09T12:00:00Z', '-5.00', '0.10', '1312001') + ['paypal_reference_id' => '2A0000000000000E1'],
         ];
         $http = new FakePaypalHttp($rows);
-        self::run($http);
+        self::readPp($http);
         self::assertSame(['order', '2001', 'reference'], [self::row('2A0000000000000E2')['alloc_dest'], self::row('2A0000000000000E2')['alloc_order_ref'],
             self::row('2A0000000000000E2')['matched_by']]);
         self::assertSame(['order', '2001', 1400], [self::row('2A0000000000000E3')['alloc_dest'], self::row('2A0000000000000E3')['alloc_order_ref'],
@@ -201,10 +201,10 @@ final class PaypalFeesR1Test extends StockTestCase
         // a refund read before its sale (its window first): on Vape and Go's line for now; the sale read later takes it to its own order
         $refund = PaypalTx::refund('2A0000000000000F2', '2026-11-12T12:00:00Z', '-5.00', '0.10', null) + ['paypal_reference_id' => '2A0000000000000F1'];
         $http->set([...$rows, $refund]);
-        self::run($http, '2026-11-12', '2026-11-12');
+        self::readPp($http, '2026-11-12', '2026-11-12');
         self::assertSame(['shop', 'no_number'], [self::row('2A0000000000000F2')['alloc_dest'], self::row('2A0000000000000F2')['match_state']]);
         $http->set([...$rows, $refund, PaypalTx::sale('2A0000000000000F1', '2026-11-06T09:30:00Z', '20.00', '-0.70', '5458')]);
-        self::run($http, '2026-11-06', '2026-11-06');
+        self::readPp($http, '2026-11-06', '2026-11-06');
         self::assertSame(['order', '2002', (string) $this->ef], [self::row('2A0000000000000F2')['alloc_dest'], self::row('2A0000000000000F2')['alloc_order_ref'],
             (string) self::row('2A0000000000000F2')['alloc_channel']]);
         self::assertDaysRebuild($this->vpg);
@@ -218,10 +218,10 @@ final class PaypalFeesR1Test extends StockTestCase
             PaypalTx::sale('2A0000000000000V1', '2026-11-03T10:01:00Z', '50.00', '-1.20', '1312001'),
             PaypalTx::sale('2A0000000000000V2', '2026-11-04T09:01:00Z', '64.99', '-1.50', '1312002'),
         ]);
-        self::run($http);
+        self::readPp($http);
         self::order($this->vpg, '1001', '1312901', '2026-11-03T10:00:00Z', 2); // renumbered
         self::order($this->vpg, '1009', '1312002', '2026-11-04T10:00:00Z');    // a second order with the number
-        self::run($http, '2026-11-24', '2026-11-24');
+        self::readPp($http, '2026-11-24', '2026-11-24');
         self::assertSame(['no_order', 'shop'], [self::row('2A0000000000000V1')['match_state'], self::row('2A0000000000000V1')['alloc_dest']]);
         self::assertSame(['ambiguous', 'shop'], [self::row('2A0000000000000V2')['match_state'], self::row('2A0000000000000V2')['alloc_dest']]);
         self::assertDaysRebuild($this->vpg);
@@ -231,7 +231,7 @@ final class PaypalFeesR1Test extends StockTestCase
     {
         $this->shops();
         $http = new FakePaypalHttp([PaypalTx::sale('2A0000000000000E1', '2026-11-06T09:00:00Z', '20.00', '-0.70', '5457')]);
-        self::run($http);
+        self::readPp($http);
         // B (Electrofag's numbers of 5 digits only) decided without a PayPal read (--decide), then A put back: decided back
         $this->setting('profit.paypal_form_electrofag', '"^([0-9]{5})-[0-9]{10}$"');
         self::decideAll();
@@ -249,7 +249,7 @@ final class PaypalFeesR1Test extends StockTestCase
         self::order($this->vpg, '1004', '1312004', '2026-10-31T10:00:00Z'); // paid 31 Oct; its PayPal sale read on 1 Nov
         $http = new FakePaypalHttp([PaypalTx::sale('2A0000000000000V4', '2026-11-01T10:00:00Z', '30.00', '-0.90', '1312004'),
             PaypalTx::sale('2A0000000000000V1', '2026-11-03T10:01:00Z', '50.00', '-1.20', '1312001')]);
-        self::run($http);
+        self::readPp($http);
         $views = new ExpenseViews(self::$db);
         $fee = static fn (string $a, string $b): int => (int) $views->realProfit($a, $b, null, false)[0]['fees'];
         self::assertSame($fee('2026-10-01', '2026-10-31') + $fee('2026-11-01', '2026-11-30'), $fee('2026-10-01', '2026-11-30'), 'the months add up');
@@ -266,7 +266,7 @@ final class PaypalFeesR1Test extends StockTestCase
     {
         $this->shops();
         $http = new FakePaypalHttp([PaypalTx::sale('2A0000000000000V1', '2026-11-01T10:01:00Z', '50.00', '-1.20', '1312001')]);
-        self::run($http, '2026-11-01', '2026-11-01', '2026-11-01 12:00:00');
+        self::readPp($http, '2026-11-01', '2026-11-01', '2026-11-01 12:00:00');
         // an old-style run of the last 7 days only, on 12 Nov: the days 2-4 Nov were never read
         $runId = self::$db->insert("INSERT INTO paypal_run (account, channel_id, kind, from_day, to_day, state, actor, started_at, finished_at) "
             . "VALUES ('vapeandgo', ?, 'nightly', '2026-11-05', '2026-11-12', 'ok', 'system:paypal_test', '2026-11-12 05:20:00', '2026-11-12 05:21:00')", [$this->vpg]);
@@ -283,7 +283,7 @@ final class PaypalFeesR1Test extends StockTestCase
         $this->setting('profit.paypal_not_on_order_alarm', '"1.00"');
         $http = new FakePaypalHttp([PaypalTx::sale('2A0000000000000V9', '2026-11-20T10:00:00Z', '30.00', '-0.90', '1312999'),
             PaypalTx::sale('2A0000000000000E9', '2026-11-20T10:00:00Z', '30.00', '-0.60', '5999')]);
-        self::run($http);
+        self::readPp($http);
         self::assertNotContains('paypal_not_on_order', array_column(PaypalFees::health(self::$db, new \DateTimeImmutable(self::PP_NOW . 'Z')), 'kind'),
             '90p in one shop and 60p in the other: neither above £1');
         try {
@@ -299,7 +299,7 @@ final class PaypalFeesR1Test extends StockTestCase
         $this->shops();
         $http = new FakePaypalHttp([PaypalTx::sale('2A0000000000000V1', '2026-11-03T10:01:00Z', '50.00', '-1.20', null)
             + ['invoice_id' => '1312001-1763700000', 'custom_field' => '07700900123']]);
-        self::run($http);
+        self::readPp($http);
         $r = self::row('2A0000000000000V1');
         self::assertSame(['kept', '1312001-1763700000', 'dropped', null], [$r['invoice_state'], $r['invoice_ref'], $r['custom_state'], $r['custom_ref']]);
         self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM paypal_txn_history WHERE CAST(after_json AS CHAR) LIKE '%07700900123%'"));
@@ -317,7 +317,7 @@ final class PaypalFeesR1Test extends StockTestCase
         $this->shops();
         $http = new FakePaypalHttp([PaypalTx::sale('2A0000000000000V1', '2026-11-03T10:01:00Z', '50.00', '-1.20', '1312001'),
             PaypalTx::sale('2A0000000000000V9', '2026-11-20T10:00:00Z', '30.00', '-0.90', null)]);
-        self::run($http);
+        self::readPp($http);
         $r = (new ExpenseViews(self::$db))->realProfit('2026-11-01', '2026-11-30', $this->vpg, false)[0];
         self::assertSame([210, 90], [$r['fees'], $r['fees_other']]);
     }
