@@ -4210,8 +4210,9 @@ form.record.expense-form p.expense-total {
 }
 form.record.expense-form p.expense-total output { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
 form.record.expense-form p.expense-dollar { margin: 0; }
-/* The invoice file: its title, the box as a dashed place to drop the PDF or photo on (a browser takes a file dropped on the box itself), its
-   hint under it, "Save without a file" when asked, then "kept with the expense". */
+/* The invoice file: its title, the box as a dashed place to drop the PDF or photo on (a browser takes a file dropped on the box itself; its
+   edge in the accent, at least 3:1 like every field's edge), its hint under it, "Save without a file" when asked, then "kept with the
+   expense". */
 form.record.expense-form fieldset.expense-file {
   display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; min-width: 0; margin: 0; padding: 0; border: 0;
   border-radius: 0; background: none;
@@ -4220,10 +4221,10 @@ form.record.expense-form fieldset.expense-file > legend { width: 100%; padding: 
 form.record.expense-form fieldset.expense-file > p { margin: 0; }
 form.record.expense-form fieldset.expense-file > p.muted { font-size: 12px; line-height: 18px; }
 form.record.expense-form fieldset.expense-file input[type="file"] {
-  min-height: 0; padding: 32px 16px; border: 2px dashed var(--accent-line); border-radius: var(--r-10); background: var(--page-alt);
+  min-height: 0; padding: 32px 16px; border: 2px dashed var(--accent); border-radius: var(--r-10); background: var(--page-alt);
   color: var(--ink-body); text-align: center; cursor: pointer;
 }
-form.record.expense-form fieldset.expense-file input[type="file"]:hover { border-color: var(--accent); }
+form.record.expense-form fieldset.expense-file input[type="file"]:hover { border-color: var(--accent-hover); background: var(--accent-soft); }
 form.record.expense-form fieldset.expense-file input[type="file"]::file-selector-button {
   margin: 0 12px 0 0; padding: 8px 16px; border: 1px solid var(--hairline); border-radius: var(--r-10); background: var(--card); color: var(--ink);
   font: 600 14px/20px var(--font); cursor: pointer;
