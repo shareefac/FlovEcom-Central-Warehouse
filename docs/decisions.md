@@ -21638,7 +21638,7 @@ every day gives the same pence; Electrofag switched on puts its October sales' f
 
 **PPF20. No undo release.** The owner (24 Nov 2026): CW is fixed forward. RollbackReleaseTest keeps the recipe's check (0e3db2a with 0080
 added byte for byte); the release before never reads the new tables, and its rebuild of a day writes the columns it knows and leaves fee_cost
-and fee_other at 0 on that day. (25 Nov 09:49: live moved to f044e2f, the expense page layout, no migration; 25 Nov 12:31: to 27dea71, the expense total with VAT, no migration; the branch merged both and the recipe is 27dea71 + 0080.)
+and fee_other at 0 on that day. (25 Nov 09:49: live moved to f044e2f, the expense page layout, no migration; 25 Nov 12:31: to 27dea71, the expense total with VAT, no migration; 25 Nov 13:31: to 04dbab6, its typing (CW-1176), no migration; the branch merged them and the recipe is 04dbab6 + 0080.)
 
 **PPF21. One account, several shops, by the invoice's form.** A row's shop is the ONE shop of the account whose form its invoice matches
 (else its custom field's); none, or two shops' forms: no shop (the main shop's "not on an order" line, match `no_number`). A shop CW does not
