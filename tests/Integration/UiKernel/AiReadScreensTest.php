@@ -196,6 +196,26 @@ final class AiReadScreensTest extends KernelUiTestCase
         self::assertSame(409, $again->status);
         self::assertStringContainsString(Words::AIREAD['taken'], $again->text());
         self::assertSame([], array_values(array_diff(scandir($this->spool) ?: [], ['.', '..'])), 'no file left');
+        // a corrected bill's PDF on the bill's own page (Replace): read, then the same check of a replacement, then Store replaces it
+        $billId = (int) self::$db->value("SELECT id FROM carrier_invoice WHERE status = 'live' AND invoice_no = '9070000001'");
+        $page = $job->get('/ui/profit/delivery/' . $billId);
+        self::assertSame(200, $page->status);
+        self::assertStringContainsString(Words::AIREAD['hint_bill'], $page->text());
+        $f->push(FakeClaude::answer(AiAnswers::royalMail([RmBill::line('2026-11-09', 'TPL', 2, 508, '943'), RmBill::line('2026-11-08', 'RW4', 2, 210,
+            'Rectification Week 45')]), 9_000, 2_400));
+        $r = $job->postMultipart('/ui/profit/delivery/' . $billId . '/replace', $page->form('/ui/profit/delivery/' . $billId . '/replace'),
+            ['file' => ['path' => AiFixtures::pdf($this->dir, 'corrected'), 'name' => 'corrected.pdf']]);
+        self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
+        $rid = (int) self::$db->value('SELECT MAX(id) FROM ai_read');
+        self::assertSame(['/ui/profit/delivery/read/' . $rid, 'delivery_replace'], [$r->location(), self::$db->value('SELECT place FROM ai_read WHERE id = ?', [$rid])]);
+        self::assertSame('done', $this->runner($f)['state'] ?? null);
+        $check = $job->get('/ui/profit/delivery/read/' . $rid);
+        self::assertSame(200, $check->status, $check->describe() . ' ' . implode(' | ', self::$log));
+        self::assertContains([Words::DELIVERY['net'], '£7.18'], self::rows($check, 'delivery-rm-check-facts'));
+        $stored = $job->post('/ui/profit/delivery/store', $check->form('/ui/profit/delivery/store'));
+        self::assertSame(303, $stored->status, $stored->describe());
+        self::assertSame('superseded', self::$db->value('SELECT status FROM carrier_invoice WHERE id = ?', [$billId]), 'replaced by the corrected bill');
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM carrier_invoice WHERE status = 'live' AND invoice_no = '9070000001' AND net_pence = 718"));
     }
 
     public function testAReadingThatDoesNotAddUpIsRefusedAndOtherFilesAreSaidApart(): void

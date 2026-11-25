@@ -33,6 +33,7 @@ final class AiReadWords
             'limit' => Words::AIREAD['why_limit'],
             'not_allowed' => Words::AIREAD['why_not_allowed'],
             'file_gone', 'stopped', 'too_old', 'expired' => Words::AIREAD['why_late'],
+            'error' => Words::AIREAD['why_error'],
             default => Words::AIREAD['why_refused_request'],
         };
         $next = Words::has('AIREAD', 'next_' . $kind) ? ' ' . Words::AIREAD['next_' . $kind] : '';

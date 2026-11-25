@@ -21525,7 +21525,8 @@ own checks as the person. A job is its person's only (another person: 404); the 
 expenses.edit), checked again by the service, and again by the runner when it reads (a job taken away meanwhile: `not_allowed`). One effect
 per form (checklist 10): the same file sent again from the same place by the same person, with the same typed fields, while its reading
 waits, goes or is not shown yet, is that reading (a double click never pays twice; under the person's own lock). Whatever breaks inside a
-read ends its job at once (failed, `other`, the exception's class said, never its message); a stream that breaks while read is `connection`.
+read ends its job at once (failed, `error`, the exception's class kept on the job, never its message; staff read "something went wrong in CW
+while it was being read"); a stream that breaks while read is `connection`.
 
 **AI4. A Royal Mail bill: Claude copies, CW's own reader decides.** Claude copies the top block (account, invoice number, date, net, VAT,
 gross, currency), EVERY line (service date, product code, quantity, description, the reference cell as printed with its sales order,
@@ -21596,4 +21597,8 @@ leaves the half row as it was: refused whole, as before. The same bill as the on
 **AI14. The go-live kit (`/root/cw_work/kits/aireader_cw1182/`).** 0082 only (two tables, seven settings OFF); before anything switches, the
 kit proves on the box that composer --no-dev installs anthropic-ai/sdk (the pinned version) and that the box reaches api.anthropic.com over
 HTTPS through the SDK itself (a request with NO key must answer 401: no token spent); the spool folder made (0700 www-data); the cron line
-installed by install_cron.sh; the feature lands OFF: the owner pastes the key on the Settings screen later and switches it on.
+installed by install_cron.sh; the feature lands OFF: the owner pastes the key on the Settings screen later and switches it on. The undo
+(the owner's word only): the quick stop first (reading off AND the key emptied: the release before would list the key as a plain setting),
+then the switch only with no reading open and an empty spool, under the install lock, to the plain rollback (04dbab6 + 0082 byte for byte);
+the app login's grants on 0082's tables taken back after it; 0082's tables and rows stay. tests/Integration/Profit/RollbackReleaseTest pins
+the recipe: the release before's last migration 0079, the rollback's one file 0082.

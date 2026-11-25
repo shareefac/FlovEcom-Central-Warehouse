@@ -246,7 +246,7 @@ final class DocumentReader
                 $r = ($this->claude)($s)->read($kind, $bytes, (string) $job['media_type']);
             } catch (\Throwable $e) {
                 // whatever went wrong, the job ends now (never left `reading`), its file goes; the class is said, never a message (it could quote)
-                return $this->finish($id, 'failed', 'other', null, mb_substr(get_class($e), 0, 200));
+                return $this->finish($id, 'failed', 'error', null, mb_substr(get_class($e), 0, 200));
             }
             unset($bytes);
             $this->drop($path);

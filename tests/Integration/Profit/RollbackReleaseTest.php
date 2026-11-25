@@ -26,11 +26,12 @@ final class RollbackReleaseTest extends IntegrationTestCase
      * the rollback release is b54163a's code with 0077 added, byte for byte. Royal Mail's bills (docs/decisions.md DL69): the release before is
      * 14c6e31 (DPD bills live), whose last is 0077; the rollback release is 14c6e31's code with 0078 added, byte for byte. The expenses (CW-1150,
      * docs/decisions.md EX) go live on top of Royal Mail's bills: the release before is ae5f36e (Royal Mail's bills), whose last is 0078; the
-     * plain rollback source is ae5f36e's code with 0079 added, byte for byte.
+     * plain rollback source is ae5f36e's code with 0079 added, byte for byte. Claude reads the upload (CW-1182, docs/decisions.md AI14) goes live on
+     * top of 04dbab6 (CW-1176), whose last is 0079; its plain rollback (the kit's aikit-rollback) is 04dbab6's code with 0082 added, byte for byte.
      */
-    public const BEFORE_LAST = '0078_royal_mail_bills.sql';
+    public const BEFORE_LAST = '0079_expenses.sql';
     /** The migration files the rollback release takes from this release (README of build/A, "Undo"; CW-1155: RR20; the delivery bills: DL22). */
-    public const ROLLBACK_FILES = ['0079_expenses.sql'];
+    public const ROLLBACK_FILES = ['0082_ai_reader.sql'];
 
     private ?string $dir = null;
     private ?string $rollback = null;

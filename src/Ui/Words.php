@@ -11467,6 +11467,7 @@ final class Words
         'why_spend_limit' => 'the Anthropic account reached its spending limit: the owner raises it in the Anthropic console.',
         'why_busy' => 'Claude is busy or could not be reached: try again in a minute.',
         'why_refused_request' => 'Anthropic refused the request: send the document to the CW team.',
+        'why_error' => 'something went wrong in CW while it was being read: try again, or send the document to the CW team.',
         'why_off' => 'reading was switched off meanwhile.',
         'why_limit' => 'this month\'s limit was reached meanwhile.',
         'why_not_allowed' => 'your jobs no longer allow it.',

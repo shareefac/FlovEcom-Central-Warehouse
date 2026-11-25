@@ -193,8 +193,10 @@ final class DocumentReaderTest extends IntegrationTestCase
             throw new \Error('made up');
         });
         $id = $r->start($job, 'expense_new', AiFixtures::pdf($this->files), []);
-        self::assertSame(['id' => $id, 'state' => 'failed', 'reason' => 'other'], $r->runNext());
+        self::assertSame(['id' => $id, 'state' => 'failed', 'reason' => 'error'], $r->runNext());
         self::assertSame('Error', $r->view($job, $id)['detail']);
+        self::assertSame(\CW\Ui\Words::say('AIREAD', 'failed', \CW\Ui\Words::AIREAD['why_error']) . ' ' . \CW\Ui\Words::AIREAD['next_expense_invoice'],
+            \CW\Ui\AiReadWords::failure('expense_invoice', 'error', 'Error'), 'said in words, never the class');
         self::assertSame([], $this->spooled());
         // a stream that breaks while it is read (Guzzle's read timeout): a connection failure, said as busy
         $f = (new FakeClaude())->push(new \RuntimeException('Read timed out (made up)'));
