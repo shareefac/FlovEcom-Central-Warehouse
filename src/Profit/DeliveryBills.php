@@ -84,6 +84,8 @@ final class DeliveryBills
     /** How many times a write is tried again when an order it counts moved to another day while it read. */
     public const TRIES = 5;
     private const RETRY = 'delivery_retry';
+    /** The profit_day figures a guarded write may count in (field()): the carriers' bills' and PayPal's (0080, PF7). */
+    private const FIELDS = ['delivery_cost', 'delivery_other', 'fee_cost', 'fee_other'];
     private const GUARD_BUSY = 'delivery_guard_busy';
 
     /** @var \Closure(): \DateTimeImmutable */
@@ -212,7 +214,8 @@ final class DeliveryBills
 
     /**
      * One guarded delivery write (DL13, DL37, DL41) for another bills service (RoyalMailBills, 0078: DL64): its plan's facts are counted on the
-     * profit days exactly as DPD's lines (state matched: on an order; not_matched: a shop's "not on an order" on its date, in inv_ch).
+     * profit days exactly as DPD's lines (state matched: on an order; not_matched: a shop's "not on an order" on its date, in inv_ch). A fact
+     * may name the figure it counts in (`field`: PayPal's fee_cost and fee_other, 0080: docs/decisions.md PF7; the carriers' by default).
      *
      * @template T
      * @param \Closure(Db): array{before: list<array<string, mixed>>, after: list<array<string, mixed>>, verify?: \Closure(Db): bool, versions?: array<string, string>,
@@ -983,15 +986,30 @@ final class DeliveryBills
                 if ($day === null) {
                     continue; // an order not paid counts nothing yet (as its goods)
                 }
-                $k = $day . '|' . (int) $f['ch'] . '|delivery_cost';
+                $k = $day . '|' . (int) $f['ch'] . '|' . self::field($f, 'delivery_cost');
             } elseif (in_array($f['state'], self::OTHER, true)) {
-                $k = $f['date'] . '|' . (int) $f['inv_ch'] . '|delivery_other';
+                $k = $f['date'] . '|' . (int) $f['inv_ch'] . '|' . self::field($f, 'delivery_other');
             } else {
                 continue; // before CW start: not in the profit
             }
             $out[$k] = ($out[$k] ?? 0) + (int) $f['cost'];
         }
         return $out;
+    }
+
+    /**
+     * The profit_day figure a fact counts in: the carriers' own (delivery_cost on an order, delivery_other on none) unless the fact names
+     * another of the guarded figures (PayPal's: fee_cost, fee_other; 0080, docs/decisions.md PF7). Only these four: it is written into SQL.
+     *
+     * @param array<string, mixed> $f
+     */
+    private static function field(array $f, string $default): string
+    {
+        $field = $f['field'] ?? $default;
+        if (!in_array($field, self::FIELDS, true)) {
+            throw new \LogicException('a guarded write counts only ' . implode(', ', self::FIELDS));
+        }
+        return $field;
     }
 
     /**
@@ -1050,7 +1068,9 @@ final class DeliveryBills
             || $db->value("SELECT 1 FROM carrier_invoice_line l JOIN carrier_invoice i ON i.id = l.invoice_id AND i.status = 'live' AND i.channel_id = ? "
                 . "WHERE l.match_state IN ('not_matched', 'ambiguous') AND l.line_date = ? LIMIT 1", [$channelId, $day]) !== null
             || $db->value("SELECT 1 FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id AND i.status = 'live' WHERE a.dest = 'shop' AND a.day = ? "
-                . 'AND a.channel_id = ? AND a.ended_at IS NULL LIMIT 1', [$day, $channelId]) !== null) {
+                . 'AND a.channel_id = ? AND a.ended_at IS NULL LIMIT 1', [$day, $channelId]) !== null
+            // PayPal's money counted on the day itself (0080, PF7): the day's row is kept, as a rebuild keeps it
+            || PaypalFees::anyOnDay($db, $channelId, $day)) {
             return;
         }
         $db->exec('DELETE FROM profit_day WHERE day = ? AND channel_id = ?', [$day, $channelId]);

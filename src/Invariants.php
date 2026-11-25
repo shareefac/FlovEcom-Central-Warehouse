@@ -211,6 +211,9 @@ final class Invariants
         array_push($v, ...Profit\DeliveryInvariants::check($db));
         // 0079 (docs/decisions.md EX18): the expenses and regular costs: each row with its whole history, the row what its latest version says.
         array_push($v, ...Expenses\ExpenseInvariants::check($db));
+        // PayPal's fees (0080, docs/decisions.md PF18): every decided row counted once in its own place or nowhere, on its own shop's order of
+        // its number, kind and cost as its rules say, nothing due or running for long
+        array_push($v, ...Profit\PaypalInvariants::check($db));
         return $v;
     }
 

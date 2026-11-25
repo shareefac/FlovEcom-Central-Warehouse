@@ -167,6 +167,13 @@ final class AlertDispatch
             // DL86 7: billed more than labels above the setting; an account that could not be checked
             'rm_billed_more' => Words::say('ALERT', 'rm_billed_more', (string) ($d['account'] ?? ''), $n('count'), (string) ($d['pct'] ?? ''), (string) ($d['oldest'] ?? '')),
             'rm_check_failed' => Words::say('ALERT', 'rm_check_failed', (string) ($d['account'] ?? ''), (string) ($d['error'] ?? '')),
+            // PayPal's fees (0080, docs/decisions.md PF14): not read for 26 hours (or never), rows not understood, money on no order above the setting
+            'paypal_not_read' => ($d['hours'] ?? null) === null ? Words::say('ALERT', 'paypal_never_read', $store, (string) ($d['from'] ?? ''))
+                : Words::say('ALERT', 'paypal_not_read', $store, $n('hours')),
+            'paypal_failed' => Words::say('ALERT', 'paypal_failed', $store, (string) ($d['error'] ?? '')),
+            'paypal_needs_look' => Words::say('ALERT', 'paypal_needs_look', $store, $n('count'), (string) ($d['newest'] ?? '')),
+            'paypal_not_on_order' => Words::say('ALERT', 'paypal_not_on_order', $store, $n('days'), (string) ($d['limit'] ?? ''), (string) ($d['day'] ?? ''),
+                (string) ($d['pence'] ?? '')),
             default => (string) ($p['detail'] ?? $p['kind']),
         };
     }

@@ -7,6 +7,8 @@
 // Delivery on its own table, never in the goods margin (0077, docs/decisions.md DL23): delivery charged (no VAT, less refunded), what its
 // parcels' carrier bill lines and the collections on it cost, its re-sends' when it is a first order, and delivery after its cost; each
 // parcel with its bill lines or "not billed yet".
+// Its PayPal money (0080, docs/decisions.md PF16): each PayPal row on it (a sale's fee, a refund's fee back, a chargeback's money and fees),
+// the day it counts on and what it costs; none: no table.
 $o = $order;
 $sale = (int) $o['sale_ex'];
 $cost = (int) $o['cost'];
@@ -94,6 +96,37 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
   </tbody>
 </table>
 </div>
+<?php if ($paypal !== []): ?>
+
+<h2><?= $word('PROFIT', 'paypal_table') ?></h2>
+<p class="muted"><?= $word('PROFIT', 'paypal_table_note') ?></p>
+<div class="table-wrap">
+<table class="stack rp-table profit-order-paypal">
+  <thead>
+    <tr>
+      <th scope="col"><?= $word('PROFIT', 'paypal_day') ?></th>
+      <th scope="col"><?= $word('PROFIT', 'paypal_what') ?></th>
+      <th scope="col"><?= $word('PROFIT', 'paypal_counts_on') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'paypal_cost') ?></th>
+    </tr>
+  </thead>
+  <tbody>
+<?php foreach ($paypal as $pp): ?>
+    <tr>
+      <td data-label="<?= $word('PROFIT', 'paypal_day') ?>"><?= $e(\CW\Ui\Html::day($pp['day'])) ?></td>
+      <td data-label="<?= $word('PROFIT', 'paypal_what') ?>"><?= $e(\CW\Ui\Words::PROFIT['paypal_kind_' . $pp['kind']] ?? $pp['code']) ?> <span class="muted">(<?= $e($pp['code']) ?>)</span></td>
+      <td data-label="<?= $word('PROFIT', 'paypal_counts_on') ?>"><?= $pp['counts_on'] === null ? $word('PROFIT', 'paypal_order_day') : $e(\CW\Ui\Html::day($pp['counts_on'])) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'paypal_cost') ?>"><?= $money($pp['pence'] / 100) ?></td>
+    </tr>
+<?php endforeach; ?>
+    <tr class="rp-total">
+      <th scope="row" colspan="3"><?= $word('PROFIT', 'paypal_total') ?></th>
+      <td class="num" data-label="<?= $word('PROFIT', 'paypal_total') ?>"><?= $money(array_sum(array_column($paypal, 'pence')) / 100) ?></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<?php endif; ?>
 
 <h2><?= $word('PROFIT', 'lines') ?></h2>
 <div class="table-wrap">

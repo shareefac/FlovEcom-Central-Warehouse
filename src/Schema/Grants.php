@@ -85,7 +85,9 @@ final class Grants
         // file an expense named, by the version that named it, kept 7 years from then (EX40).
         'expense_history', 'expense_file',
         // Every file a supplier named as its evidence, the replaced ones too (0079, the fix round 2 of 8dbee81; EX61).
-        'supplier_file'];
+        'supplier_file',
+        // 0080 (docs/decisions.md PF8): every change of a PayPal row, before and after.
+        'paypal_txn_history'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -250,7 +252,9 @@ final class Grants
         'order_snapshot', 'sale_order', 'sale_line', 'sale_parcel', 'item_cost', 'profit_job', 'item_cost_document',
         // 0078 (docs/decisions.md DL44-DL49): the delivery parties and carrier accounts with their rules (set by bin/carrier_account.php, with
         // audit; never removed: bills and labels name them) and the labels (a second source fills empty fields; never removed).
-        'delivery_party', 'carrier_account', 'carrier_account_party', 'carrier_channel', 'carrier_party_rule', 'carrier_label'];
+        'delivery_party', 'carrier_account', 'carrier_account_party', 'carrier_channel', 'carrier_party_rule', 'carrier_label',
+        // 0080 (docs/decisions.md PF2, PF9): a PayPal transaction read (changed in place with its history, never removed) and a run of the job.
+        'paypal_txn', 'paypal_run'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

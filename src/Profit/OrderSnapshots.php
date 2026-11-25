@@ -795,7 +795,9 @@ final class OrderSnapshots
         // with it: the same amount before and now, so an order paid, or moved to another day, takes them along (they never change here; a
         // bill's own write holds this order's day row, or its row when it is not paid, while it changes them).
         $delivery = $old === null ? 0 : DeliveryBills::orderCost($db, $channelId, $ref);
-        ProfitDays::change($db, $channelId, ProfitDays::orderShare($old, $oldLines, $delivery), ProfitDays::orderShare($order, $newLines, $delivery));
+        // Its PayPal sale fees (0080, docs/decisions.md PF7) go with it the same way (PaypalFees' write holds this order's guard while it changes them).
+        $fee = $old === null ? 0 : PaypalFees::orderFee($db, $channelId, $ref);
+        ProfitDays::change($db, $channelId, ProfitDays::orderShare($old, $oldLines, $delivery, $fee), ProfitDays::orderShare($order, $newLines, $delivery, $fee));
     }
 
     /**

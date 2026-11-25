@@ -30,7 +30,7 @@ final class PaypalFeesTest extends StockTestCase
 {
     private const KEY = ['client_id' => 'AclientIDmadeUp0123456789', 'client_secret' => 'EsecretMadeUp0123456789xyz', 'api_base' => 'https://api-m.paypal.com',
         'shop' => 'vapeandgo', 'account' => 'vapeandgo'];
-    private const NOW = '2026-11-25 05:20:00';
+    private const PP_NOW = '2026-11-25 05:20:00';
 
     /** @var array<string, string> settings a test changed, put back after it */
     private array $settingsBefore = [];
@@ -49,7 +49,7 @@ final class PaypalFeesTest extends StockTestCase
         self::$db->exec('UPDATE app_setting SET value_json = ? WHERE setting_key = ?', [$json, $key]);
     }
 
-    private static function fees(string $now = self::NOW): PaypalFees
+    private static function fees(string $now = self::PP_NOW): PaypalFees
     {
         return new PaypalFees(self::$db, static fn (): \DateTimeImmutable => new \DateTimeImmutable($now, new \DateTimeZone('UTC')));
     }
@@ -263,7 +263,7 @@ final class PaypalFeesTest extends StockTestCase
         self::assertSame(9, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn'), 'the first window (31 Oct - 6 Nov) is stored whole');
         self::assertSame(9, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn WHERE due = 1'), 'its rows due: decided by the next run');
         self::assertSame([], self::days($ch), 'nothing counted before it is decided');
-        $kinds = array_column(PaypalFees::health(self::$db, new \DateTimeImmutable(self::NOW . 'Z')), 'kind');
+        $kinds = array_column(PaypalFees::health(self::$db, new \DateTimeImmutable(self::PP_NOW . 'Z')), 'kind');
         self::assertContains('paypal_failed', $kinds);
         self::assertContains('paypal_not_read', $kinds, 'no ok run yet');
         // PayPal answers again: the next run reads everything and decides the rows the failed one left
@@ -271,7 +271,7 @@ final class PaypalFeesTest extends StockTestCase
         self::fees()->run(self::system(), self::api($http), '2026-10-31', '2026-11-24', 'backfill');
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM paypal_txn WHERE due = 1'));
         self::assertSame(5600, self::days($ch)['2026-11-07|fee_cost']);
-        $kinds = array_column(PaypalFees::health(self::$db, new \DateTimeImmutable(self::NOW . 'Z')), 'kind');
+        $kinds = array_column(PaypalFees::health(self::$db, new \DateTimeImmutable(self::PP_NOW . 'Z')), 'kind');
         self::assertSame(['paypal_needs_look'], $kinds, 'only the unknown code is left to say');
         self::assertDaysRebuild($ch);
     }
@@ -279,11 +279,11 @@ final class PaypalFeesTest extends StockTestCase
     public function testTheHealthAlertTheRealProfitAndTheRefusals(): void
     {
         [$ch, $http] = $this->shopWithOrders();
-        $kinds = static fn (): array => array_column(PaypalFees::health(self::$db, new \DateTimeImmutable(self::NOW . 'Z')), 'kind');
+        $kinds = static fn (): array => array_column(PaypalFees::health(self::$db, new \DateTimeImmutable(self::PP_NOW . 'Z')), 'kind');
         self::assertSame(['paypal_not_read'], $kinds(), 'switched on, never read');
         self::fees()->run(self::system(), self::api($http), '2026-10-31', '2026-11-24', 'backfill');
         self::assertSame(['paypal_needs_look'], $kinds());
-        $p = PaypalFees::health(self::$db, new \DateTimeImmutable(self::NOW . 'Z'))[0];
+        $p = PaypalFees::health(self::$db, new \DateTimeImmutable(self::PP_NOW . 'Z'))[0];
         self::assertStringContainsString('1 PayPal rows', AlertDispatch::line($p));
         // the alarm at 50p: 5 Nov's 90p on no order is above it (within the re-read days of the 12th)
         $this->setting('profit.paypal_not_on_order_alarm', '"0.50"');

@@ -28,9 +28,13 @@ final class RollbackReleaseTest extends IntegrationTestCase
      * docs/decisions.md EX) go live on top of Royal Mail's bills: the release before is ae5f36e (Royal Mail's bills), whose last is 0078; the
      * plain rollback source is ae5f36e's code with 0079 added, byte for byte.
      */
-    public const BEFORE_LAST = '0078_royal_mail_bills.sql';
-    /** The migration files the rollback release takes from this release (README of build/A, "Undo"; CW-1155: RR20; the delivery bills: DL22). */
-    public const ROLLBACK_FILES = ['0079_expenses.sql'];
+    public const BEFORE_LAST = '0079_expenses.sql';
+    /**
+     * The migration files the rollback release takes from this release (README of build/A, "Undo"; CW-1155: RR20; the delivery bills: DL22).
+     * PayPal's fees (CW-1172, docs/decisions.md PF20): the release before is 0e3db2a (the expenses, live), whose last is 0079; the plain rollback
+     * source is 0e3db2a's code with 0080 added, byte for byte (no undo release is built: CW is fixed forward).
+     */
+    public const ROLLBACK_FILES = ['0080_paypal_fees.sql'];
 
     private ?string $dir = null;
     private ?string $rollback = null;

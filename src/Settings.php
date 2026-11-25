@@ -60,6 +60,10 @@ final class Settings
         'profit.real_from_vapeandgo' => ['sales_from' => 'vapeandgo'],
         'profit.real_from_electrofag' => ['sales_from' => 'electrofag'],
         'profit.real_from_vapebig' => ['sales_from' => 'vapebig'],
+        // 0080 (docs/decisions.md PF13): how many days back the nightly PayPal read goes (PayPal's window is 31 days at most), and the "not on an
+        // order" alarm in pounds a day (the first fee days are plain dates: empty = not switched on)
+        'profit.paypal_reread_days' => ['min' => 1, 'max' => 31],
+        'profit.paypal_not_on_order_alarm' => ['min' => '0', 'max' => '100000'],
         'reorder.short_weight' => ['min' => '0', 'max' => '1'],
         'reorder.promo_price_drop' => ['min' => '0', 'max' => '1'],
         'reorder.promo_units_uplift' => ['min' => '1', 'max' => '100'],

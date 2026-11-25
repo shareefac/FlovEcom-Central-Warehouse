@@ -35,6 +35,11 @@ use CW\Settings;
  *     rm_days_waiting    a day of a live bill covered by no report, waiting more than 14 days (counted from the day; DL86 1: the only wait)
  *     rm_billed_more     a day or Special Delivery manifest billed more than its labels by more than the setting (DL86 7)
  *     rm_check_failed    an account whose checks could not be read (each account on its own: the Codex check r10 #15)
+ *   per shop whose PayPal fees are switched on (docs/decisions.md PF14; PaypalFees::health):
+ *     paypal_not_read      no ok run of its PayPal account for 26 hours (or none ever)
+ *     paypal_failed        its newest PayPal run failed (PayPal not read whole, an order busy, its key refused)
+ *     paypal_needs_look    PayPal rows CW does not understand since its first fee day (never counted until looked at)
+ *     paypal_not_on_order  a day of the last re-read days with more PayPal money on no CW order than profit.paypal_not_on_order_alarm
  *
  * Read only. The probe is injectable (tests).
  */
@@ -87,6 +92,10 @@ final class Alerts
         // more than the labels above the setting, an account not checked
         foreach (\CW\Profit\RoyalMailBills::health($this->db, Clock::now()) as $p) {
             $out[] = $p + ['channel' => null, 'channel_id' => null, 'name' => null, 'mode' => null];
+        }
+        // PayPal's fees (0080, docs/decisions.md PF14): per shop switched on, not read for 26 hours, rows not understood, money on no order
+        foreach (\CW\Profit\PaypalFees::health($this->db, Clock::now()) as $p) {
+            $out[] = $p;
         }
         return $out;
     }

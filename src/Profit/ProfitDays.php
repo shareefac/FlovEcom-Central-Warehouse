@@ -26,10 +26,15 @@ use CW\Db;
  * what the live lines on no order (not matched, ambiguous) cost, on their own date in the shop the account bills. A snapshot passes the
  * order's delivery cost to orderShare() (DeliveryBills::orderCost), so an order paid or moved to another day takes it along; the bills'
  * own writes (CW\Profit\DeliveryBills) change the same two figures under the same day locks; compute() works both out from scratch.
+ *
+ * PayPal's money (0080; docs/decisions.md PF7): fee_cost is the PayPal money on orders (a sale's fee on the order's paid day, passed to
+ * orderShare() as PaypalFees::orderFee so it moves with the order; a refund's fee back, a chargeback's money and fees on their own day),
+ * fee_other the PayPal money on no CW order on its own day; PaypalFees' writes go through the same guarded write as the bills'.
  */
 final class ProfitDays
 {
-    public const DAY_FIELDS = ['orders', 'resends', 'units', 'sale_ex', 'order_refund_ex', 'cost', 'units_no_cost', 'delivery_ex', 'delivery_cost', 'delivery_other'];
+    public const DAY_FIELDS = ['orders', 'resends', 'units', 'sale_ex', 'order_refund_ex', 'cost', 'units_no_cost', 'delivery_ex', 'delivery_cost', 'delivery_other',
+        'fee_cost', 'fee_other'];
     public const ITEM_FIELDS = ['units', 'sale_ex', 'cost', 'units_no_cost'];
     /** bin/rebuild_profit_days.php --apply waits at most this long for a store-day's row held elsewhere, then names it and goes on (PR132). */
     public const REBUILD_LOCK_WAIT_SEC = 10;
@@ -38,9 +43,10 @@ final class ProfitDays
      * @param array<string, mixed>|null $order a sale_order row (or the row about to be written)
      * @param array<string, array<string, mixed>> $lines its sale_line rows
      * @param int $deliveryCost what the live carrier bill lines on the order cost (DeliveryBills::orderCost), pence ex VAT
+     * @param int $feeCost its PayPal sale fees (PaypalFees::orderFee, 0080: docs/decisions.md PF7), pence: they count on its paid day
      * @return array{days: array<string, array<string, int>>, items: array<string, array<string, int>>} "day" and "day|sku" => figures
      */
-    public static function orderShare(?array $order, array $lines, int $deliveryCost = 0): array
+    public static function orderShare(?array $order, array $lines, int $deliveryCost = 0, int $feeCost = 0): array
     {
         if ($order === null || $order['day'] === null) {
             return ['days' => [], 'items' => []];
@@ -51,7 +57,8 @@ final class ProfitDays
         $refundEx = (int) $order['order_refund_ex'];
         $days = [$day => ['orders' => !$resend && $units > 0 ? 1 : 0, 'resends' => $resend && $units > 0 ? 1 : 0, 'units' => $units,
             'sale_ex' => (int) $order['sale_ex'] + $refundEx, 'order_refund_ex' => $refundEx, 'cost' => (int) $order['cost'],
-            'units_no_cost' => (int) $order['units_no_cost'], 'delivery_ex' => (int) $order['delivery_ex'], 'delivery_cost' => $deliveryCost, 'delivery_other' => 0]];
+            'units_no_cost' => (int) $order['units_no_cost'], 'delivery_ex' => (int) $order['delivery_ex'], 'delivery_cost' => $deliveryCost, 'delivery_other' => 0,
+            'fee_cost' => $feeCost, 'fee_other' => 0]];
         $items = [];
         foreach ($lines as $r) {
             if ($r['removed_at'] !== null) {
@@ -160,19 +167,27 @@ final class ProfitDays
         }
         // The delivery bills' lines of the day (0077, DL11): on each paid order, and on no order dated that day.
         $delivery = DeliveryBills::dayFigures($db, $channelId, $day);
+        // PayPal's money (0080, PF7): the sale fees on each paid order, and what counts on the day itself (on orders: refunds, chargebacks,
+        // fees; on no order).
+        $fees = PaypalFees::dayFigures($db, $channelId, $day);
         $days = [];
         $items = [];
         foreach ($orders as $ref => $x) {
             if (!isset($x['o'])) {
                 continue;
             }
-            $s = self::orderShare($x['o'], $x['lines'], $delivery['orders'][strtolower((string) $ref)] ?? 0);
+            $s = self::orderShare($x['o'], $x['lines'], $delivery['orders'][strtolower((string) $ref)] ?? 0, $fees['orders'][strtolower((string) $ref)] ?? 0);
             $days = self::add($days, $s['days'], self::DAY_FIELDS);
             $items = self::add($items, $s['items'], self::ITEM_FIELDS);
         }
         if ($delivery['other_lines'] > 0) {
             $days[$day] ??= array_fill_keys(self::DAY_FIELDS, 0);
             $days[$day]['delivery_other'] += $delivery['other'];
+        }
+        if ($fees['rows'] > 0) {
+            $days[$day] ??= array_fill_keys(self::DAY_FIELDS, 0);
+            $days[$day]['fee_cost'] += $fees['on_orders'];
+            $days[$day]['fee_other'] += $fees['other'];
         }
         $bySku = [];
         foreach ($items as $k => $f) {
