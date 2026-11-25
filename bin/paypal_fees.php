@@ -118,12 +118,15 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
             $cli->error($e->getMessage());
             return Cli::CANNOT_RUN;
         }
+        $extra = [];
         if (isset($opts['from'])) {
             $from = (string) $opts['from'];
             $to = is_string($opts['to'] ?? null) ? $opts['to'] : $today;
             $kind = 'backfill';
         } else {
+            // forward from the last day proven (or the re-read days), then the old days read again in their own windows (final review c2)
             $from = $fees->nightlyFrom($key->account);
+            $extra = $fees->nightlyExtra($key->account, $from);
             $to = $today;
             $kind = 'nightly';
         }
@@ -133,7 +136,7 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
         $api = new PaypalApi($key, new CurlPaypalHttp(), null, $deadline);
         $t = microtime(true);
         try {
-            $r = $fees->run($caller, $api, $from, $to, $kind, $deadline);
+            $r = $fees->run($caller, $api, $from, $to, $kind, $deadline, $extra);
         } catch (CwException $e) {
             $cli->error("{$account} {$kind} {$from}..{$to}: " . $e->getMessage());
             // refused before reading (the key's shop, merchant or host; the account's shops): recorded as a failed run, said as cannot run
@@ -143,8 +146,10 @@ exit(Cli::main('paypal_fees', ['account:', 'from:', 'to:', 'decide', 'status'], 
                 default => Cli::PROBLEM,
             };
         }
-        $cli->log(sprintf('%s %s %s..%s: RUN=%d ok, %d windows, %d pages, %d rows (%d new, %d changed), %d decided (+%d before reading), PayPal complete to %s, %.1f s (%s)',
-            $account, $kind, $from, $to, $r['run'], $r['windows'], $r['pages'], $r['read'], $r['new'], $r['changed'], $r['allocated'], $local, $r['refreshed'] ?? '-', microtime(true) - $t,
+        $cli->log(sprintf('%s %s %s..%s: RUN=%d ok, %d windows (%d of old days read again), %d pages, %d rows (%d new, %d changed), %d decided (+%d before reading), '
+            . 'PayPal complete to %s, proven read to %s, %.1f s (%s)',
+            $account, $kind, $from, $to, $r['run'], $r['windows'], $r['extra_windows'], $r['pages'], $r['read'], $r['new'], $r['changed'], $r['allocated'], $local,
+            $r['refreshed'] ?? '-', $r['covered'] ?? '-', microtime(true) - $t,
             implode(', ', array_map(static fn (string $k, float $v): string => "{$k} {$v} s", array_keys($r['seconds']), array_values($r['seconds'])))));
         return Cli::OK;
     }, false, true));

@@ -11,7 +11,7 @@ use CW\Db;
  * test run them). Read-only; at most MAX_PER_CHECK findings per check. The day figures they feed are held to their rows by the rebuild check
  * (bin/rebuild_profit_days.php: ProfitDays::compute works fee_cost and fee_other out from scratch with PaypalFees::dayFigures).
  *
- *  PP1. a decided row (not due) counts its whole cost (less a chargeback's refund offset: PPF23, PPF34; only a row that counts has one) in exactly one place, or
+ *  PP1. a decided row (not due) counts its whole cost (less a chargeback's refund offset, 0 since round 3: PPF43; only a row that counts has one) in exactly one place, or
  *       nowhere: counts with that not 0 = one place holding exactly it (an order, or the shop's "not on an order" line); anything else = no
  *       place and 0 (every penny once, none twice); the refund offset never below 0 nor above the money taken back.
  *  PP2. a decided row counts only in its own shop (the shop of its invoice's form; with no shop's form, the account's main shop: never another

@@ -21744,3 +21744,75 @@ starting release under the installer's own lock; the backfill gate reconciles gr
 the net, less sale fees on orders not paid in CW) and the day figures in ONE consistent read; a row needing a look, a row still due or money
 counted nowhere in the pinned days fails the gate; the RUNBOOK's quick stop clears every shop of the shared account; returning from the
 rollback release rebuilds every day from the first fee day and reconciles them.
+
+### Round 3: the Codex astra re-check of 20faffa (`runs/codex_25nov/paypal_verify_astra_final.md`: NO GO; 10 findings PARTLY fixed, 8 new) and the lead's decisions (25 Nov 2026), each shown failing first on 20faffa (`runs/paypal_r3_red.log`) and then green (PPF41-PPF46)
+
+The lead's design rule for this round: **when CW cannot be sure, the row needs a look (with its reason), never a guessed shop or a guessed
+offset.** A look costs staff one click; a guessed shop silently mis-states a partner's profit.
+
+**PPF41. Coverage is only what PayPal's answer proves (c1; HIGH).** A window proves its days only up to the last whole UK day before the
+LEAST fresh `last_refreshed_datetime` of its pages (a page without one: nothing of the window is proven), and never past the end of the
+interval its pages say they cover (an `end_date` more than a minute before the end asked for: proven to the last whole UK day before it; a
+`start_date` later than asked: nothing), at most its own last day; a page that says it is another page than the one asked for refuses the
+window whole (`paypal_moved`). The run's covered_to moves on only while each window proved all of its days; the rest of the days stay to be
+read (the nightly starts from the day before the last day proven) and the "not read" alert stays until they are. Example: a 1-7 Nov request
+answered for 1-4 Nov with a fresh refresh time: covered to 4 Nov, the next night reads from 3 Nov, the alert clears once the days are read
+whole. (A 60 s slack is PayPal's own rounding of the times asked for; production's answers have not been seen with their start/end dates:
+if they differ, the backfill gate STOPs, never certifies.)
+
+**PPF42. Which version wins, and what its captures are (a9, a7, NEW correction, NEW equal time; HIGH x3 + MEDIUM).** A version with no
+update time is OLDER than any dated one (it never overwrites a dated version, never erases its time); two of none are the same unknown time.
+A NEWER version is what PayPal says now: its facts AND its captures, whatever they are (an invoice cleared with a Hayati Vapes order in the
+custom field: Hayati's, off Vape and Go; an invoice two shops' forms take: a look, `form_overlap`), never an old capture put back over it.
+The SAME version (the same time) read under the same forms with other facts OR other captures (another shop, another number) is PayPal
+saying two things of one version: the kept facts and captures stay and the row needs a look (`pp_conflict`) until a newer version says
+which, never "the last read wins". Read under OTHER forms (a form edited), its captures are the forms' of now, except that a capture a
+narrowed form no longer makes is kept together with the forms it was made by (`read_sig`), and two shops' forms now is a positive overlap
+held for a look even for a row recognised before. `read_sig` is set only on a row a read gave and applied: never on a row PayPal left out of
+the read of its day (it keeps the forms it was read by and is read again), never from an older version.
+
+**PPF43. A chargeback counts in full only when PayPal's own refunds account for its order's refunds in CW; else a look (the lead's
+decision a3 with his correction of 25 Nov ~11:20; a4; HIGH x2; it replaces PPF23's and PPF34's offset).** For a chargeback (T1106, T1201,
+and its reversal T1202) that would count on an order, the order's refund budget = the refunds CW counts in profit on it (by the profit's own
+line rules, ProfitMath::line: a line's sale with its refund against without it, so a refund on a cancelled or free line, or beyond a
+restocked line's sale, counts nothing; the order-level and delivery refunds; none while the order is not paid in CW or is a re-send) MINUS
+PayPal's own refunds of that order that CW has read and matched to it (T1107, done or reversed, counted or before the first fee day): a
+refund PayPal paid out never offsets a chargeback (PPF34). Budget above 0 (CW holds refund money that did not go out through PayPal: staff
+recorded it because of the chargeback, or paid it by bank; CW cannot tell which): the chargeback needs a look (`refund_not_on_paypal`, the
+budget kept in `refund_seen_pence`; the nightly rematch decides it again when the order's refunds or PayPal's refunds of it change), nothing
+of it counted, never an offset by guess. Budget 0: the chargeback counts in full. An order PAID BEFORE the account's first day read from
+PayPal (its earliest first fee day, where the backfill starts: its PayPal refunds before it were never read): a chargeback on it with ANY
+refund in CW needs a look, whatever PayPal refunds of it were read. The chargeback and dispute fees always count (they are certain);
+`refund_offset_pence` stays 0. Chargebacks are rare (1 in 1-23 Nov), so a look each time is cheap. Examples: a £100 order, £20 refunded
+through PayPal (T1107) and in CW, then an £80 chargeback: budget 0, both count (£100 out); £30 refunded in CW with no PayPal refund, a £30
+chargeback: budget £30, a look (its £14 fee counts); PayPal's £30 refund of that order read later: budget 0, the chargeback counts £30; £30
+refunded only on a cancelled line: budget 0 (it counts nothing in profit), the chargeback counts; an order paid 28 Oct with £15 refunded in CW
+and PayPal's £15 refund of it read on 2 Nov, a chargeback: a look (PayPal's refunds of it before 1 Nov were never read); paid 28 Oct with no
+refund in CW: counts in full. (The real rows hold one chargeback with a PayPal refund of the same sale: a 20 Oct T1106 of £29.08 and a 22 Oct
+T1107 of £15.99, both money out.)
+
+**PPF44. The old days in their own windows; forward progress every night (c2; HIGH).** The nightly reads FORWARD first, from the earlier of
+the re-read days and the day before the last day proven (nightlyFrom), so old pending rows never move the start back; then the old days in
+their own windows (nightlyExtra: the days before the forward start of rows still pending and of rows last read under other forms with an
+invoice or custom field, at most PENDING_DAYS = 31 days back, never before the first fee day, as ranges of at most a window); they never
+move covered_to. What the forward days brought is decided before any old day is read, and when a window fails (or the deadline ends the run)
+what was stored before it is decided at once, the run failed all the same (a catch-up longer than a night goes on night by night: the test
+reads two windows a night and finishes in two). A row last read under other forms whose shop the forms of now might make otherwise (its
+shop's field captured by none or two of the forms then) that is older than the days read again needs a look (`form_unread`), never a shop
+guessed from the forms of then.
+
+**PPF45. Followed to the end, held with its parent, conflict first, every chargeback's order guarded (a2, a6, NEW ignored, NEW fully offset;
+HIGH x2 + MEDIUM x2).** A decision follows the refunds and chargebacks of the same order numbers (as resolved now and as stored) until no
+new one comes, up to SIBLING_PASSES = 64 steps; beyond, the write is refused and the run fails with that reason (`paypal_siblings`), never a
+silent stop half-way. A row whose referred row has two PayPal versions at one time (`pp_conflict`) gets no shop from it (`ref_unresolved`),
+through every step of the chain, and follows it again once a newer version settles it. Two versions at one time are checked BEFORE an
+ignored row is let go (a fee-free T0801 read again with a £14 fee: a look, the alert on). Every order a chargeback is on, as resolved now and
+as stored, is guarded in its guarded write whatever its money (£0 before and after included), so no snapshot changes the refunds it was
+decided by between its last look and its commit.
+
+**PPF46. The kit (d1, NEW backfill gate, d7; HIGH x2 + MEDIUM).** `golive.sh check` (any day: after midnight too) recognises the kit's own
+stopped install of this tip (its durable marker) as the resumable state and says so; a part-applied 0080's tables must be empty and of the
+tip's shape: columns, each column's type and NULL, primary and unique keys (`tables.shape` from the tip's SQL). backfill-check needs the
+backfill's run proven read (covered_to) to its last day, a finished UK day (golive.sh backfill: yesterday by default). The return from the
+rollback release rebuilds from the earliest day any PayPal money counts on (`box.sh rebuild-from`) and reconciles every shop against the
+release live then (`box.sh reconcile-days --release=<commit>`).

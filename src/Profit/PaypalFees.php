@@ -12,7 +12,7 @@ use CW\Reports\ReportRefresh;
 use CW\Settings;
 
 /**
- * PayPal's payment fees in CW's profit (CW-1172; docs/decisions.md PPF1-PPF40), read from PayPal's own API every night (bin/paypal_fees.php).
+ * PayPal's payment fees in CW's profit (CW-1172; docs/decisions.md PPF1-PPF46), read from PayPal's own API every night (bin/paypal_fees.php).
  *
  *  run()      reads the days asked for from PayPal window by window (WINDOW_DAYS at most each; a window is stored whole or not at all), stores
  *             every transaction by account, PayPal's id and event code (a re-read changes the row in place with its history, never a second
@@ -44,8 +44,18 @@ final class PaypalFees
      * is usual): the stale alert (final review c3: measured at the read, never against the clock between two nightlies).
      */
     public const STALE_LAG_HOURS = 12;
-    /** A pending row is read again for at most this many days back (then it is said in --status and stays pending). */
+    /**
+     * A pending row, or a row last read under other shops' forms than now, is read again for at most this many days back, in its own windows
+     * after the forward days (final review c2, round 3): then a pending row is said in --status and stays pending; a row of other forms whose
+     * shop the forms of now might make otherwise (its invoice or custom field captured by none or two of them) needs a look (form_unread: a7).
+     */
     public const PENDING_DAYS = 31;
+    /**
+     * How far one decision follows the refunds and chargebacks of the same order numbers (a pass each step: a chargeback moved from A to B
+     * brings B's, theirs bring theirs ...): to the end, or the write is refused and the run fails, said in CW's words (final review a2, round 3:
+     * never a silent stop half-way).
+     */
+    public const SIBLING_PASSES = 64;
     public const DEFAULT_REREAD_DAYS = 7;
     public const DEFAULT_ALARM_PENCE = 5000;
     /** PayPal's statuses: S done, V reversed (it happened; the reversal is a row of its own), P pending, D denied (PPF5). */
@@ -62,6 +72,13 @@ final class PaypalFees
         'refund_offset_pence', 'refund_seen_pence', 'decided_sig', 'alloc_dest', 'alloc_channel', 'alloc_order_ref', 'alloc_day', 'alloc_pence'];
     /** The kinds whose shop and order follow PayPal's reference to their sale (fix round 1, the lead's decision 3). */
     private const REFERRING = ['refund', 'chargeback', 'fee'];
+    /**
+     * A row whose shop the forms of now might make otherwise than the forms it was last read by (SQL; doubtful() the same in PHP): the field
+     * its shop is taken from was captured by none or two of the forms then (its invoice, else, with no invoice, its custom field). A capture
+     * of one shop is kept as the evidence it is (PPF36); a row of no invoice and no custom field is no one's by any form.
+     */
+    private const DOUBTFUL = "count_state IN ('counts', 'pending', 'before_start', 'outside') AND (invoice_state IN ('dropped', 'overlap') "
+        . "OR (invoice_state = 'none' AND custom_state IN ('dropped', 'overlap')))";
     private const RETRY = 'paypal_retry';
 
     /** @var \Closure(): \DateTimeImmutable */
@@ -74,10 +91,14 @@ final class PaypalFees
     /**
      * @param (\Closure(): \DateTimeImmutable)|null $clock CW's now (tests move it)
      * @param (\Closure(int, float): void)|null $onChunk told the rows and seconds of each guarded write (the full-size timing, PPF15)
+     * @param int $chunk the due rows one guarded write starts from (CHUNK; the tests use fewer to spread a chain over several writes)
      */
-    public function __construct(private readonly Db $db, ?\Closure $clock = null, private readonly ?\Closure $onChunk = null)
+    public function __construct(private readonly Db $db, ?\Closure $clock = null, private readonly ?\Closure $onChunk = null, private readonly int $chunk = self::CHUNK)
     {
         $this->clock = $clock ?? static fn (): \DateTimeImmutable => Clock::now();
+        if ($chunk < 1 || $chunk > self::CHUNK) {
+            throw new \InvalidArgumentException('a decision chunk is 1 to ' . self::CHUNK . ' rows');
+        }
     }
 
     // ---- settings --------------------------------------------------------------------------------------------------------------------
@@ -177,16 +198,27 @@ final class PaypalFees
      * Before anything is read, at EVERY run (final review b1, PPF39): the account's shops (its main shop pinned), the key's shop = the main shop,
      * the key's merchant = CW's own setting of it (profit.paypal_merchant_<account>), and the live host when the account needs it
      * (profit.paypal_live_<account>); a refusal is recorded as a failed run, so the health alert says it at once (b2).
-     * Each window stored proves the days it read only as far as PayPal says its data is complete (its last_refreshed_datetime): the run's
-     * covered_to moves on window by window (kept when a later window fails), never past a day PayPal had not finished (final review c1, c2).
+     * Each window stored proves the days it read only as far as PayPal's ANSWER proves them (final review c1, c2; round 3, PPF41): up to the
+     * last whole UK day before the least fresh last_refreshed_datetime of its pages (a page without one: nothing), and never past the end of
+     * the interval its pages say they cover (a page starting later than asked: nothing); the run's covered_to moves on window by window
+     * (kept when a later window fails), never past a day PayPal had not finished or did not answer for: the rest stays to be read.
+     * $extra (the nightly: nightlyExtra()) are old days read again AFTER the days asked for, in their own windows: rows still pending and rows
+     * last read under other forms; they never move covered_to (c2, round 3). The rows stored are decided after the forward days, again after
+     * the old ones, and also when a window fails (what was stored before it is decided at once: forward progress every night).
      *
-     * @return array{run: int, windows: int, pages: int, read: int, new: int, changed: int, allocated: int, refreshed: ?string, covered: ?string, seconds: array<string, float>}
+     * @param list<array{0: string, 1: string}> $extra
+     * @return array{run: int, windows: int, extra_windows: int, pages: int, read: int, new: int, changed: int, allocated: int, refreshed: ?string, covered: ?string, seconds: array<string, float>}
      */
-    public function run(Caller $caller, PaypalApi $api, string $fromDay, string $toDay, string $kind, ?float $deadline = null): array
+    public function run(Caller $caller, PaypalApi $api, string $fromDay, string $toDay, string $kind, ?float $deadline = null, array $extra = []): array
     {
         self::authorise($caller);
         if (!in_array($kind, ['nightly', 'backfill'], true) || !self::isDay($fromDay) || !self::isDay($toDay) || $fromDay > $toDay) {
             throw new CwException('paypal_bad_days', 'a run reads whole UK days, the first not after the last', 422);
+        }
+        foreach ($extra as $e) {
+            if (!is_array($e) || count($e) !== 2 || !self::isDay((string) ($e[0] ?? '')) || !self::isDay((string) ($e[1] ?? '')) || $e[0] > $e[1]) {
+                throw new CwException('paypal_bad_days', 'the days read again are whole UK days, the first not after the last', 422);
+            }
         }
         $account = $api->account();
         try {
@@ -214,7 +246,7 @@ final class PaypalFees
             throw $e;
         }
         $shop = $shops[0];
-        return $this->locked($account, function () use ($caller, $api, $fromDay, $toDay, $kind, $shop, $shops, $account, $deadline): array {
+        return $this->locked($account, function () use ($caller, $api, $fromDay, $toDay, $kind, $shop, $shops, $account, $deadline, $extra): array {
             $now = Clock::db(($this->clock)());
             // a run of this account that died (no other one can be running: this one holds the account's lock) is said to have failed; its
             // rows stay due and this run decides them
@@ -222,35 +254,19 @@ final class PaypalFees
                 [$now, $account]);
             $runId = $this->db->insert('INSERT INTO paypal_run (account, channel_id, kind, from_day, to_day, actor, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
                 [$account, $shop['id'], $kind, $fromDay, $toDay, $caller->actor, $now]);
-            $sum = ['run' => $runId, 'windows' => 0, 'pages' => 0, 'read' => 0, 'new' => 0, 'changed' => 0, 'allocated' => 0, 'refreshed' => null, 'covered' => null,
-                'seconds' => ['paypal' => 0.0, 'parse' => 0.0, 'store' => 0.0, 'decide' => 0.0]];
+            $sum = ['run' => $runId, 'windows' => 0, 'extra_windows' => 0, 'pages' => 0, 'read' => 0, 'new' => 0, 'changed' => 0, 'allocated' => 0, 'refreshed' => null,
+                'covered' => null, 'seconds' => ['paypal' => 0.0, 'parse' => 0.0, 'store' => 0.0, 'decide' => 0.0]];
             $covering = true;
+            $stored = false; // rows stored that this run has not decided yet
             try {
+                // 1. the days asked for, forward: they alone move the run's coverage (covered_to), window by window
                 foreach (self::windows($fromDay, $toDay, ($this->clock)()) as [$a, $b]) {
                     self::inTime($deadline, 'the next window');
-                    $t = microtime(true);
-                    $w = $api->window($a, $b);
-                    $sum['seconds']['paypal'] += microtime(true) - $t;
-                    $t = microtime(true);
-                    $rows = [];
-                    foreach ($w['rows'] as $i => $ti) {
-                        $rows[] = PaypalRow::parse($ti, $i + 1);
-                    }
-                    $sum['seconds']['parse'] += microtime(true) - $t;
-                    $t = microtime(true);
-                    $first = ReportRefresh::ukDay(Clock::db($a));
-                    $last = ReportRefresh::ukDay(Clock::db($b));
-                    $s = $this->store($runId, $account, $shop['id'], $rows, $caller, $shops, $first, $last);
-                    $sum['seconds']['store'] += microtime(true) - $t;
-                    $sum['windows']++;
-                    $sum['pages'] += $w['pages'];
-                    $sum['read'] += count($rows);
-                    $sum['new'] += $s['new'];
-                    $sum['changed'] += $s['changed'];
-                    $sum['refreshed'] = $w['refreshed'] ?? $sum['refreshed'];
-                    // the days this window PROVES read: up to the last whole UK day before PayPal's refresh time (none when it gave none); the
-                    // run's coverage goes on only while each window proved all of its days (a gap stops it: the next run reads from there)
-                    $proven = self::proven($last, $w['refreshed']);
+                    [$first, $last, $w] = $this->readWindow($api, $a, $b, $runId, $account, $shop['id'], $caller, $shops, $sum);
+                    $stored = true;
+                    // the days this window PROVES read (c1, round 3): what its answer proves (proven()); the run's coverage goes on only while
+                    // each window proved all of its days (a gap stops it: the next run reads from there)
+                    $proven = self::proven($last, $w);
                     if ($covering) {
                         if ($proven !== null && $proven >= $first) {
                             $sum['covered'] = $proven;
@@ -259,12 +275,34 @@ final class PaypalFees
                     }
                     $this->progress($runId, $sum);
                 }
-                $t = microtime(true);
-                $sum['allocated'] = $this->decideAll($caller, $account, $runId, $deadline);
-                $sum['seconds']['decide'] = microtime(true) - $t;
-                $sum['seconds']['rematch'] = $this->lastRematchSec;
+                // decided before any old day is read again: what the forward days brought counts tonight whatever the old days take (c2)
+                $stored = false;
+                $sum['allocated'] = $this->decided($caller, $account, $runId, $deadline, $sum);
+                // 2. the old days read again in their own windows (pending rows, rows read under other forms): never the coverage (c2)
+                foreach ($extra as [$ea, $eb]) {
+                    foreach (self::windows($ea, $eb, ($this->clock)()) as [$a, $b]) {
+                        self::inTime($deadline, 'the next window of the days read again');
+                        $this->readWindow($api, $a, $b, $runId, $account, $shop['id'], $caller, $shops, $sum);
+                        $stored = true;
+                        $sum['extra_windows']++;
+                        $this->progress($runId, $sum);
+                    }
+                }
+                if ($stored) {
+                    $stored = false;
+                    $sum['allocated'] += $this->decided($caller, $account, $runId, $deadline, $sum);
+                }
                 $sum['seconds'] = array_map(static fn (float $x): float => round($x, 2), $sum['seconds']);
             } catch (CwException | \PDOException $e) {
+                // a window refused (or the deadline): what was stored before it is decided now when that can be done (never left undecided until
+                // the next night: c2, round 3); the run is failed with the window's reason all the same
+                if ($stored && !($e instanceof CwException && $e->errorCode === 'paypal_deadline')) {
+                    try {
+                        $sum['allocated'] += $this->decided($caller, $account, $runId, $deadline, $sum);
+                    } catch (CwException | \PDOException) {
+                        // they stay due: the next run decides them (its local decisions come first)
+                    }
+                }
                 $why = $e instanceof CwException ? $e->getMessage() : 'database error ' . (Db::driverCode($e) ?? 'unknown');
                 $this->finish($runId, $sum, 'failed', mb_substr($why, 0, 255));
                 throw $e;
@@ -272,6 +310,50 @@ final class PaypalFees
             $this->finish($runId, $sum, 'ok', null);
             return $sum;
         });
+    }
+
+    /**
+     * One window read whole from PayPal, parsed strictly and stored in one transaction (store()); the run's sums moved on.
+     *
+     * @param array<string, mixed> $sum
+     * @return array{0: string, 1: string, 2: array<string, mixed>} its first and last UK day and what PaypalApi::window() said
+     */
+    private function readWindow(PaypalApi $api, \DateTimeImmutable $a, \DateTimeImmutable $b, int $runId, string $account, int $channelId, Caller $caller, array $shops,
+        array &$sum): array
+    {
+        $t = microtime(true);
+        $w = $api->window($a, $b);
+        $sum['seconds']['paypal'] += microtime(true) - $t;
+        $t = microtime(true);
+        $rows = [];
+        foreach ($w['rows'] as $i => $ti) {
+            $rows[] = PaypalRow::parse($ti, $i + 1);
+        }
+        $sum['seconds']['parse'] += microtime(true) - $t;
+        $t = microtime(true);
+        $first = ReportRefresh::ukDay(Clock::db($a));
+        $last = ReportRefresh::ukDay(Clock::db($b));
+        $s = $this->store($runId, $account, $channelId, $rows, $caller, $shops);
+        $sum['seconds']['store'] += microtime(true) - $t;
+        $sum['windows']++;
+        $sum['pages'] += $w['pages'];
+        $sum['read'] += count($rows);
+        $sum['new'] += $s['new'];
+        $sum['changed'] += $s['changed'];
+        $sum['refreshed'] = $w['refreshed'] ?? $sum['refreshed'];
+        return [$first, $last, $w];
+    }
+
+    /** decideAll() for run(), timed into the run's sums. @param array<string, mixed> $sum */
+    private function decided(Caller $caller, string $account, int $runId, ?float $deadline, array &$sum): int
+    {
+        $t = microtime(true);
+        try {
+            return $this->decideAll($caller, $account, $runId, $deadline);
+        } finally {
+            $sum['seconds']['decide'] += microtime(true) - $t;
+            $sum['seconds']['rematch'] = ($sum['seconds']['rematch'] ?? 0.0) + $this->lastRematchSec;
+        }
     }
 
     /**
@@ -298,7 +380,7 @@ final class PaypalFees
                 break;
             }
             while (true) {
-                $ids = array_map('intval', $this->db->column('SELECT id FROM paypal_txn WHERE due = 1 AND account = ? ORDER BY id LIMIT ' . self::CHUNK, [$account]));
+                $ids = array_map('intval', $this->db->column('SELECT id FROM paypal_txn WHERE due = 1 AND account = ? ORDER BY id LIMIT ' . $this->chunk, [$account]));
                 if ($ids === []) {
                     break;
                 }
@@ -346,8 +428,10 @@ final class PaypalFees
      *    of its number now (a renumbered or doubled order; also a second order stored right after the guarded write's last look: fix round 1);
      *  - a row decided by other shops or forms than now (its decided_sig: every decision keeps the forms it was made by, --decide too);
      *  - a refund, chargeback or fee not matched by its reference whose referred row (its sale) is read now;
-     *  - a chargeback on an order whose refund budget changed since (the refunds CW counts in profit, less PayPal's own refunds of the order:
-     *    the order paid or not, a re-send, a refund, a PayPal refund read: PPF23, PPF34);
+     *  - a chargeback on an order (counting there, or a look for its refunds) whose refunds not on PayPal changed since (the refunds CW counts
+     *    in profit, less PayPal's own refunds of the order: the order paid or not, a re-send, a refund, a PayPal refund read: PPF43);
+     *  - a row last read under other forms, of a shop the forms of now might make otherwise, older than the days read again (form_unread:
+     *    PPF44);
      *  - rows a shop's first fee day now puts on the other side (the setting changed).
      * Plain indexed reads, then marks by id (MySQL planned an UPDATE with a correlated EXISTS row by row: 12 s at the real size; PPF15).
      */
@@ -381,15 +465,35 @@ final class PaypalFees
             . "WHERE t.account = ? AND t.due = 0 AND t.kind IN ('refund', 'chargeback', 'fee') AND (t.matched_by IS NULL OR t.matched_by <> 'reference') "
             . "AND t.count_state <> 'look' "
             . "AND p.kind IN ('sale', 'chargeback') AND p.form_shop IS NOT NULL", [$account])));
-        // a chargeback's order's refund budget changed (a few rows: chargebacks are rare; the budget worked out as decide() does)
-        foreach ($this->db->all("SELECT id, shop_channel, order_no, match_order_ref, refund_seen_pence FROM paypal_txn WHERE account = ? AND due = 0 "
-            . "AND kind = 'chargeback' AND refund_seen_pence IS NOT NULL ORDER BY id", [$account]) as $r) {
-            $budget = max(0, self::cwRefunds($this->db, (int) $r['shop_channel'], (string) $r['match_order_ref'])
-                - self::paypalRefunds($this->db, $account, (int) $r['shop_channel'], (string) $r['order_no']));
-            if ($budget !== (int) $r['refund_seen_pence']) {
+        // a chargeback whose order's refunds not on PayPal changed (a few rows: chargebacks are rare; worked out as decide() does): one that
+        // counts on its order, and one that needs a look for them (refund_not_on_paypal: its order found again by its shop and number)
+        $codes = [];
+        foreach ($shops as $sh) {
+            $codes[$sh['code']] = $sh['id'];
+        }
+        $readStart = $this->firstFeeDay($account);
+        foreach ($this->db->all("SELECT id, shop_channel, form_shop, order_no, match_state, match_order_ref, count_state, look_reason, refund_seen_pence FROM paypal_txn "
+            . "WHERE account = ? AND due = 0 AND kind = 'chargeback' AND refund_seen_pence IS NOT NULL ORDER BY id", [$account]) as $r) {
+            if ($r['count_state'] === 'counts' && $r['match_state'] === 'order') {
+                [$ch, $ref] = [(int) $r['shop_channel'], (string) $r['match_order_ref']];
+            } else {
+                $ch = $codes[(string) $r['form_shop']] ?? null;
+                $hits = $ch === null || $r['order_no'] === null ? [] : (self::orders($this->db, [[$ch, (string) $r['order_no']]])[$ch . '|' . $r['order_no']] ?? []);
+                if (count($hits) !== 1) {
+                    $ids[] = (int) $r['id']; // its order is not one order now: decided again
+                    continue;
+                }
+                $ref = $hits[0];
+            }
+            $open = self::openRefunds($this->db, (int) $ch, $ref, self::paypalRefunds($this->db, $account, (int) $ch, (string) $r['order_no']), $readStart);
+            if ($open !== (int) $r['refund_seen_pence']) {
                 $ids[] = (int) $r['id'];
             }
         }
+        // a row last read under other forms whose shop the forms of now might make otherwise, beyond the days read again: a look (form_unread, a7)
+        $horizon = (new \DateTimeImmutable($this->today()))->modify('-' . self::PENDING_DAYS . ' days')->format('Y-m-d');
+        array_push($ids, ...array_map('intval', $this->db->column("SELECT id FROM paypal_txn WHERE account = ? AND due = 0 AND day < ? AND (read_sig IS NULL OR read_sig <> ?) "
+            . "AND count_state <> 'look' AND " . self::DOUBTFUL, [$account, $horizon, $sig])));
         $this->rematchParts['decided'] = round(microtime(true) - $t0, 3);
         $t0 = microtime(true);
         foreach ($this->db->all('SELECT DISTINCT t.shop_channel, c.code FROM paypal_txn t JOIN channel c ON c.id = t.shop_channel WHERE t.account = ?', [$account]) as $r) {
@@ -613,30 +717,16 @@ final class PaypalFees
     }
 
     /**
-     * The nightly's first day: the re-read days back from today, earlier when a costed row still pending is (at most PENDING_DAYS back), when
-     * the proven coverage ends earlier (a long outage, a stale feed, a catch-up cut by the deadline: from the last day proven, the run resumes),
-     * or when rows were read under other shops' forms than now (they are read again, so a form put back recovers what it captures: final
-     * review a7); never before the first fee day of the account's shops.
+     * The nightly's first day, FORWARD (final review c2, round 3): the re-read days back from today, earlier when the proven coverage ends
+     * earlier (a long outage, a stale feed, a catch-up cut by the deadline: from the day before the last day proven, the run resumes there);
+     * never before the first fee day of the account's shops. The old days read again (rows still pending, rows read under other forms) are
+     * not here: nightlyExtra() gives them their own windows, read after the forward days, so they never hold the forward read back.
      */
     public function nightlyFrom(string $account): string
     {
         $today = ReportRefresh::ukDay(Clock::db(($this->clock)()));
         $from = (new \DateTimeImmutable($today))->modify('-' . self::rereadDays($this->db) . ' days')->format('Y-m-d');
-        $floor = (new \DateTimeImmutable($today))->modify('-' . self::PENDING_DAYS . ' days')->format('Y-m-d');
-        $pending = $this->db->value("SELECT MIN(day) FROM paypal_txn WHERE account = ? AND count_state = 'pending' AND day >= ?", [$account, $floor]);
-        if ($pending !== null && (string) $pending < $from) {
-            $from = (string) $pending;
-        }
-        $shops = self::accountShops($this->db, $account);
-        $froms = array_filter(array_map(fn (array $s): ?string => self::feesFrom($this->db, $s['code']), $shops));
-        $start = $froms === [] ? null : min($froms);
-        if ($start !== null) {
-            $old = $this->db->value("SELECT MIN(day) FROM paypal_txn WHERE account = ? AND day >= ? AND (read_sig IS NULL OR read_sig <> ?) "
-                . "AND (invoice_state <> 'none' OR custom_state <> 'none')", [$account, $start, self::formsSig($shops)]);
-            if ($old !== null && (string) $old < $from) {
-                $from = (string) $old;
-            }
-        }
+        $start = $this->firstFeeDay($account);
         // after a long outage: back to the last day read without a gap, a day before it (the lead's decision 5, fix round 1)
         if ($start !== null) {
             $covered = self::coveredUntil($this->db, $account, $start);
@@ -646,6 +736,44 @@ final class PaypalFees
             }
         }
         return $start !== null && $start > $from ? min($start, $today) : $from;
+    }
+
+    /**
+     * The old days the nightly reads again AFTER its forward days, in their own windows (final review c2, a7; round 3): the days before
+     * $forwardFrom (the forward read has the rest) of rows still pending and of rows last read under other shops' forms than now with an
+     * invoice or custom field (a form put back recovers what it captures; a row PayPal did not give again keeps its forms and is read again),
+     * at most PENDING_DAYS back and never before the first fee day; as ranges of at most WINDOW_DAYS days, oldest first. They never move the
+     * coverage (run()).
+     *
+     * @return list<array{0: string, 1: string}>
+     */
+    public function nightlyExtra(string $account, string $forwardFrom): array
+    {
+        $start = $this->firstFeeDay($account);
+        if ($start === null) {
+            return [];
+        }
+        $floor = max($start, (new \DateTimeImmutable($this->today()))->modify('-' . self::PENDING_DAYS . ' days')->format('Y-m-d'));
+        $sig = self::formsSig(self::accountShops($this->db, $account));
+        $days = array_map('strval', $this->db->column("SELECT DISTINCT day FROM paypal_txn WHERE account = ? AND day >= ? AND day < ? AND (count_state = 'pending' "
+            . "OR ((read_sig IS NULL OR read_sig <> ?) AND (invoice_state <> 'none' OR custom_state <> 'none'))) ORDER BY day", [$account, $floor, $forwardFrom, $sig]));
+        $out = [];
+        foreach ($days as $d) {
+            $n = count($out);
+            if ($n > 0 && $d <= (new \DateTimeImmutable($out[$n - 1][0]))->modify('+' . (self::WINDOW_DAYS - 1) . ' days')->format('Y-m-d')) {
+                $out[$n - 1][1] = $d;
+            } else {
+                $out[] = [$d, $d];
+            }
+        }
+        return $out;
+    }
+
+    /** The earliest first fee day of the account's shops (null: none switched on). */
+    private function firstFeeDay(string $account): ?string
+    {
+        $froms = array_filter(array_map(fn (array $s): ?string => self::feesFrom($this->db, $s['code']), self::accountShops($this->db, $account)));
+        return $froms === [] ? null : min($froms);
     }
 
     /**
@@ -683,18 +811,22 @@ final class PaypalFees
      * when both say the same, else the window is refused (it moved while it was read).
      *  - The invoice and custom fields: only what ONE shop's form captures is kept (the shop and the order number; never the text: a form like
      *    ^([0-9]{7})-.+$ would keep a phone number with it, final review e1); a field that matches no form is kept as "dropped", two forms as
-     *    "overlap". A capture kept before stays when this read's forms capture nothing (a form narrowed or edited meanwhile): the evidence of
-     *    whose order it is is never lost to a re-read (final review a7, PPF36); a capture of this read replaces it.
-     *  - Which version wins (final review a9, PPF37): PayPal's transaction_updated_date, to the microsecond. An older version than the one kept
-     *    changes nothing; the same time with other facts keeps the facts and marks the row pp_conflict (a look, never counted) until a newer
-     *    version says which; a newer one replaces them (and clears the conflict).
-     *  - Every row of the window's days is marked read with the account's shops and forms of now (read_sig: rows read under other forms are
-     *    read again by the nightly, nightlyFrom()).
+     *    "overlap".
+     *  - Which version wins (final review a9, PPF37; round 3, PPF42): PayPal's transaction_updated_date, to the microsecond; a version with no
+     *    update time is OLDER than any dated one (it never overwrites one, never erases a known time). An older version changes nothing (not
+     *    even the forms the row was read by). A NEWER version is what PayPal says now: its facts AND its captures (a provider correction: an
+     *    invoice cleared, a custom field of another shop's order, two shops' forms), never an old capture put back over it. The SAME version
+     *    (the same time; or neither dated) read under the same forms with other facts or other captures is a contradiction: the kept stay and the
+     *    row needs a look (pp_conflict) until a newer version says which, never "the last read wins"; read under OTHER forms (a form edited),
+     *    its captures are the forms' of now, except that one a narrowed form no longer makes is kept (the evidence of whose order it is:
+     *    PPF36; two shops' forms now are held: a look).
+     *  - read_sig: the forms the row's captures are of, set only on a row this read gave and applied (never on a row PayPal did not give, nor
+     *    from an older version: a7, round 3); a row of other forms is read again by the nightly (nightlyExtra()).
      *
      * @param list<array<string, mixed>> $rows PaypalRow::parse()d
      * @return array{new: int, changed: int}
      */
-    private function store(int $runId, string $account, int $channelId, array $rows, Caller $caller, array $shops, string $firstDay, string $lastDay): array
+    private function store(int $runId, string $account, int $channelId, array $rows, Caller $caller, array $shops): array
     {
         $sig = self::formsSig($shops);
         $byKey = [];
@@ -713,7 +845,7 @@ final class PaypalFees
             $byKey[$k] = $r;
         }
         unset($seenRaw);
-        return $this->db->transaction(function (Db $db) use ($runId, $account, $channelId, $byKey, $caller, $sig, $firstDay, $lastDay): array {
+        return $this->db->transaction(function (Db $db) use ($runId, $account, $channelId, $byKey, $caller, $sig): array {
             $now = Clock::db(($this->clock)());
             $have = [];
             // by the unique key's first two columns (account, txn_id: an index range per id), the event code compared here
@@ -726,6 +858,7 @@ final class PaypalFees
             }
             $new = [];
             $same = [];
+            $older = [];
             $changed = 0;
             foreach ($byKey as $k => $r) {
                 $old = $have[$k] ?? null;
@@ -734,24 +867,34 @@ final class PaypalFees
                     $new[] = $r + ['kind' => $kind, 'cost_pence' => PaypalCodes::cost($kind, (int) $r['amount_pence'], (int) $r['fee_pence']), 'pp_conflict' => 0];
                     continue;
                 }
-                // the captures: this read's, else the one kept (evidence never lost to a narrowed form)
-                foreach (['invoice', 'custom'] as $f) {
-                    if ($r["{$f}_state"] !== 'order' && $old["{$f}_state"] === 'order') {
-                        [$r["{$f}_state"], $r["{$f}_shop"], $r["{$f}_no"]] = ['order', (string) $old["{$f}_shop"], (string) $old["{$f}_no"]];
+                $age = self::age($r['pp_updated_at'], $old['pp_updated_at']);
+                if ($age < 0) {
+                    $older[] = (int) $old['id']; // an older version than the one kept (or one of no update time): changes nothing
+                    continue;
+                }
+                $sameForms = $old['read_sig'] !== null && hash_equals((string) $old['read_sig'], $sig);
+                // the forms the row's captures are of after this read: these forms, unless a capture of the forms it was read by is kept
+                $rowSig = $sig;
+                if ($age === 0 && !$sameForms) {
+                    // the same version read under other forms (a form edited): a capture a narrowed form no longer makes is kept (PPF36), and
+                    // so are the forms it was made by (a capture is never said to be of forms that did not make it: round 3)
+                    foreach (['invoice', 'custom'] as $f) {
+                        if ($r["{$f}_state"] === 'dropped' && $old["{$f}_state"] === 'order') {
+                            [$r["{$f}_state"], $r["{$f}_shop"], $r["{$f}_no"]] = ['order', (string) $old["{$f}_shop"], (string) $old["{$f}_no"]];
+                            $rowSig = (string) $old['read_sig'];
+                        }
                     }
                 }
                 $before = self::facts($old) + ['kind' => (string) $old['kind'], 'cost_pence' => (int) $old['cost_pence'], 'pp_conflict' => (int) $old['pp_conflict']];
                 $theirs = self::facts($r);
-                $age = $old['pp_updated_at'] === null || $r['pp_updated_at'] === null ? 1 : strcmp((string) $r['pp_updated_at'], (string) $old['pp_updated_at']);
                 $conflicting = null;
-                if ($age < 0) {
-                    $same[] = (int) $old['id']; // an older version than the one kept: changes nothing
-                    continue;
-                }
-                if ($age === 0 && array_intersect_key($theirs, array_flip(self::PP_FACTS)) !== array_intersect_key($before, array_flip(self::PP_FACTS))) {
-                    // the same time, other facts: the kept facts stay, the row needs a look until a newer version says which
-                    $conflicting = array_intersect_key($theirs, array_flip(self::PP_FACTS));
-                    $after = array_merge($before, array_intersect_key($theirs, array_flip(self::CAPTURES)), ['pp_conflict' => 1]);
+                // the same version: what it says compared (its captures too when read by the same forms: other captures at the same time are
+                // PayPal saying two things of one version, never "the last read wins": round 3)
+                $compared = array_flip($sameForms ? [...self::PP_FACTS, ...self::CAPTURES] : self::PP_FACTS);
+                if ($age === 0 && array_intersect_key($theirs, $compared) !== array_intersect_key($before, $compared)) {
+                    // the kept stay (under other forms: their captures are the forms' of now), the row needs a look until a newer version says which
+                    $conflicting = array_intersect_key($theirs, array_flip([...self::PP_FACTS, ...self::CAPTURES]));
+                    $after = array_merge($before, $sameForms ? [] : array_intersect_key($theirs, array_flip(self::CAPTURES)), ['pp_conflict' => 1]);
                 } else {
                     $kind = PaypalCodes::kind((string) $r['event_code'], (int) $r['amount_pence']);
                     // what PayPal says AND what the rules make of it (a release that classes a code anew re-decides a row it reads again; PP3)
@@ -759,7 +902,11 @@ final class PaypalFees
                         'pp_conflict' => $age === 0 ? (int) $old['pp_conflict'] : 0];
                 }
                 if ($before === $after) {
-                    $same[] = (int) $old['id'];
+                    if ($rowSig === $sig) {
+                        $same[] = (int) $old['id'];
+                    } else {
+                        $older[] = (int) $old['id']; // read, nothing new; its captures still of the forms it was read by
+                    }
                     continue;
                 }
                 $set = [];
@@ -769,7 +916,7 @@ final class PaypalFees
                     $params[] = $after[$f];
                 }
                 $db->exec('UPDATE paypal_txn SET ' . implode(', ', $set) . ', read_sig = ?, due = 1, due_since = COALESCE(due_since, ?), version = version + 1, last_run = ?, '
-                    . 'changed_at = ? WHERE id = ?', [...$params, $sig, $now, $runId, $now, (int) $old['id']]);
+                    . 'changed_at = ? WHERE id = ?', [...$params, $rowSig, $now, $runId, $now, (int) $old['id']]);
                 $db->exec("INSERT INTO paypal_txn_history (txn_row, version, what, before_json, after_json, run_id, actor, at) VALUES (?, ?, 'changed', ?, ?, ?, ?, ?)",
                     [(int) $old['id'], (int) $old['version'] + 1, self::json($before), self::json($after + ($conflicting === null ? [] : ['conflicting' => $conflicting])),
                         $runId, $caller->actor, $now]);
@@ -796,11 +943,25 @@ final class PaypalFees
             foreach (array_chunk($same, 1000) as $chunk) {
                 $db->exec('UPDATE paypal_txn SET last_run = ?, read_sig = ? WHERE id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')', [$runId, $sig, ...$chunk]);
             }
-            // the window's days read whole under the forms of now (a row PayPal no longer gives is not read again for ever)
-            $db->exec('UPDATE paypal_txn SET read_sig = ? WHERE account = ? AND day BETWEEN ? AND ? AND (read_sig IS NULL OR read_sig <> ?)',
-                [$sig, $account, $firstDay, $lastDay, $sig]);
+            // an older version read: the row was read, its captures are still of the forms they were made by (a7, round 3)
+            foreach (array_chunk($older, 1000) as $chunk) {
+                $db->exec('UPDATE paypal_txn SET last_run = ? WHERE id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ')', [$runId, ...$chunk]);
+            }
             return ['new' => count($new), 'changed' => $changed];
         });
+    }
+
+    /**
+     * Which of two versions of a row is newer by PayPal's transaction_updated_date (CW's UTC time to the microsecond): 1 the new one, -1 the
+     * kept one, 0 the same time. A version with no update time is older than any dated one (it never overwrites a dated one, never erases a
+     * known time: a9, round 3); two of none are the same unknown time (other facts: a contradiction, a look).
+     */
+    private static function age(?string $new, ?string $kept): int
+    {
+        if ($new === null || $kept === null) {
+            return $new === $kept ? 0 : ($new === null ? -1 : 1);
+        }
+        return strcmp($new, $kept) <=> 0;
     }
 
     /**
@@ -832,8 +993,10 @@ final class PaypalFees
      * rows as they count now are the plan's "before", as they will count its "after"; the orders they are on (by number, the shop's own
      * orders) are looked up in the plan and again right before the commit (verify: an order of the number stored meanwhile means the plan is
      * old: made again). Every row's due mark is cleared in the same write.
-     *  - With a refund or a chargeback come every refund and chargeback on the same order number of its shop, now AND before (an order's
-     *    chargebacks share its refund budget: one moved to another order gives its old order's budget to the others, final review a2).
+     *  - With a refund or a chargeback come every refund and chargeback on the same order number of its shop, now AND before, followed to the
+     *    end (a chargeback is decided by its order's refunds in CW against PayPal's own refunds of it: PPF43; one moved to another order
+     *    re-decides both orders'); more than SIBLING_PASSES steps refuses the write and fails the run, never a silent stop (a2, round 3).
+     *  - Every order a chargeback is on (now or as stored) is guarded whatever its money (round 3: its order's refunds decide it).
      *  - A row whose shop, number, order or state changes marks due, in the same write, every row that refers to it (its refunds, chargebacks,
      *    fees: they follow it, final review a5); they are decided in the same decideAll().
      *
@@ -843,7 +1006,9 @@ final class PaypalFees
     private function decide(Caller $caller, array $ids, ?int $runId): int
     {
         $bills = new DeliveryBills($this->db);
-        return $bills->guardedWrite(function (Db $db) use ($ids, $runId, $caller): array {
+        // the days read again stop this many days back: a row of other forms older than that is not read again (place(): form_unread)
+        $horizon = (new \DateTimeImmutable($this->today()))->modify('-' . self::PENDING_DAYS . ' days')->format('Y-m-d');
+        return $bills->guardedWrite(function (Db $db) use ($ids, $runId, $caller, $horizon): array {
             for ($pass = 1; ; $pass++) {
                 $rows = $db->all('SELECT * FROM paypal_txn WHERE id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ') ORDER BY id FOR UPDATE', $ids);
                 $accounts = array_values(array_unique(array_column($rows, 'account')));
@@ -885,8 +1050,14 @@ final class PaypalFees
                         }
                     }
                 }
-                if ($more === [] || $pass >= 6) {
+                if ($more === []) {
                     break;
+                }
+                // followed to the end (a2, round 3): a chain longer than SIBLING_PASSES refuses the write, the run fails and says so (never a
+                // decision made with part of an order's refunds and chargebacks)
+                if ($pass >= self::SIBLING_PASSES) {
+                    throw new CwException('paypal_siblings', sprintf('the refunds and chargebacks of these orders lead to more than %d steps of other orders in one decision '
+                        . '(%d rows so far): nothing of them was decided; the lead looks (bin/paypal_fees.php --status)', self::SIBLING_PASSES, count($ids) + count($more)), 409);
                 }
                 $ids = array_values(array_unique([...$ids, ...$more]));
             }
@@ -897,21 +1068,39 @@ final class PaypalFees
                 }
             }
             $lookup = self::orders($db, $keys);
-            // each row's place without a refund offset first (which chargebacks count on which order, which PayPal refunds are of it), then
-            // the offsets of the chargebacks that count (final review a1)
+            // each row's place first without its order's refunds (which chargebacks count on which order, which PayPal refunds are of it),
+            // then the chargebacks that count on an order against that order's refunds not on PayPal (a3, round 3: a look when there are any)
             $prelim = [];
+            $unread = [];
             foreach ($rows as $r) {
-                $prelim[(int) $r['id']] = self::place($r, $forms[(int) $r['id']], $shops[0]['id'], $from, $lookup, null);
+                $id = (int) $r['id'];
+                // last read under other forms, beyond the days read again, of a shop the forms of now might make otherwise (a7, round 3)
+                $unread[$id] = (string) $r['day'] < $horizon && ($r['read_sig'] === null || !hash_equals((string) $r['read_sig'], $sig)) && self::doubtful($r);
+                $prelim[$id] = self::place($r, $forms[$id], $shops[0]['id'], $from, $lookup, null, $unread[$id]);
             }
-            $offsets = self::chargebackOffsets($db, $account, $rows, $prelim, $lookup);
+            // the account's first day read from PayPal (its earliest first fee day: the backfill's start): orders paid before it (PPF43)
+            $read = array_values(array_filter($from, static fn (?string $d): bool => $d !== null));
+            $readStart = $read === [] ? null : min($read);
+            $checks = self::chargebackChecks($db, $rows, $prelim, $readStart);
             $before = [];
             $after = [];
             $watch = [];
             $plans = [];
             foreach ($rows as $r) {
                 $id = (int) $r['id'];
-                $place = (isset($offsets[$id]) ? self::place($r, $forms[$id], $shops[0]['id'], $from, $lookup, $offsets[$id]) : $prelim[$id]) + ['decided_sig' => $sig];
+                $place = (isset($checks[$id]) ? self::place($r, $forms[$id], $shops[0]['id'], $from, $lookup, $checks[$id], $unread[$id]) : $prelim[$id]) + ['decided_sig' => $sig];
                 $plans[$id] = [$r, $place];
+                // every order a chargeback is or was on is guarded, whatever its money (its order's refunds decide it: round 3), as resolved now
+                // and as stored
+                if ($r['kind'] === 'chargeback') {
+                    $f = $forms[$id];
+                    foreach ($f['id'] !== null && $f['no'] !== null ? ($lookup[$f['id'] . '|' . $f['no']] ?? []) : [] as $ref) {
+                        $watch[] = [(int) $f['id'], (string) $ref];
+                    }
+                    if ($r['shop_channel'] !== null && $r['match_order_ref'] !== null) {
+                        $watch[] = [(int) $r['shop_channel'], (string) $r['match_order_ref']];
+                    }
+                }
                 // its money as it counts now (before) and as it will (after); an order whose money counts on a day of its own is guarded too
                 // (watch: its row is what the write's foreign key reads, so no snapshot holds it meanwhile)
                 foreach (['before' => $r, 'after' => $place + $r] as $side => $x) {
@@ -932,7 +1121,7 @@ final class PaypalFees
             return ['before' => $before, 'after' => $after, 'watch' => $watch,
                 // the orders of the numbers read again last, right before the commit: one stored meanwhile (a second of a number, or the first)
                 // makes the plan old (checklist 11: a match is exactly one order, re-checked under the write's guards); the refund budgets too
-                'verify' => static fn (Db $db): bool => self::orders($db, $keys) === $lookup && self::chargebackOffsets($db, $account, $rows, $prelim, $lookup) === $offsets,
+                'verify' => static fn (Db $db): bool => self::orders($db, $keys) === $lookup && self::chargebackChecks($db, $rows, $prelim, $readStart) === $checks,
                 'write' => function (Db $db) use ($plans, $runId, $caller, $account): int {
                     // a few statements whatever the chunk (the guards are held: the hold budget at full size, PPF15): the changed rows in ONE
                     // update (a CASE per column), their history in ONE insert, the others' due marks cleared in one more
@@ -1034,6 +1223,11 @@ final class PaypalFees
                 return $own['state'] === 'ok' || ($r['ref_type'] !== null && $r['ref_type'] !== 'TXN') ? $own : ['state' => 'missing'] + $own;
             }
             usort($parents, static fn (array $a, array $b): int => $rank[$a['kind']] <=> $rank[$b['kind']]);
+            // a row it refers to whose PayPal versions disagree (pp_conflict) gives no shop: its child waits with it, a look (a6, round 3);
+            // it is released when a newer version settles the parent (the parent's place changes: its children are due again)
+            if ((int) ($parents[0]['pp_conflict'] ?? 0) === 1) {
+                return ['state' => 'unresolved'] + $own;
+            }
             $ref = $resolve($parents[0], $depth + 1);
             if ($ref['state'] === 'none') {
                 // the row it refers to names no shop either: as that row (the main shop's line), unless it had a shop and lost it
@@ -1081,14 +1275,42 @@ final class PaypalFees
     }
 
     /**
-     * The refunds CW counts in profit on an order (inc VAT: lines, order level, delivery): none when the order is not paid in CW (it counts
-     * nothing yet) or is a re-send (its refunds take nothing off: PR129). Final review a4, PPF34.
+     * The refunds CW counts in profit on an order, inc VAT (final review a4, round 3): only what really comes off its counted sale, by the same
+     * line rules as the profit (ProfitMath::line: a line's sale with its refund against without it, so a refund on a cancelled or free line,
+     * or beyond a restocked line's sale, counts nothing), its order-level refund and its delivery refund; none while the order is not paid in
+     * CW (it counts nothing yet) or is a re-send (its refunds take nothing off: PR129). With the order's paid day (null: not paid).
+     *
+     * @return array{refunds: int, day: ?string}
      */
-    private static function cwRefunds(Db $db, int $channelId, string $ref): int
+    private static function cwRefunds(Db $db, int $channelId, string $ref): array
     {
-        $o = $db->one('SELECT day, parent_ref, line_refund_inc + order_refund_inc + delivery_refund_inc AS r FROM sale_order WHERE channel_id = ? AND order_ref = ?',
-            [$channelId, $ref]);
-        return $o === null || $o['day'] === null || $o['parent_ref'] !== null ? 0 : max(0, (int) $o['r']);
+        $o = $db->one('SELECT day, parent_ref, order_refund_inc, delivery_refund_inc FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$channelId, $ref]);
+        if ($o === null || $o['day'] === null || $o['parent_ref'] !== null) {
+            return ['refunds' => 0, 'day' => $o === null || $o['day'] === null ? null : (string) $o['day']];
+        }
+        $lines = 0;
+        foreach ($db->all('SELECT qty, price_inc, discount_inc, refund_inc, cancelled, is_free, restocked FROM sale_line WHERE channel_id = ? AND order_ref = ? '
+            . 'AND removed_at IS NULL AND refund_inc <> 0', [$channelId, $ref]) as $l) {
+            $line = ['qty' => (int) $l['qty'], 'price_inc' => (int) $l['price_inc'], 'discount_inc' => (int) $l['discount_inc'], 'refund_inc' => (int) $l['refund_inc'],
+                'cancelled' => (int) $l['cancelled'] === 1, 'free' => (int) $l['is_free'] === 1];
+            $lines += ProfitMath::line(['refund_inc' => 0] + $line, 1, (int) $l['restocked'] === 1, 0)['sale_inc'] - ProfitMath::line($line, 1, (int) $l['restocked'] === 1, 0)['sale_inc'];
+        }
+        return ['refunds' => max(0, $lines + (int) $o['order_refund_inc'] + (int) $o['delivery_refund_inc']), 'day' => (string) $o['day']];
+    }
+
+    /**
+     * An order's refunds in CW that PayPal's own refunds of it do not account for (PPF43, the lead's correction of a3, round 3): its refunds CW
+     * counts in profit (cwRefunds) less PayPal's refunds of it CW has read and matched ($paidOut), at 0 at least; for an order PAID BEFORE the
+     * account's first day read from PayPal ($readStart: its earliest first fee day, where the backfill starts), whose PayPal refunds before
+     * that day were never read, all of its refunds in CW.
+     */
+    private static function openRefunds(Db $db, int $channelId, string $ref, int $paidOut, ?string $readStart): int
+    {
+        $cw = self::cwRefunds($db, $channelId, $ref);
+        if ($cw['refunds'] > 0 && $readStart !== null && $cw['day'] !== null && $cw['day'] < $readStart) {
+            return $cw['refunds'];
+        }
+        return max(0, $cw['refunds'] - $paidOut);
     }
 
     /**
@@ -1102,18 +1324,20 @@ final class PaypalFees
     }
 
     /**
-     * The refund offset of each chargeback that COUNTS on an order (PPF23, the lead's decision 1; final review a1, a3, a4; PPF34): the order's
-     * budget is the refunds CW counts in profit on it (cwRefunds) less PayPal's own refunds of it (paid out by PayPal: real money out beside
-     * the chargeback, never offset), at 0 at least; the order's countable chargebacks in time order use it up, each its money taken back at
-     * most; a pending, denied, not understood or not-on-this-order chargeback uses none; a reversal (money back) uses none and counts whole;
-     * the fees always count. By row id; only the chargebacks that count on an order.
+     * For each chargeback that would count on an order (its money taken back, or given back by a reversal), the order's refunds NOT on PayPal
+     * (the lead's decision a3, round 3; PPF43): the refunds CW counts in profit on it (cwRefunds: a4) less PayPal's own refunds of it CW has
+     * read and matched to the same order (T1107, done or reversed, counted or before the first fee day; every one of the order's number is in
+     * the rows: decide() brings them), at 0 at least. Above 0, CW cannot tell whether that refund is the chargeback's own money (staff marking
+     * the order refunded) or money paid out besides it (by bank, or before the backfill's first day): the chargeback needs a look
+     * (refund_not_on_paypal), never a guessed offset. 0: the chargeback counts whole (a refund PayPal paid out is money out besides it). An
+     * order paid before the account's first day read from PayPal: any refund of it in CW is not known to be on PayPal (its PayPal refunds
+     * then were never read): a look (openRefunds). By row id; only the chargebacks that count on an order.
      *
      * @param list<array<string, mixed>> $rows
-     * @param array<int, array<string, mixed>> $prelim each row's place without an offset
-     * @param array<string, list<string>> $lookup
-     * @return array<int, array{offset: int, seen: int}>
+     * @param array<int, array<string, mixed>> $prelim each row's place without its order's refunds
+     * @return array<int, int> row id => the refunds not on PayPal, pence
      */
-    private static function chargebackOffsets(Db $db, string $account, array $rows, array $prelim, array $lookup): array
+    private static function chargebackChecks(Db $db, array $rows, array $prelim, ?string $readStart): array
     {
         $byOrder = [];
         $paidOut = [];
@@ -1122,7 +1346,6 @@ final class PaypalFees
             if ($r['kind'] === 'chargeback' && $p['count_state'] === 'counts' && $p['match_state'] === 'order') {
                 $byOrder[$p['shop_channel'] . '|' . $p['match_order_ref']][] = $r;
             }
-            // PayPal's own refunds among the rows (every one of the order's number is with them: decide() brings them)
             if ($r['kind'] === 'refund' && in_array($p['count_state'], ['counts', 'before_start'], true) && in_array($r['status'], ['S', 'V'], true)
                 && $p['shop_channel'] !== null && $p['order_no'] !== null && (int) $r['amount_pence'] < 0) {
                 $paidOut[$p['shop_channel'] . '|' . $p['order_no']] = ($paidOut[$p['shop_channel'] . '|' . $p['order_no']] ?? 0) - (int) $r['amount_pence'];
@@ -1133,38 +1356,43 @@ final class PaypalFees
         foreach ($byOrder as $k => $list) {
             [$ch, $ref] = explode('|', $k, 2);
             $no = (string) $prelim[(int) $list[0]['id']]['order_no'];
-            $budget = max(0, self::cwRefunds($db, (int) $ch, $ref) - ($paidOut[$ch . '|' . $no] ?? 0));
-            usort($list, static fn (array $a, array $b): int => [(string) $a['initiated_at'], (int) $a['id']] <=> [(string) $b['initiated_at'], (int) $b['id']]);
-            $left = $budget;
+            $open = self::openRefunds($db, (int) $ch, $ref, $paidOut[$ch . '|' . $no] ?? 0, $readStart);
             foreach ($list as $r) {
-                $taken = -(int) $r['amount_pence'];
-                $use = $taken > 0 ? min($taken, $left) : 0;
-                $left -= $use;
-                $out[(int) $r['id']] = ['offset' => $use, 'seen' => $budget];
+                $out[(int) $r['id']] = $open;
             }
         }
         ksort($out);
         return $out;
     }
 
+    /** Whether the field a row's shop is taken from was captured by none or two of the forms it was read by (DOUBTFUL in PHP). @param array<string, mixed> $r */
+    private static function doubtful(array $r): bool
+    {
+        return in_array($r['invoice_state'], ['dropped', 'overlap'], true) || ($r['invoice_state'] === 'none' && in_array($r['custom_state'], ['dropped', 'overlap'], true));
+    }
+
     /**
-     * Where one row counts (PPF5-PPF7, PPF21-PPF24, PPF34-PPF37), in this order: not understood (an unknown code, an unknown status, a fee on
-     * an ignored row, another currency, a wrong sign, two versions of PayPal at the same time: look, never counted); ignored (not counted);
-     * denied (not counted). Then its shop: its reference and its invoice disagree, two shops' forms, the row it refers to unresolved or not
-     * held with no shop of its own: look; no shop's form: the account's main shop's "not on an order" line, unless it had a shop before (its
-     * shop went: look, never another shop's line); a shop CW does not hold (Hayati Vapes): outside (kept, never counted). Before that shop's
-     * first fee day (or that shop not switched on: Electrofag until its day): before_start; pending: read again later; else it counts: on its
-     * order (exactly one order of its shop has its number: a sale's fee on the order's paid day, the others on their own day; a chargeback's
-     * money only beyond its refund offset) or on its shop's "not on an order" line; nothing of 0.
+     * Where one row counts (PPF5-PPF7, PPF21-PPF24, PPF34-PPF37; round 3 PPF41-PPF44), in this order: not understood (an unknown code, an
+     * unknown status, two versions of PayPal at the same time (checked BEFORE an ignored row is let go: a reread of one with a fee in conflict
+     * is a look, round 3), a fee on an ignored row, another currency, a wrong sign: look, never counted); ignored (not counted); denied (not
+     * counted). Then its shop: last read under other forms beyond the days read again with a field no form or two forms captured (form_unread:
+     * the forms of now might make it another shop's), its reference and its invoice disagree, two shops' forms, the row it refers to unresolved
+     * (or of two PayPal versions) or not held with no shop of its own: look; no shop's form: the account's main shop's "not on an order" line,
+     * unless it had a shop before (its shop went: look, never another shop's line); a shop CW does not hold (Hayati Vapes): outside (kept,
+     * never counted). Before that shop's first fee day (or that shop not switched on: Electrofag until its day): before_start; pending: read
+     * again later; else it counts: on its order (exactly one order of its shop has its number: a sale's fee on the order's paid day, the
+     * others on their own day; a chargeback on an order with refunds in CW that PayPal's own refunds of it do not cover: a look,
+     * refund_not_on_paypal, never a guessed offset) or on its shop's "not on an order" line; nothing of 0.
      *
      * @param array<string, mixed> $r a paypal_txn row
      * @param array{code: ?string, id: ?int, no: ?string, by: string, state: string} $form resolveForms()
      * @param array<int, ?string> $from the account's CW shops => their first fee day
      * @param array<string, list<string>> $lookup "channel|number" => the refs of that shop's orders with it
-     * @param array{offset: int, seen: int}|null $cb chargebackOffsets() (null: no offset)
+     * @param int|null $open chargebackChecks(): its order's refunds not on PayPal (null: not a chargeback on an order, or not worked out yet)
+     * @param bool $unread last read under other forms beyond the days read again, its shop's field doubtful (decide())
      * @return array<string, mixed> the PLACE columns (but decided_sig)
      */
-    private static function place(array $r, array $form, int $main, array $from, array $lookup, ?array $cb): array
+    private static function place(array $r, array $form, int $main, array $from, array $lookup, ?int $open, bool $unread = false): array
     {
         $none = ['look_reason' => null, 'form_shop' => null, 'order_no' => null, 'match_state' => null, 'matched_by' => null, 'match_order_ref' => null, 'candidates' => 0,
             'shop_channel' => null, 'refund_offset_pence' => 0, 'refund_seen_pence' => null, 'alloc_dest' => null, 'alloc_channel' => null, 'alloc_order_ref' => null,
@@ -1175,10 +1403,11 @@ final class PaypalFees
             $kind === 'unknown' => 'unknown_code',
             // an unknown status is said whatever the kind, before an ignored row is let go (final review e2)
             !in_array($status, ['S', 'V', 'P', 'D'], true) => 'status',
+            // two PayPal versions at the same time: before an ignored row is let go (its kept fee may be the one in doubt: round 3)
+            (int) ($r['pp_conflict'] ?? 0) === 1 => 'pp_conflict',
             $kind === 'ignore' => (int) $r['fee_pence'] !== 0 ? 'fee_on_ignored' : null,
             $r['currency'] !== 'GBP' || ($r['fee_currency'] !== null && $r['fee_currency'] !== 'GBP') => 'currency',
             !PaypalCodes::signOk($kind, (int) $r['amount_pence']) => 'sign',
-            (int) ($r['pp_conflict'] ?? 0) === 1 => 'pp_conflict',
             default => null,
         };
         $named = ['form_shop' => $form['code'], 'order_no' => $form['no'], 'matched_by' => $form['by']] + $none;
@@ -1190,6 +1419,9 @@ final class PaypalFees
         }
         // the shop's form edited, or the reference and the invoice disagreeing, never moves money to another shop (the lead's decision 2)
         $kept = ['form_shop' => $r['form_shop'], 'order_no' => $r['order_no'], 'matched_by' => $form['by']] + $none;
+        if ($unread) {
+            return ['count_state' => 'look', 'look_reason' => 'form_unread'] + $kept; // never a shop guessed from the forms it was read by (a7, round 3)
+        }
         $held = ['conflict' => 'ref_conflict', 'overlap' => 'form_overlap', 'unresolved' => 'ref_unresolved', 'missing' => 'ref_missing'][$form['state']] ?? null;
         if ($held !== null) {
             return ['count_state' => 'look', 'look_reason' => $held] + $kept;
@@ -1217,10 +1449,15 @@ final class PaypalFees
         };
         $place = ['count_state' => 'counts', 'match_state' => $match, 'match_order_ref' => $match === 'order' ? $hits[0] : null,
             'candidates' => $match === 'ambiguous' ? min(255, count($hits)) : 0] + $shop;
-        if ($match === 'order' && $kind === 'chargeback' && $cb !== null) {
-            $place = ['refund_offset_pence' => $cb['offset'], 'refund_seen_pence' => $cb['seen']] + $place;
+        if ($match === 'order' && $kind === 'chargeback' && $open !== null) {
+            if ($open > 0) {
+                // refunds in CW of the order that PayPal's own refunds do not cover: the chargeback's own money, or money paid out besides it?
+                // CW cannot tell: staff decide (the lead's decision a3, round 3), never a guessed offset; kept with what it was decided by
+                return ['count_state' => 'look', 'look_reason' => 'refund_not_on_paypal', 'refund_seen_pence' => $open] + $named;
+            }
+            $place = ['refund_seen_pence' => 0] + $place;
         }
-        $cost = (int) $r['cost_pence'] - (int) ($place['refund_offset_pence'] ?? 0);
+        $cost = (int) $r['cost_pence'];
         if ($cost === 0) {
             return $place;
         }
@@ -1346,15 +1583,24 @@ final class PaypalFees
     }
 
     /**
-     * The last UK day a window of $last proves read: the day before the UK day of PayPal's refresh time (that day is not finished in PayPal's
-     * data), at most $last; null when PayPal gave no refresh time (its completeness unknown: nothing proven, final review c1).
+     * The last UK day a window of $last proves read (final review c1, round 3; PPF41): the day before the UK day of the LEAST fresh refresh
+     * time of its pages (that day is not finished in PayPal's data), never past the last whole UK day of the interval its pages say they cover,
+     * at most $last; null when a page gave no refresh time, or said it starts later than asked (its completeness unknown: nothing proven).
+     *
+     * @param array{refreshed: ?string, returned_to?: ?string, short_start?: bool} $w PaypalApi::window()
      */
-    private static function proven(string $last, ?string $refreshed): ?string
+    private static function proven(string $last, array $w): ?string
     {
-        if (self::refreshed($refreshed) === null) {
+        $refreshed = self::refreshed($w['refreshed'] ?? null);
+        if ($refreshed === null || ($w['short_start'] ?? false)) {
             return null;
         }
-        $done = (new \DateTimeImmutable(ReportRefresh::ukDay((string) $refreshed)))->modify('-1 day')->format('Y-m-d');
+        $done = (new \DateTimeImmutable(ReportRefresh::ukDay($refreshed)))->modify('-1 day')->format('Y-m-d');
+        if (($w['returned_to'] ?? null) !== null) {
+            // the answer covers up to that second: its last whole UK day is the one before the UK day of the second after it
+            $after = Clock::fromDb((string) $w['returned_to'])->modify('+1 second');
+            $done = min($done, (new \DateTimeImmutable(ReportRefresh::ukDay(Clock::db($after))))->modify('-1 day')->format('Y-m-d'));
+        }
         return min($last, $done);
     }
 

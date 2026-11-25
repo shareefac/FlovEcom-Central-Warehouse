@@ -39,6 +39,8 @@ final class PaypalApi
 
     /** How many times a window is read again when a row comes twice in it (PayPal's pages moved while read), before it is refused. */
     public const READS = 3;
+    /** The start_date / end_date an answer says it covers may differ from the times asked for by this many seconds (rounding): no shorter. */
+    public const TIME_SLACK_SEC = 60;
 
     /**
      * @param (\Closure(int): void)|null $sleep waits this many seconds (tests: no wait)
@@ -76,9 +78,13 @@ final class PaypalApi
 
     /**
      * Every row of the window [$from, $to] (UTC instants, at most MAX_WINDOW_DAYS apart): PayPal's transaction_info objects as decoded, the
-     * pages read, and PayPal's last_refreshed_datetime (its data is complete up to it).
+     * pages read, and what the answer PROVES of the window (final review c1, round 3; PPF41): `refreshed` = the LEAST fresh
+     * last_refreshed_datetime of its pages (null when any page gave none: its completeness unknown, so nothing is proven), `returned_to` =
+     * the earliest end of the interval its pages say they cover (null when no page said one; a page that says it covers less than was asked
+     * proves only that much), `short_start` = a page said it starts later than asked (the window proves nothing). A page that names another
+     * page number than the one asked for is refused (the window whole).
      *
-     * @return array{rows: list<mixed>, pages: int, refreshed: ?string}
+     * @return array{rows: list<mixed>, pages: int, refreshed: ?string, returned_to: ?string, short_start: bool}
      */
     public function window(\DateTimeImmutable $from, \DateTimeImmutable $to): array
     {
@@ -105,7 +111,7 @@ final class PaypalApi
         }
     }
 
-    /** @return array{rows: list<mixed>, pages: int, refreshed: ?string} one read of every page of a window */
+    /** @return array{rows: list<mixed>, pages: int, refreshed: ?string, returned_to: ?string, short_start: bool} one read of every page of a window */
     private function readWindow(\DateTimeImmutable $from, \DateTimeImmutable $to): array
     {
         if ($to < $from || $to->getTimestamp() - $from->getTimestamp() > self::MAX_WINDOW_DAYS * 86400) {
@@ -115,7 +121,14 @@ final class PaypalApi
         $rows = [];
         $pages = 1;
         $total = null;
+        // what the pages prove together (c1, round 3): the least fresh refresh time of them all (one page without one: nothing), the earliest
+        // end of the interval they say they cover, and whether one said it starts later than asked
         $refreshed = null;
+        $undated = false;
+        $returnedTo = null;
+        $shortStart = false;
+        $askedFrom = $from->setTimezone($utc)->format('Y-m-d H:i:s');
+        $askedTo = $to->setTimezone($utc)->format('Y-m-d H:i:s');
         for ($page = 1; $page <= $pages; $page++) {
             $q = http_build_query(['start_date' => $from->setTimezone($utc)->format('Y-m-d\TH:i:sP'), 'end_date' => $to->setTimezone($utc)->format('Y-m-d\TH:i:sP'),
                 'fields' => 'transaction_info', 'page_size' => self::PAGE_SIZE, 'page' => $page]);
@@ -141,7 +154,36 @@ final class PaypalApi
             if (!isset($j['account_number']) || !is_string($j['account_number']) || $j['account_number'] !== $this->key->merchantId) {
                 throw new CwException('paypal_wrong_account', "PayPal's page {$page} is not of the key's merchant (its merchant_id): nothing of this window was stored", 502);
             }
-            $refreshed = self::time($j['last_refreshed_datetime'] ?? null) ?? $refreshed;
+            // the page's identity: an answer for another page than the one asked for is not this window's (refused whole)
+            if (array_key_exists('page', $j) && $j['page'] !== $page) {
+                throw new CwException('paypal_moved', "PayPal answered page {$page} with another page: nothing of this window was stored; the next run reads it again", 502);
+            }
+            $r = self::time($j['last_refreshed_datetime'] ?? null);
+            if ($r === null) {
+                $undated = true;
+            } elseif ($refreshed === null || $r < $refreshed) {
+                $refreshed = $r;
+            }
+            // the interval the page says it covers (when it says one): a start later than asked proves nothing of the window, an end earlier than
+            // asked proves only up to it; one that is not a time is not PayPal's shape
+            foreach (['start_date', 'end_date'] as $f) {
+                if (!array_key_exists($f, $j) || $j[$f] === null) {
+                    continue;
+                }
+                $t = self::time($j[$f]);
+                if ($t === null) {
+                    throw new CwException('paypal_bad_answer', "PayPal's answer to page {$page} has a {$f} that is not a time: nothing of this window was stored", 502);
+                }
+                // a minute either way is PayPal's own rounding of the times asked for (never a day short)
+                $t = substr($t, 0, 19);
+                $secs = (new \DateTimeImmutable($t, $utc))->getTimestamp();
+                if ($f === 'start_date' && $secs > (new \DateTimeImmutable($askedFrom, $utc))->getTimestamp() + self::TIME_SLACK_SEC) {
+                    $shortStart = true;
+                }
+                if ($f === 'end_date' && $secs < (new \DateTimeImmutable($askedTo, $utc))->getTimestamp() - self::TIME_SLACK_SEC && ($returnedTo === null || $t < $returnedTo)) {
+                    $returnedTo = $t;
+                }
+            }
             foreach ($j['transaction_details'] as $d) {
                 if (!is_array($d) || !array_key_exists('transaction_info', $d)) {
                     throw new CwException('paypal_bad_answer', "PayPal's answer to page {$page} has a row without transaction_info: nothing of this window was stored", 502);
@@ -153,7 +195,7 @@ final class PaypalApi
             throw new CwException('paypal_moved', sprintf("PayPal said %d rows for this window and gave %d: nothing of it was stored; the next run reads it again",
                 (int) $total, count($rows)), 502);
         }
-        return ['rows' => $rows, 'pages' => $pages, 'refreshed' => $refreshed];
+        return ['rows' => $rows, 'pages' => $pages, 'refreshed' => $undated ? null : $refreshed, 'returned_to' => $returnedTo, 'short_start' => $shortStart];
     }
 
     /** @return array<string, mixed> one page of the search, decoded */
