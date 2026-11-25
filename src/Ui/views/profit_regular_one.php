@@ -8,12 +8,18 @@ $X = \CW\Ui\Words::EXPENSES;
 $gbp = static fn (int $p): string => \CW\Expenses\ExpenseMoney::gbp($p);
 $t = $typed;
 $deleted = $r['deleted_at'] !== null;
+$showAmount = $r['until_day'] === null || (string) $r['until_day'] > (string) $r['from_day'];
+// A refusal is said in the fold of the form it refused, just above that form and as wide as it (EX64; Codex r1 L1); one about the whole
+// line (someone else changed it meanwhile: no form named), or one with no fold to show it in, at the top.
+$errorIn = $error === null || !$canEdit ? null : match ($form) { 'change', 'delete' => $form, 'amount' => $showAmount ? 'amount' : null, default => null };
 ?>
 <?= $head((string) $r['name'], intro: 'profit_regular_one', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_regular'], [$vatPct]), back: ['/ui/profit/regular', $R['back']]) ?>
+<?php if ($errorIn === null): ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
 <?= $partial('same_list', ['items' => $sameList, 'group' => 'REGULAR']) ?>
+<?php endif; ?>
 <?php if ($deleted): ?>
 <p class="note" role="status"><?= $word('REGULAR', 'deleted_banner') ?> <?= $say('EXPENSES', 'deleted_by', (string) ($r['deleted_name'] ?? $r['deleted_actor']), \CW\Ui\Html::when((string) $r['deleted_at']), (string) $r['deleted_reason']) ?></p>
 <?php if ($before !== null): ?>
@@ -54,9 +60,13 @@ $deleted = $r['deleted_at'] !== null;
 </div>
 <?php endif; ?>
 <?php if ($canEdit): ?>
-<?php if ($r['until_day'] === null || (string) $r['until_day'] > (string) $r['from_day']): ?>
+<?php if ($showAmount): ?>
 <details class="fold regular-amount" id="amount"<?php if ($form === 'amount'): ?> open<?php endif; ?>>
   <summary><?= $word('REGULAR', 'new_amount_title') ?></summary>
+<?php if ($errorIn === 'amount'): ?>
+  <p class="error" role="alert"><?= $e($error) ?></p>
+<?= $partial('same_list', ['items' => $sameList, 'group' => 'REGULAR']) ?>
+<?php endif; ?>
   <form class="record" method="post" action="<?= $u('/ui/profit/regular/' . (int) $r['id'] . '/amount') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
@@ -75,6 +85,10 @@ $deleted = $r['deleted_at'] !== null;
 <?php endif; ?>
 <details class="fold regular-change" id="change"<?php if ($form === 'change'): ?> open<?php endif; ?>>
   <summary><?= $word('REGULAR', 'details_title') ?></summary>
+<?php if ($errorIn === 'change'): ?>
+  <p class="error" role="alert"><?= $e($error) ?></p>
+<?= $partial('same_list', ['items' => $sameList, 'group' => 'REGULAR']) ?>
+<?php endif; ?>
   <form class="record regular-form" method="post" action="<?= $u('/ui/profit/regular/' . (int) $r['id'] . '/change') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
@@ -121,6 +135,10 @@ $deleted = $r['deleted_at'] !== null;
 </details>
 <details class="fold regular-delete" id="delete"<?php if ($form === 'delete'): ?> open<?php endif; ?>>
   <summary><?= $word('REGULAR', 'delete_title') ?></summary>
+<?php if ($errorIn === 'delete'): ?>
+  <p class="error" role="alert"><?= $e($error) ?></p>
+<?= $partial('same_list', ['items' => $sameList, 'group' => 'REGULAR']) ?>
+<?php endif; ?>
   <form class="record" method="post" action="<?= $u('/ui/profit/regular/' . (int) $r['id'] . '/delete') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">

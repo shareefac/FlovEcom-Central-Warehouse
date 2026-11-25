@@ -37,7 +37,10 @@ $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
 <?php endif; ?>
       <div class="field">
         <label for="ex-file"><?= $word('EXPENSES', 'file_label') ?></label>
-        <input id="ex-file" type="file" name="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" aria-describedby="ex-file-hint"<?php if ($errorField === 'file'): ?> aria-invalid="true"<?php endif; ?>>
+        <div class="ex-drop">
+          <input id="ex-file" type="file" name="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" aria-describedby="ex-file-hint"<?php if ($errorField === 'file'): ?> aria-invalid="true"<?php endif; ?>>
+          <span class="ex-drop-words" aria-hidden="true"><?= $word('EXPENSES', 'file_drop') ?></span>
+        </div>
         <p class="hint" id="ex-file-hint"><?= $say('EXPENSES', 'file_hint', $maxMb) ?></p>
       </div>
 <?php if ($fileAgain): ?>

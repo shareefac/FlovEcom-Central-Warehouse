@@ -21442,5 +21442,9 @@ aria-describedby, the cells of a row sharing the label / box / hint lines throug
 info panel; the note across; the "same one" tick (when asked) and Save (48 px) at the card's foot; the invoice file in its own 360 px panel
 beside the card when the page is at least 960 px wide (the drawing), inside the card under a line when narrower, its box a dashed place to drop
 the file on. The reading and keyboard order: shop, supplier, new supplier, type, date, number, credit, without VAT, VAT, note, file, (the
-"same one" tick), Save; "Save expense" stays the form's first button. No field name, check, word, FormOnce, CSRF or permission changed; every
-new style is scoped to form.expense-form and form.regular-form (tests/Integration/UiKernel/ExpenseLayoutScreensTest).
+"same one" tick), Save; "Save expense" stays the form's first button. No field name, check, FormOnce, CSRF or permission changed, no word changed (one added: the drawing's drop words); every
+new style is scoped to form.expense-form and form.regular-form (tests/Integration/UiKernel/ExpenseLayoutScreensTest). Codex's review (r1):
+on an expense's or a regular cost's page a refusal is said once, in the fold of the form it refused, above that form and as wide as it (one
+about the whole page, someone else's change meanwhile, stays at the top); two cells a row only where the browser has subgrid (elsewhere one a
+row, so a wrapped label never sets a row's boxes apart); the drawing's 300 px drop place with "Drop the PDF or photo here" over the box (the
+words let drops and clicks through; left-aligned with the box's button, since a browser keeps a file box's contents at its start).

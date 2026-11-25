@@ -9,13 +9,19 @@ $t = $typed;
 $net = \CW\Expenses\ExpenseMoney::pence((string) $t['net']);
 $vat = \CW\Expenses\ExpenseMoney::pence((string) $t['vat']);
 $deleted = $x['deleted_at'] !== null;
+// A refusal is said in the fold of the form it refused, just above that form and as wide as it (EX64; Codex r1 L1): Delete's own two
+// (the box not ticked, no reason) in Delete, the rest in Change; one about the whole page (someone else changed it meanwhile), or one with
+// no fold to show it in, at the top.
+$errorIn = $error === null || !$canEdit || $errorCode === 'changed_meanwhile' ? null : (in_array($errorCode, ['not_sure', 'bad_reason'], true) ? 'delete' : 'change');
 ?>
 <?= $head(\CW\Ui\Words::say('EXPENSES', 'one_title', (string) $x['supplier'], (string) $x['invoice_no'] !== '' ? (string) $x['invoice_no'] : \CW\Ui\Html::day((string) $x['invoice_date'])),
     intro: 'profit_expense', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_expenses'], [$vatPct]), back: [$listHref, $X['back']]) ?>
+<?php if ($errorIn === null): ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
 <?= $partial('same_list', ['items' => $sameList, 'group' => 'EXPENSES']) ?>
+<?php endif; ?>
 <?php if ((int) $x['net_pence'] < 0): ?>
 <p class="note credit-banner" role="status"><?= $say('EXPENSES', 'credit_banner', (string) $x['shop']) ?></p>
 <?php endif; ?>
@@ -44,6 +50,10 @@ $deleted = $x['deleted_at'] !== null;
 <?php if ($canEdit): ?>
 <details class="fold expense-change" id="change"<?php if ($error !== null && $errorCode !== 'not_sure' && $errorCode !== 'bad_reason'): ?> open<?php endif; ?>>
   <summary><?= $word('EXPENSES', 'change_title') ?></summary>
+<?php if ($errorIn === 'change'): ?>
+  <p class="error" role="alert" data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
+<?= $partial('same_list', ['items' => $sameList, 'group' => 'EXPENSES']) ?>
+<?php endif; ?>
   <form class="record expense-form" method="post" enctype="multipart/form-data" action="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/change') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
@@ -67,7 +77,10 @@ $deleted = $x['deleted_at'] !== null;
 <?php endif; ?>
         <div class="field">
           <label for="ex-file"><?= $word('EXPENSES', 'change_file') ?></label>
-          <input id="ex-file" type="file" name="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" aria-describedby="ex-file-hint"<?php if ($errorField === 'file'): ?> aria-invalid="true"<?php endif; ?>>
+          <div class="ex-drop">
+            <input id="ex-file" type="file" name="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" aria-describedby="ex-file-hint"<?php if ($errorField === 'file'): ?> aria-invalid="true"<?php endif; ?>>
+            <span class="ex-drop-words" aria-hidden="true"><?= $word('EXPENSES', 'file_drop') ?></span>
+          </div>
           <p class="hint" id="ex-file-hint"><?= $say('EXPENSES', 'file_hint', $maxMb) ?></p>
         </div>
 <?php if ($fileAgain): ?>
@@ -84,6 +97,10 @@ $deleted = $x['deleted_at'] !== null;
 </details>
 <details class="fold expense-delete" id="delete"<?php if (in_array($errorCode, ['not_sure', 'bad_reason'], true)): ?> open<?php endif; ?>>
   <summary><?= $word('EXPENSES', 'delete_title') ?></summary>
+<?php if ($errorIn === 'delete'): ?>
+  <p class="error" role="alert" data-code="<?= $e((string) $errorCode) ?>"><?= $e($error) ?></p>
+<?= $partial('same_list', ['items' => $sameList, 'group' => 'EXPENSES']) ?>
+<?php endif; ?>
   <form class="record" method="post" action="<?= $u('/ui/profit/expenses/' . (int) $x['id'] . '/delete') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="seen" value="<?= $e((string) $seen) ?>">
