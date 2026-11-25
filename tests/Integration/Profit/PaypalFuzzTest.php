@@ -22,8 +22,9 @@ use CW\Tests\Support\StockTestCase;
  * the clock 6 Dec): sales, refunds PayPal paid out, chargebacks (done, pending, denied; by invoice or by reference to their sale) and their
  * reversals, dispute fees referring to their chargeback, newer and older versions of a row, an invoice corrected to another order (another
  * shop's too), the orders' refunds (at order level, or on a cancelled line that takes nothing off) and payment changed in CW, Electrofag's form
- * narrowed and put back, decisions with no PayPal read. Each sequence is its own account (fz<seq>: the same shops, forms and rules), so its
- * work stays its own size.
+ * narrowed and put back, decisions with no PayPal read, versions of no update time, a guarded write starting from 1, 2 or 200 due rows (a
+ * correction spread over several writes). Each sequence is its own account (fz<seq>: the same shops, forms and rules), so its work stays its
+ * own size.
  *
  * The expected result is worked out INDEPENDENTLY of the code under test, from the generated truth alone (round 3): which order and shop each
  * row really is of (its invoice under the forms, else its reference to its sale or chargeback), whether it counts (status, the shop's first
@@ -117,7 +118,6 @@ final class PaypalFuzzTest extends StockTestCase
         $this->setting('profit.paypal_from_electrofag', '"' . self::EF_FROM . '"');
         $this->setting('profit.paypal_form_electrofag', self::WIDE);
         $caller = Caller::system('paypal_test');
-        $fees = new PaypalFees(self::$db, static fn (): \DateTimeImmutable => new \DateTimeImmutable(self::PP_NOW, new \DateTimeZone('UTC')));
         $http = new FakePaypalHttp([], '', null, '2026-12-06T02:00:00Z');
         $days = ['2026-10-28'];
         for ($d = '2026-11-14'; $d <= '2026-12-06'; $d = (new \DateTimeImmutable($d))->modify('+1 day')->format('Y-m-d')) {
@@ -126,7 +126,10 @@ final class PaypalFuzzTest extends StockTestCase
         $expectDays = []; // "channel|day" => [fee_cost, fee_other], every finished sequence's truth
         $t0 = microtime(true);
         for ($s = 1; $s <= $n; $s++) {
-            $tag = "seed {$seed} sequence {$s}";
+            // the due rows a guarded write starts from: one, two, or the whole chunk (a correction then spreads over several writes)
+            $chunk = [1, 2, PaypalFees::CHUNK][mt_rand(0, 2)];
+            $fees = new PaypalFees(self::$db, static fn (): \DateTimeImmutable => new \DateTimeImmutable(self::PP_NOW, new \DateTimeZone('UTC')), null, $chunk);
+            $tag = "seed {$seed} sequence {$s} (chunk {$chunk})";
             $account = sprintf('fz%05d', $s);
             $this->account($account);
             $api = new PaypalApi(PaypalKey::fromArray(['account' => $account] + self::KEY, $account), $http, static function (int $sec): void {
@@ -223,10 +226,13 @@ final class PaypalFuzzTest extends StockTestCase
                         $orders[$o]['paid'] = self::paidDay($o);
                         self::order($chOf[$orders[$o]['shop']], $orders[$o]);
                         break;
-                    case 3: // an older version of a row served (another status): never applied
+                    case 3: // an older version of a row served (another status; or one of no update time, older than any dated one): never applied
                         $k = (string) array_rand($pool);
                         $o = $pool[$k];
                         $o['transaction_updated_date'] = (new \DateTimeImmutable((string) $o['transaction_initiation_date']))->format('Y-m-d\TH:i:s\Z');
+                        if (mt_rand(0, 1) === 1) {
+                            unset($o['transaction_updated_date']);
+                        }
                         $o['transaction_status'] = $o['transaction_status'] === 'S' ? 'P' : 'S';
                         $older[$k] = $o;
                         break;
