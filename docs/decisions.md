@@ -21638,7 +21638,7 @@ connector files it can see and STOPs if their expected lists no longer hold the 
   "write_off", provisional, NR1, set up by the migration) and the baseline's JSON exactly; every marker is written to a temporary name and
   renamed (atomic), every write and removal checked.
 
-## Claude reads the upload, phase 1 (CW-1182) and the Mac copy of a Royal Mail bill (CW-1181) (branch `ai-reader`, 25 Nov 2026; AI1-AI17; migration 0082)
+## Claude reads the upload, phase 1 (CW-1182) and the Mac copy of a Royal Mail bill (CW-1181) (branch `ai-reader`, 25 Nov 2026; AI1-AI19; migration 0082)
 
 The owner (CW chat, 25 Nov 2026 ~17:25 UK), after the Royal Mail bill of 23 Nov could not be pasted: "whatever we doing is wrong. wrong way to
 add an invoice you should focus on the claude api connected on all upload places as soon as posssible"; then "I'll create one" (an Anthropic
@@ -21734,7 +21734,8 @@ file 0600 under a random name) until it is read: deleted right after the call, r
 expense's Save: AI15 supersedes this part for the Expenses places); the answer in CW's form until its person's page
 takes it (once: `taken`); every minute, whatever the switch, the runner's clean-up: a job left `reading` by a run that stopped (failed,
 `stopped`), a job waiting more than an hour (`too_old`), an answer not taken within an hour (`expired`), any file of the folder no job names
-that is older than an hour (a crash; only CW's own 32-hex names are touched), job rows a day after they finish (their log rows stay).
+that is older than an hour (a crash; only CW's own 32-hex names are touched), a job row's typed fields a day after it finishes (the row
+stays, emptied: AI19; the log rows stay).
 
 **AI12. Every failure in the staff's words, with what to do next** (`Ui\AiReadWords`): "CW could not read this document: <why>" and, for a
 bill, "Upload the bill's saved page or paste its text, or send the PDF to the CW team"; the key wrong: "a person who manages settings
@@ -21845,3 +21846,23 @@ when it is asked for, never taken. M7: the kit's smoke run of the reader waits o
 needs only the box, the schema and the live release. M9: an undo stopped after its switch resumes from its marker. M10: the app login writes
 only a job's lifecycle columns (and removes a finished job after a day) and only the reader row's run columns; a job's owner, place, file
 and context are frozen once made. Low: AI14 names the live base 86c21af, its last migration 0081 and the rollback by its pin (PIN_RB).
+
+**AI19. The last round (the Codex re-check of ca8987b; the lead, 25 Nov 2026 ~21:42 UK): the undo is the quick stop; the rest fixed.** The
+owner's standing rule (fix forward, as CW-1180): the undo of this release is the QUICK STOP (reading off, the key emptied: no code change).
+The code goes back ONLY if reading was never used since the go-live (no job row, no call row, and the key's history never held a value),
+checked with the writers paused; otherwise the kit STOPs "fix forward (the quick stop is on)" and puts the writers back. So the undo never
+deletes a job or a file (AI18 H8's purge is gone). The kit records the undo's phase BEFORE it pauses the writers and holds the install lock
+from its first check to its last, so a run that dies anywhere is resumed by running it again (the writers are never left paused). A later
+go-live of this release after such an undo needs no hand step: its own bin/migrate.php, which the installer runs with the writers paused,
+types the key's row back to text (AiSettings::restoreKeyRow), and the kit recognises 0082 already applied. Code: a date read is a day after
+its blanks are trimmed (a date of blanks refuses the reading, so amounts never land beside a date the form held before); Save stores the
+VERIFIED bytes of the invoice Claude read, from a private copy, and the stored file's sha256 must be the job's before the expense commits;
+words before the amounts after a complete reference in a Mac copy are refused; a PDF counts at least one page for every 2,000 bytes (so a
+20-page invoice showing one page object is reserved as 20 pages or more), the request's own words at a token a byte, and ONE named fallback
+model (claude-opus-4-8, the same output limit) instead of the server's default list, so every billable attempt is known (x2); the cap
+compares the month's spend and the call's most to the thousandth of a penny; one wall clock over the whole call (a request after it is never
+sent; the HTTP client's timeout ends the transfer at it; curl replays nothing); a job is seen and taken only when its kind is its place's;
+the app login never removes a job row (no DELETE: a job can never be replaced), a finished job's typed fields emptied in place a day after.
+£ example (M2, M3): the real 5-page Royal Mail bill of 23 Nov (694 KB) reserves 347 pages: 2 x (3.47 M tokens at £3.20 + 64,000 at £16.00)
+= about £24.30 while it is read; read, it counts what it used (about 25p). With the £30 limit a bill is sent only while the month's spend is
+at most about £5.70; an invoice photo (most about 35p) while it is at most about £29.65. Raise the limit on Settings for more bills a month.

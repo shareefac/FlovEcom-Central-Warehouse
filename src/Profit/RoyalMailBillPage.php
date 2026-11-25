@@ -231,8 +231,10 @@ final class RoyalMailBillPage
             if ($half !== null) {
                 $c = count($filled);
                 if ($c >= 3 && !self::isLineStart($filled) && preg_match('/^[A-Z]$/D', $filled[$c - 1]) === 1 && self::amount($filled[$c - 2]) !== null
-                    && self::amount($filled[$c - 3]) !== null) {
-                    $out[] = [...$half, ...$filled]; // every reference part the halves hold (M1), net, gross, VAT code
+                    && self::amount($filled[$c - 3]) !== null && !($withRef && $c > 3)) {
+                    // every reference part the halves hold (M1), net, gross, VAT code; after a complete reference the amounts' row holds nothing else
+                    // (the re-check of ca8987b: "(HV)" before the amounts made M42 none): words there are refused, never guessed
+                    $out[] = [...$half, ...$filled];
                     $half = null;
                     continue;
                 }

@@ -77,6 +77,11 @@ try {
     if ($changes !== null) {
         fwrite(STDOUT, "[{$target}] grants for {$appUser}: " . ($changes === [] ? 'unchanged' : implode('; ', $changes)) . "\n");
     }
+    // CW-1182 (AI19): after an undo of "Claude reads the upload" the key's row is a number (the release before takes no key into it); this
+    // release types it back, here, where the installer has the writers paused
+    if (\CW\Ai\AiSettings::restoreKeyRow($db)) {
+        fwrite(STDOUT, "[{$target}] the Anthropic API key's setting typed back to text (after an undo)\n");
+    }
     exit(0);
 } catch (\Throwable $e) {
     fwrite(STDERR, 'migrate: ' . get_class($e) . ': ' . $e->getMessage() . "\n");

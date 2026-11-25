@@ -160,10 +160,12 @@ final class Grants
         // reading is written later, when its person takes it.
         'ai_call' => ['served_model', 'input_tokens', 'output_tokens', 'cost_millipence', 'result', 'reason', 'refusal_category', 'request_id', 'fallback', 'seconds',
             'checked', 'check_code', 'checked_at'],
-        // M10 (Codex final of 86aebbd): a job's who, place, kind, context, file (type, size, sha256) and when it was made are frozen once it is
-        // made; only its lifecycle is written (and the runner removes it a day after it finishes: UPDATE_COLUMNS_AND_DELETE). The reader's one
-        // row of runs: only what the runner writes, never removed.
-        'ai_read' => ['state', 'reason', 'detail', 'answer', 'started_at', 'finished_at', 'taken_at', 'spool_name', 'file_used_at'],
+        // M10 (Codex final of 86aebbd, its re-check of ca8987b): a job's who, place, kind, file (type, size, sha256) and when it was made are
+        // frozen once it is made, and the app login never removes one (so a job can never be replaced by another of the same id); only its
+        // lifecycle is written, and a day after it finishes what its page typed (context) is emptied in place. (The app login may change any
+        // expense itself, so writing a job's context gives it nothing new.) The reader's one row of runs: only what the runner writes, never
+        // removed.
+        'ai_read' => ['context', 'state', 'reason', 'detail', 'answer', 'started_at', 'finished_at', 'taken_at', 'spool_name', 'file_used_at'],
         'ai_reader' => ['started_at', 'ended_at', 'ok_at', 'failed_at', 'error'],
     ];
     /**
@@ -172,8 +174,6 @@ final class Grants
      * default: MAIN, VERIFY and UNSTAMPED come by migration; review nit of 8 Oct 2026), and its id and times are the server's.
      * Such a table's table-level grant is SELECT (+ UPDATE of UPDATE_COLUMNS, column-level as before).
      */
-    /** UPDATE_COLUMNS tables whose rows the app login also removes (CW-1182 M10: a reading's job, a day after it finishes). */
-    public const UPDATE_COLUMNS_AND_DELETE = ['ai_read'];
     public const INSERT_COLUMNS = [
         'warehouse' => ['code', 'name', 'is_sellable', 'is_active', 'stock_owner', 'owner_entity', 'note', 'sort_order'],
     ];
@@ -271,9 +271,6 @@ final class Grants
     {
         if (in_array($table, self::READ_ONLY, true) || isset(self::UPDATE_ONLY_COLUMNS[$table]) || isset(self::INSERT_COLUMNS[$table])) {
             return ['Select'];
-        }
-        if (in_array($table, self::UPDATE_COLUMNS_AND_DELETE, true)) {
-            return ['Select', 'Insert', 'Delete'];
         }
         if (in_array($table, self::APPEND_ONLY, true) || isset(self::UPDATE_COLUMNS[$table])) {
             return ['Select', 'Insert'];

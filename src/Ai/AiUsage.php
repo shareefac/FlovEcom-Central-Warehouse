@@ -59,7 +59,7 @@ final class AiUsage
     /**
      * This UK month's reading: the calls made (documents), the ones that read a document (ok), and what they cost in pence (rounded up).
      *
-     * @return array{calls: int, documents: int, pence: int, from: string}
+     * @return array{calls: int, documents: int, pence: int, millipence: int, from: string} millipence: the exact sum (the cap compares it: M3)
      */
     public static function month(Db $db, ?\DateTimeImmutable $now = null): array
     {
@@ -68,6 +68,6 @@ final class AiUsage
         $from = Clock::db($first->setTimezone(Clock::utc()));
         $r = $db->one("SELECT COUNT(*) AS calls, COALESCE(SUM(result = 'ok'), 0) AS ok, COALESCE(SUM(cost_millipence), 0) AS mp FROM ai_call WHERE created_at >= ?",
             [$from]) ?? ['calls' => 0, 'ok' => 0, 'mp' => 0];
-        return ['calls' => (int) $r['calls'], 'documents' => (int) $r['ok'], 'pence' => self::pence((int) $r['mp']), 'from' => $from];
+        return ['calls' => (int) $r['calls'], 'documents' => (int) $r['ok'], 'pence' => self::pence((int) $r['mp']), 'millipence' => (int) $r['mp'], 'from' => $from];
     }
 }

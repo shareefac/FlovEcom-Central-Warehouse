@@ -188,7 +188,12 @@ final class ExpensesController
                 'file' => $file !== null ? (string) hash_file('sha256', $file['path']) : ($kept !== null ? 'claude:' . $kept : '')];
             $r = FormOnce::run($ctx, 'ui.expense.add', $request, static function (\CW\Db $db) use ($ctx, $typed, $file, $kept, $same, $another): \CW\OpResult {
                 $use = $file ?? ($kept === null ? null : (new DocumentReader($db))->useFile($ctx->caller(), $kept, 'expense_new', null));
-                $x = (new Expenses($db, static fn (): FileStore => $ctx->files()))->add($ctx->caller(), $typed, $use, $same);
+                try {
+                    $x = (new Expenses($db, static fn (): FileStore => $ctx->files()))->add($ctx->caller(), $typed, $use, $same);
+                    self::storedAsRead($db, $use, $x['file_id']);
+                } finally {
+                    self::dropCopy($use);
+                }
                 return \CW\OpResult::of(303, ['redirect' => $another ? Html::url(self::PATH . '/new', ['notice' => 'added'])
                     : Html::url(self::PATH . '/' . $x['id'], ['notice' => 'added'])]);
             });
@@ -351,7 +356,13 @@ final class ExpensesController
             $same = self::same($ctx);
             $r = $ctx->db->transaction(static function (\CW\Db $db) use ($ctx, $id, $seen, $typed, $file, $kept, $same): array {
                 $use = $file ?? ($kept === null ? null : (new DocumentReader($db))->useFile($ctx->caller(), $kept, 'expense_change', $id));
-                return (new Expenses($db, static fn (): FileStore => $ctx->files()))->change($ctx->caller(), $id, $seen, $typed, $use, $same);
+                try {
+                    $r = (new Expenses($db, static fn (): FileStore => $ctx->files()))->change($ctx->caller(), $id, $seen, $typed, $use, $same);
+                    self::storedAsRead($db, $use, (int) $db->value('SELECT file_id FROM expense WHERE id = ?', [$id]));
+                } finally {
+                    self::dropCopy($use);
+                }
+                return $r;
             });
         } catch (CwException $e) {
             return $this->refused($ctx, $id, $e, $typed, 'change');
@@ -559,6 +570,31 @@ final class ExpensesController
     private static function fileChosen(Context $ctx): bool
     {
         return $ctx->req->file('file') !== null || ($ctx->req->field('file_again') === '1' && $ctx->req->field('no_file_ok') !== '1');
+    }
+
+    /**
+     * High 3 (the re-check of ca8987b): the invoice Claude read is stored as it was read: the stored file's sha256 is the job's, checked before
+     * the expense commits (else nothing is saved). A file the person chose is not this check's (it carries no job's sha256).
+     *
+     * @param array{path: string, name: string, sha256?: string}|null $use
+     */
+    private static function storedAsRead(\CW\Db $db, ?array $use, ?int $fileId): void
+    {
+        if (!isset($use['sha256'])) {
+            return;
+        }
+        $sha = $fileId === null ? null : $db->value('SELECT sha256 FROM stored_file WHERE id = ?', [$fileId]);
+        if (!is_string($sha) || !hash_equals($use['sha256'], $sha)) {
+            throw new CwException('ai_file_gone', 'the invoice stored is not the one Claude read', 422, ['field' => 'file']);
+        }
+    }
+
+    /** The private copy useFile() made of the verified bytes, deleted once stored (or refused). @param array<string, mixed>|null $use */
+    private static function dropCopy(?array $use): void
+    {
+        if (isset($use['sha256']) && is_string($use['path'] ?? null) && is_file($use['path'])) {
+            @unlink($use['path']);
+        }
     }
 
     /** The reading whose invoice the form carries for its Save (ai_file, AI15), or null. Whose and whether it is still kept: useFile() decides. */

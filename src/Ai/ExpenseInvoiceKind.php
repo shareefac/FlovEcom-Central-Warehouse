@@ -77,7 +77,7 @@ TXT;
      * The answer read against its WHOLE schema (H3, the Codex final review of 86aebbd), before anything is filled: exactly the schema's fields
      * (one missing or one more: refused), each of its type: readable a boolean; when readable, not_readable_reason null and document_kind one
      * of DOCUMENTS; every other field a string or an explicit null; a text one line of at most its box, a date a day (YYYY-MM-DD), the currency
-     * three letters, an amount "1234.50" (a minus only as a sign). Anything else refuses the WHOLE reading (ai_bad_answer, naming the field),
+     * three letters, an amount "1234.50" (a minus only as a sign); a date a day after its blanks are trimmed (a date of blanks refuses it). Anything else refuses the WHOLE reading (ai_bad_answer, naming the field),
      * never a part filled from it. Shaped: text squashed to one line, amounts in pence (signed), the currency in capitals.
      *
      * @return array{credit: bool, supplier: ?string, invoice_no: ?string, invoice_date: ?string, currency: ?string, net: ?int, vat: ?int, total: ?int,
@@ -122,9 +122,12 @@ TXT;
             }
             return $v === '' ? null : $v;
         };
-        $date = $text('invoice_date', 10);
+        // a date read is a day: its blanks trimmed, never anything else (the re-check of ca8987b: a date of blanks is not "not printed", so the
+        // amounts never land beside a date the form held before); null only as null
+        $date = $answer['invoice_date'];
         if ($date !== null) {
-            $d = \DateTimeImmutable::createFromFormat('!Y-m-d', $date, new \DateTimeZone('UTC'));
+            $date = is_string($date) ? trim($date, " \t") : '';
+            $d = preg_match('/^\d{4}-\d{2}-\d{2}$/D', $date) === 1 ? \DateTimeImmutable::createFromFormat('!Y-m-d', $date, new \DateTimeZone('UTC')) : false;
             if ($d === false || $d->format('Y-m-d') !== $date || $date < '2000-01-01' || $date > '2099-12-31') {
                 throw $bad(self::FIELDS['invoice_date']);
             }

@@ -158,7 +158,7 @@ final class DocumentReaderTest extends IntegrationTestCase
         foreach ([AiFixtures::KEY, 'Rectification', 'DESCRIPTION', '0706703000', 'made up'] as $never) {
             self::assertStringNotContainsString($never, $log, 'the log holds no content and never the key');
         }
-        self::assertSame(['calls' => 1, 'documents' => 1, 'pence' => 26], array_diff_key(AiUsage::month(self::$db), ['from' => 1]), '25.6p, rounded up');
+        self::assertSame(['calls' => 1, 'documents' => 1, 'pence' => 26], array_diff_key(AiUsage::month(self::$db), ['from' => 1, 'millipence' => 1]), '25.6p, rounded up');
         // the answer: another person never sees it; its person takes it once
         self::assertSame('not_found', self::refused(fn () => $r->view($other, $id, self::ALL))->errorCode);
         self::assertSame('not_found', self::refused(fn () => $r->take($other, $id, self::ALL))->errorCode);
@@ -638,6 +638,6 @@ final class DocumentReaderTest extends IntegrationTestCase
         $at('2026-06-30 22:59:00', 7000);
         $at('2026-07-15 10:00:00', 500);
         self::assertSame(['calls' => 2, 'documents' => 1, 'pence' => 6], array_diff_key(AiUsage::month(self::$db, new \DateTimeImmutable('2026-07-20 12:00:00',
-            new \DateTimeZone('UTC'))), ['from' => 1]), 'July in the UK began at 23:00 UTC on 30 June');
+            new \DateTimeZone('UTC'))), ['from' => 1, 'millipence' => 1]), 'July in the UK began at 23:00 UTC on 30 June');
     }
 }

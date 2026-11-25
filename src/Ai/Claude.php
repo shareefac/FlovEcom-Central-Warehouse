@@ -6,6 +6,7 @@ namespace CW\Ai;
 
 use Anthropic\Beta\Messages\BetaBase64ImageSource;
 use Anthropic\Beta\Messages\BetaBase64PDFSource;
+use Anthropic\Beta\Messages\BetaFallbackParam;
 use Anthropic\Beta\Messages\BetaImageBlockParam;
 use Anthropic\Beta\Messages\BetaJSONOutputFormat;
 use Anthropic\Beta\Messages\BetaMessage;
@@ -57,6 +58,11 @@ final class Claude
     /** The server-side refusal fallback (claude-api skill: new claude-opus-5-5 code opts in by default). */
     public const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
     /**
+     * The ONE fallback model named (M2, the re-check of ca8987b: "default" is server-defined and could try more than one): a declined request
+     * is read once more by it, with the same output limit, so a call is billed for at most ATTEMPTS attempts.
+     */
+    public const FALLBACK_MODEL = 'claude-opus-4-8';
+    /**
      * What one call may take in all (seconds; M4, Codex final of 86aebbd): the HTTP client's whole transfer (connect, the stream, every byte)
      * is cut at it, so a reading never outlives the installer's 6-minute drain; the stream is abandoned after it too (reason `timeout`).
      */
@@ -78,7 +84,8 @@ final class Claude
      */
     public const PAGE_TOKENS = 10_000;
     public const FRAME_TOKENS = 2_000;
-    public const PAGES_UNKNOWN = 100;
+    /** A ceiling on what a file may hold (M2, the re-check of ca8987b): never fewer pages counted than one for each 2,000 bytes. */
+    public const BYTES_PER_PAGE = 2_000;
     /** The reason codes of a result (ai_call.reason): ok, then every way a call fails. */
     public const REASONS = ['ok', 'refusal', 'max_tokens', 'bad_answer', 'auth', 'forbidden', 'billing', 'spend_limit', 'rate_limited', 'overloaded', 'server',
         'timeout', 'connection', 'redirect', 'bad_request', 'too_large', 'other'];
@@ -103,28 +110,27 @@ final class Claude
     }
 
     /**
-     * A PDF's pages: the LARGER of its page objects (/Type /Page, never the page tree's /Pages) and the largest /Count of its page tree (M2: a
-     * PDF with one page object in sight and the rest packed in compressed streams counts its tree's count), else PAGES_UNKNOWN (nothing to
-     * count). Never fewer than one.
+     * A PDF's pages for the most a call may cost: the LARGEST of its page objects (/Type /Page, never the page tree's /Pages), the largest
+     * /Count of its page tree, and one page for each BYTES_PER_PAGE bytes of the file (M2, the re-check of ca8987b: pages packed in
+     * compressed streams are never counted short). Never fewer than one.
      */
     public static function pages(string $pdf): int
     {
         $objects = (int) preg_match_all('#/Type\s*/Page(?![A-Za-z])#', $pdf);
         $count = preg_match_all('#/Count\s+(\d{1,6})#', $pdf, $m) > 0 ? max(array_map('intval', $m[1])) : 0;
-        $n = max($objects, $count);
-        return $n > 0 ? $n : self::PAGES_UNKNOWN;
+        return max(1, $objects, $count, intdiv(strlen($pdf) + self::BYTES_PER_PAGE - 1, self::BYTES_PER_PAGE));
     }
 
     /**
-     * The most input tokens a call may take (AI16): the request's own words (the system prompt, the kind's instructions and its schema) at two
-     * characters a token (a token is three to four), FRAME_TOKENS, and PAGE_TOKENS for each page (a photo is one page). Its output is at most
-     * the kind's max_tokens.
+     * The most input tokens a call may take (AI16): the request's own words (the system prompt, the kind's instructions and its schema) at a
+     * token a byte (M3, the re-check of ca8987b: a token is never less than a byte), FRAME_TOKENS, and PAGE_TOKENS for each page (a photo is
+     * one page). Its output is at most the kind's max_tokens (thinking included).
      */
     public static function maxInputTokens(Kind $kind, string $bytes, string $mediaType): int
     {
         $words = strlen(self::SYSTEM) + strlen($kind->instructions()) + strlen((string) json_encode($kind->schema()));
         $pages = $mediaType === 'application/pdf' ? self::pages($bytes) : 1;
-        return intdiv($words + 1, 2) + self::FRAME_TOKENS + $pages * self::PAGE_TOKENS;
+        return $words + self::FRAME_TOKENS + $pages * self::PAGE_TOKENS;
     }
 
     /**
@@ -144,14 +150,16 @@ final class Claude
             : BetaImageBlockParam::with(source: BetaBase64ImageSource::with(data: $data, mediaType: $mediaType));
         unset($data);
         try {
-            // H2: every request through AnthropicOnly (https://api.anthropic.com:443 only, a redirect never followed)
+            // H2: every request through AnthropicOnly (https://api.anthropic.com:443 only, a redirect never followed); M4: ONE wall clock over the
+            // whole call (a request after it is never sent; the HTTP client's own timeout ends the transfer at it; curl replays nothing)
             $client = new Client(apiKey: $this->apiKey, baseUrl: self::BASE_URL, requestOptions: RequestOptions::with(maxRetries: $this->maxRetries,
-                transporter: new AnthropicOnly($this->transport ?? self::guzzle()), timeout: (float) $this->deadlineSec), openTelemetry: false);
+                transporter: new AnthropicOnly($this->transport ?? self::guzzle($this->deadlineSec), $started + $this->deadlineSec, $this->now),
+                timeout: (float) $this->deadlineSec), openTelemetry: false);
             $stream = $client->beta->messages->createStream(
                 maxTokens: $kind->maxTokens(),
                 messages: [['role' => 'user', 'content' => [$doc, BetaTextBlockParam::with(text: $kind->instructions())]]],
                 model: $this->model,
-                fallbacks: 'default',
+                fallbacks: [BetaFallbackParam::with(model: self::FALLBACK_MODEL, maxTokens: $kind->maxTokens())],
                 outputConfig: BetaOutputConfig::with(effort: $this->effort, format: BetaJSONOutputFormat::with(schema: $kind->schema())),
                 system: self::SYSTEM,
                 betas: [self::FALLBACK_BETA],
@@ -203,14 +211,14 @@ final class Claude
         } catch (APITimeoutException $e) {
             $out['reason'] = 'timeout';
         } catch (APIConnectionException $e) {
-            $out['reason'] = AnthropicOnly::isRefusal($e) ? 'redirect' : 'connection';
+            $out['reason'] = AnthropicOnly::isRefusal($e) ? 'redirect' : (AnthropicOnly::isLate($e) ? 'timeout' : 'connection');
         } catch (AnthropicException $e) {
             $out['reason'] = 'other';
         } catch (\LogicException | \JsonException | \UnexpectedValueException $e) {
             $out['reason'] = 'bad_answer'; // a stream CW cannot fold, or an answer not of the SDK's shape
         } catch (\RuntimeException $e) {
             // the stream broke while it was read (Guzzle's read timeout, a dropped connection); the guard's refusal said apart
-            $out['reason'] = AnthropicOnly::isRefusal($e) ? 'redirect' : 'connection';
+            $out['reason'] = AnthropicOnly::isRefusal($e) ? 'redirect' : (AnthropicOnly::isLate($e) ? 'timeout' : 'connection');
         }
         if ($e instanceof APIException) {
             $out['status'] = $e->status ?? $e->response?->getStatusCode();
@@ -292,14 +300,15 @@ final class Claude
      *
      * @return array<string, mixed>
      */
-    public static function guzzleOptions(): array
+    public static function guzzleOptions(int $deadlineSec = self::DEADLINE_SEC): array
     {
-        return ['connect_timeout' => self::CONNECT_SEC, 'read_timeout' => self::READ_IDLE_SEC, 'timeout' => self::DEADLINE_SEC, 'http_errors' => false,
-            'allow_redirects' => false];
+        // '_curl_retries' at Guzzle's own last (2): curl never replays the request below the SDK after a failed rewind (M4, the re-check of ca8987b)
+        return ['connect_timeout' => min(self::CONNECT_SEC, $deadlineSec), 'read_timeout' => self::READ_IDLE_SEC, 'timeout' => $deadlineSec, 'http_errors' => false,
+            'allow_redirects' => false, '_curl_retries' => 2];
     }
 
-    private static function guzzle(): ClientInterface
+    private static function guzzle(int $deadlineSec): ClientInterface
     {
-        return new \GuzzleHttp\Client(self::guzzleOptions());
+        return new \GuzzleHttp\Client(self::guzzleOptions($deadlineSec));
     }
 }

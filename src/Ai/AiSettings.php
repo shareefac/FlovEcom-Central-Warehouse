@@ -81,6 +81,20 @@ final class AiSettings
     }
 
     /** "30" / "30.5" / "30.00" (pounds) as pence; 0 for anything that is not an amount. */
+    /** The key's setting as 0082 makes it (its description). */
+    public const KEY_DESCRIPTION = 'The Anthropic API key CW uses for Claude (a secret: never shown back). Empty: Claude reads nothing';
+
+    /**
+     * The key's row typed back to text after an undo had typed it a number (High 2, the re-check of ca8987b; docs/decisions.md AI19: the
+     * release before takes no key into a number), its 0082 description back; its value and history untouched. Run by this release's own
+     * bin/migrate.php, which the installer runs with the writers paused, so no one can type into it between. True when it changed the row.
+     */
+    public static function restoreKeyRow(Db $db): bool
+    {
+        return $db->exec("UPDATE app_setting SET value_type = 'string', description = ? WHERE setting_key = ? AND value_type <> 'string' "
+            . "AND JSON_UNQUOTE(value_json) = ''", [self::KEY_DESCRIPTION, self::KEY]) > 0;
+    }
+
     public static function pence(string $gbp): int
     {
         if (preg_match('/^(\d{1,8})(?:\.(\d{1,6}))?$/D', trim($gbp), $m) !== 1) {

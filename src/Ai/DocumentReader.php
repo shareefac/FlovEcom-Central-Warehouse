@@ -28,8 +28,8 @@ use CW\Ui\UiRequest;
  * is recorded on its one row (AI17: runBegins(), runEnds()); health() is what bin/health_alert.php says of it.
  *
  * Nothing is kept longer than it is needed: the file until it is read or saved (and never more than an hour after: sweep(), every minute in
- * the runner, whatever the switch), the answer until it is shown (and never more than an hour), the job row a day; the log row stays (no
- * content).
+ * the runner, whatever the switch), the answer until it is shown (and never more than an hour), the job row's content a day (then emptied
+ * in place: M10); the log row stays (no content).
  */
 final class DocumentReader
 {
@@ -56,7 +56,7 @@ final class DocumentReader
     public const STARTED_HOURS = 1;
     /** A document waiting longer than this (minutes) is a health alert while reading is on (AI17). */
     public const WAIT_ALERT_MINUTES = 10;
-    /** A finished job's row is kept this long (hours); its log row stays. */
+    /** A finished job's row keeps its content this long (hours), then is emptied in place (M10: never removed); its log row stays. */
     public const KEEP_ROW_HOURS = 24;
     /** The form fields a job keeps of what the person had typed (an expense form read over what was typed): their most characters each. */
     private const CONTEXT_TEXT_MAX = 500;
@@ -273,8 +273,8 @@ final class DocumentReader
             if (!$s->on()) {
                 return $this->finish($id, 'failed', 'off', null, null);
             }
-            $used = AiUsage::month($this->db, ($this->clock)())['pence'];
-            if ($used >= $s->limitPence) {
+            $month = AiUsage::month($this->db, ($this->clock)());
+            if ($month['pence'] >= $s->limitPence) {
                 return $this->finish($id, 'failed', 'limit', null, null);
             }
             // H1: only the job's OWN spool file (its 32-hex name inside the spool, a regular file and no link, of the size and sha256 recorded)
@@ -284,8 +284,9 @@ final class DocumentReader
             }
             $kind = self::kind((string) $job['kind']);
             $most = self::most($kind, $bytes, (string) $job['media_type'], $s->priceIn, $s->priceOut);
-            if ($used + AiUsage::pence($most) > $s->limitPence) {
-                // M3: a hard cap: a call starts only when the month's spend plus its most stays within the limit (the runner holds its lock)
+            if ($month['millipence'] + $most > $s->limitPence * 1000) {
+                // M3: a hard cap, to the thousandth of a penny: a call starts only when the month's spend plus its most (a bound: every billable
+                // attempt, each input at a token a byte and a page a 2,000 bytes, each output at max_tokens, rounded up) stays within the limit
                 return $this->finish($id, 'failed', 'limit', null, null);
             }
             // AI16: the call's row BEFORE the request, counted at the most it may cost: a reader that dies mid-call still counts (the next run
@@ -340,8 +341,10 @@ final class DocumentReader
     {
         $r = $this->db->one('SELECT id, place, kind, state, reason, detail, context, created_at, started_at, file_bytes, media_type FROM ai_read WHERE id = ? AND staff_user_id = ?',
             [$id, (int) $caller->staffUserId]);
-        if ($r === null || $caller->staffUserId === null || !in_array((string) $r['place'], $places, true)) {
-            // M5: a reading is seen only where it was made (a bill's never at the Expenses page, nor an invoice's at Delivery bills)
+        if ($r === null || $caller->staffUserId === null || !in_array((string) $r['place'], $places, true)
+            || (self::PLACES[(string) $r['place']] ?? null) !== (string) $r['kind']) {
+            // M5: a reading is seen only where it was made (a bill's never at the Expenses page, nor an invoice's at Delivery bills), and only when
+            // its kind is its place's
             throw new CwException('not_found', 'there is no such reading', 404);
         }
         return ['id' => (int) $r['id'], 'place' => (string) $r['place'], 'kind' => (string) $r['kind'], 'state' => (string) $r['state'],
@@ -362,8 +365,8 @@ final class DocumentReader
         $this->authorise($caller, $this->view($caller, $id, $places)['place']);
         $expired = false;
         $answer = $this->db->transaction(function (Db $db) use ($caller, $id, $places, &$expired): ?array {
-            $r = $db->one('SELECT place, state, answer, finished_at FROM ai_read WHERE id = ? AND staff_user_id = ? FOR UPDATE', [$id, (int) $caller->staffUserId]);
-            if ($r === null || !in_array((string) $r['place'], $places, true)) {
+            $r = $db->one('SELECT place, kind, state, answer, finished_at FROM ai_read WHERE id = ? AND staff_user_id = ? FOR UPDATE', [$id, (int) $caller->staffUserId]);
+            if ($r === null || !in_array((string) $r['place'], $places, true) || (self::PLACES[(string) $r['place']] ?? null) !== (string) $r['kind']) {
                 throw new CwException('not_found', 'there is no such reading', 404);
             }
             if ($r['state'] !== 'done' || $r['answer'] === null) {
@@ -414,9 +417,11 @@ final class DocumentReader
      * The invoice a job read, for its expense's Save (AI15), inside the expense's own transaction (a refused Save uses nothing): only its
      * person, from the place it was read for (the add form; a Change: that expense only), while it is kept, checked again (its size and
      * sha256 as it was sent), and ONCE (its row locked, file_used_at written). Anything else: 422 ai_file_gone, nothing changed. The expense
-     * keeps it through ExpenseFiles::store, as a file chosen on the form (its type and size checked there too); dropUsed() deletes it after.
+     * keeps it through ExpenseFiles::store, as a file chosen on the form (its type and size checked there too), from the private copy of the
+     * verified bytes returned here (the caller deletes it; the stored file's sha256 must be this sha256 before the expense commits);
+     * dropUsed() deletes the spool's file after.
      *
-     * @return array{path: string, name: string}
+     * @return array{path: string, name: string, sha256: string}
      */
     public function useFile(Caller $caller, int $id, string $place, ?int $expense): array
     {
@@ -437,13 +442,21 @@ final class DocumentReader
                 throw $gone();
             }
         }
-        // H1: its own spool file only, as it was sent (the same check as the reader's before it sends one)
-        $path = $this->ownFile($r['spool_name']);
-        if ($path === null || $this->readOwn($r) === null) {
+        // H1: its own spool file only, as it was sent (the same check as the reader's before it sends one); High 3 (the re-check of ca8987b):
+        // the VERIFIED bytes are what Save stores, from a private copy (0600, outside the spool), never the spool's path read again
+        $bytes = $this->readOwn($r);
+        if ($bytes === null) {
             throw $gone();
         }
+        $copy = @tempnam(sys_get_temp_dir(), 'cw-ai-invoice-');
+        if ($copy === false || !@chmod($copy, 0600) || file_put_contents($copy, $bytes) !== strlen($bytes) || !hash_equals((string) $r['file_sha256'], (string) hash_file('sha256', $copy))) {
+            if (is_string($copy)) {
+                @unlink($copy);
+            }
+            throw new CwException('ai_spool', 'the invoice Claude read could not be copied for its Save', 503);
+        }
         $this->db->exec('UPDATE ai_read SET file_used_at = ? WHERE id = ? AND file_used_at IS NULL', [Clock::db(($this->clock)()), $id]);
-        return ['path' => $path, 'name' => 'invoice'];
+        return ['path' => $copy, 'name' => 'invoice', 'sha256' => (string) $r['file_sha256']];
     }
 
     /** The file a Save attached (AI15), deleted from the spool once its expense is stored (the clean-up does it otherwise). */
@@ -540,8 +553,8 @@ final class DocumentReader
      * STARTED_HOURS is closed so too (no lock needed: no call lasts that long); a job waiting more than KEEP_MINUTES is failed (too_old); an
      * answer not shown within KEEP_MINUTES is dropped (expired); the file of every finished job deleted unless it is an invoice kept for its
      * Save (AI15; its row locked, so a Save attaching it at that moment wins or finds it gone), and any file of the spool no job names that is
-     * older than KEEP_MINUTES (a crash between the copy and the job's row); job rows finished more than KEEP_ROW_HOURS ago removed (their log
-     * rows stay).
+     * older than KEEP_MINUTES (a crash between the copy and the job's row); job rows finished more than KEEP_ROW_HOURS ago emptied of their
+     * content in place (M10: never removed; their log rows stay).
      *
      * @return array{stopped: int, too_old: int, expired: int, crashed: int, files: int, rows: int}
      */
@@ -590,7 +603,10 @@ final class DocumentReader
                 }
             }
         }
-        $out['rows'] = $this->db->exec("DELETE FROM ai_read WHERE state NOT IN ('waiting', 'reading') AND spool_name IS NULL AND COALESCE(finished_at, created_at) < ?",
+        // M10 (the re-check of ca8987b): the app login never removes a job row (so a job can never be replaced); a day after it finished, what its
+        // page had typed (context) and any answer or detail are emptied in place, the row kept with no content
+        $out['rows'] = $this->db->exec("UPDATE ai_read SET context = JSON_OBJECT(), answer = NULL, detail = NULL WHERE state NOT IN ('waiting', 'reading') "
+            . "AND spool_name IS NULL AND COALESCE(finished_at, created_at) < ? AND (JSON_LENGTH(context) > 0 OR answer IS NOT NULL OR detail IS NOT NULL)",
             [Clock::db($now->modify('-' . self::KEEP_ROW_HOURS . ' hours'))]);
         return $out;
     }
