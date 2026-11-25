@@ -28,6 +28,13 @@ abstract class IntegrationTestCase extends TestCase
         // The supplier detail switches (0062, SD1) start back at their seeded off, as their history says (the Codex review of 770dde7):
         // the supplier tests switch them on (SupplierTestCase).
         self::supplierNeeds(false);
+        // "Claude reads the upload" (0082, AI7) starts back at its seeded state after a test that set it: off, no key, the month's limit and
+        // the prices as seeded (a schema before 0082 has none of these rows: nothing changes).
+        self::$db->exec("UPDATE app_setting SET value_json = CASE setting_key WHEN 'ai.read_uploads' THEN CAST('false' AS JSON) "
+            . "WHEN 'ai.anthropic_api_key' THEN CAST('\"\"' AS JSON) WHEN 'ai.model' THEN CAST('\"claude-opus-5-5\"' AS JSON) "
+            . "WHEN 'ai.effort' THEN CAST('\"medium\"' AS JSON) WHEN 'ai.monthly_limit_gbp' THEN CAST('\"30\"' AS JSON) "
+            . "WHEN 'ai.price_input_gbp_per_mtok' THEN CAST('\"3.20\"' AS JSON) ELSE CAST('\"16.00\"' AS JSON) END WHERE setting_key IN ('ai.read_uploads', "
+            . "'ai.anthropic_api_key', 'ai.model', 'ai.effort', 'ai.monthly_limit_gbp', 'ai.price_input_gbp_per_mtok', 'ai.price_output_gbp_per_mtok')");
     }
 
     /** The four "A supplier needs ..." switches (suppliers.need_*, 0062): on, a supplier is usable only with those details. */
