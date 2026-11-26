@@ -86,7 +86,7 @@ final class GpFeesTest extends StockTestCase
     private static function invoice(array $over = []): array
     {
         return $over + ['account' => 'vpg_online', 'month' => '2026-11', 'merchant_no' => '0000000055829291', 'invoice_date' => '2026-11-30', 'sales' => '50.00',
-            'net' => '1.00', 'vat' => '0.00', 'total' => '1.00', 'note' => ''];
+            'net' => '1.00', 'vat' => '0.00', 'total' => '1.00', 'note' => '', 'current_ok' => '1'];
     }
 
     private function threeOrders(Caller $vpg): void

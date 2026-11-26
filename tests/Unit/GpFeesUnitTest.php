@@ -80,29 +80,32 @@ final class GpFeesUnitTest extends TestCase
     public function testWhatARefundADayAndAnAmountDoToARow(): void
     {
         $cfg = ['vpg_online' => ['on' => true, 'shops' => [1], 'from' => '2026-11-01', 'until' => null, 'rate' => 10100]];
-        $none = static fn (string $a, string $m): bool => false;
-        $live = static fn (string $a, string $m): bool => $m === '2026-11';
         $order = ['gateway' => 'globalpay', 'day' => '2026-11-19', 'grand_inc' => 2999];
-        [$row, $q] = GpFees::plan($cfg, 1, '9100001', $order, null, '2026-11-19 10:00:00', $none);
-        self::assertSame(['estimate', 30, []], [$row['state'], $row['fee_pence'], $q]);
-        // a refund changes nothing of the order's paid amount: the stored row stays as it is
-        [$again] = GpFees::plan($cfg, 1, '9100001', $order, $row, '2026-11-20 10:00:00', $none);
-        self::assertSame($row, $again);
-        // an actual share stays while its base and month stay (a day moved inside the month moves it along, and the applied month is spread
-        // again so its rounding penny follows the day order: the Codex review of 6043729, L15)
+        // a new estimate queues its month, invoice or not (the final review of 7332729, H1: the snapshot cannot know an invoice it cannot see yet;
+        // the job drops a month that has none)
+        [$row, $q] = GpFees::plan($cfg, 1, '9100001', $order, null, '2026-11-19 10:00:00');
+        self::assertSame(['estimate', 30, [['vpg_online', '2026-11']]], [$row['state'], $row['fee_pence'], $q]);
+        // a refund changes nothing of the order's paid amount: the stored row stays as it is, nothing queued
+        [$again, $q] = GpFees::plan($cfg, 1, '9100001', $order, $row, '2026-11-20 10:00:00');
+        self::assertSame([$row, []], [$again, $q]);
+        // an actual share stays while its base and month stay (a day moved inside the month moves it along, and the month is spread again so its
+        // rounding penny follows the day order: the Codex review of 6043729, L15)
         $actual = ['state' => 'actual', 'fee_pence' => 29, 'rate_e4' => null, 'invoice_id' => 7, 'spread_version' => 1] + $row;
-        [$kept, $q] = GpFees::plan($cfg, 1, '9100001', ['day' => '2026-11-21'] + $order, $actual, '2026-11-21 10:00:00', $live);
+        [$kept, $q] = GpFees::plan($cfg, 1, '9100001', ['day' => '2026-11-21'] + $order, $actual, '2026-11-21 10:00:00');
         self::assertSame(['actual', 29, '2026-11-21', [['vpg_online', '2026-11']]], [$kept['state'], $kept['fee_pence'], $kept['day'], $q]);
-        [$same, $q] = GpFees::plan($cfg, 1, '9100001', $order, $actual, '2026-11-21 10:00:00', $live);
+        [$same, $q] = GpFees::plan($cfg, 1, '9100001', $order, $actual, '2026-11-21 10:00:00');
         self::assertSame([$actual, []], [$same, $q], 'nothing changed: nothing queued');
-        // another amount in an applied month: an estimate, and the month queued to be spread again
-        [$moved, $q] = GpFees::plan($cfg, 1, '9100001', ['grand_inc' => 4000] + $order, $actual, '2026-11-21 10:00:00', $live);
+        // another amount: an estimate, and the month queued to be spread again
+        [$moved, $q] = GpFees::plan($cfg, 1, '9100001', ['grand_inc' => 4000] + $order, $actual, '2026-11-21 10:00:00');
         self::assertSame(['estimate', 40, [['vpg_online', '2026-11']]], [$moved['state'], $moved['fee_pence'], $q]);
+        // moved to another month: both months queued
+        [, $q] = GpFees::plan($cfg, 1, '9100001', ['day' => '2026-12-02'] + $order, $actual, '2026-12-02 10:00:00');
+        self::assertSame([['vpg_online', '2026-12'], ['vpg_online', '2026-11']], $q);
         // back to estimates (its invoice deleted): keepActual false
-        [$back] = GpFees::plan($cfg, 1, '9100001', $order, $actual, '2026-11-21 10:00:00', $none, false);
+        [$back] = GpFees::plan($cfg, 1, '9100001', $order, $actual, '2026-11-21 10:00:00', false);
         self::assertSame(['estimate', 30], [$back['state'], $back['fee_pence']]);
-        // paid another way now: off, counting nothing, the applied month queued
-        [$off, $q] = GpFees::plan($cfg, 1, '9100001', ['gateway' => 'pp'] + $order, $actual, '2026-11-21 10:00:00', $live);
+        // paid another way now: off, counting nothing, its month queued
+        [$off, $q] = GpFees::plan($cfg, 1, '9100001', ['gateway' => 'pp'] + $order, $actual, '2026-11-21 10:00:00');
         self::assertSame(['off', 0, [['vpg_online', '2026-11']]], [$off['state'], $off['fee_pence'], $q]);
         self::assertSame(['fee' => 0, 'est' => 0], GpFees::share($off));
         self::assertSame(['fee' => 30, 'est' => 30], GpFees::share($row));

@@ -73,7 +73,7 @@ final class GpFeesScreensTest extends KernelUiTestCase
         $page = $job->get('/ui/profit/card-fees');
         self::assertSame(200, $page->status, $page->describe());
         $form = ['account' => 'vpg_online', 'month' => '2026-11', 'merchant_no' => '0000000055829291', 'invoice_date' => '2026-11-30', 'sales' => '50.00',
-            'net' => '1.00', 'vat' => '0.00', 'total' => '1.00', 'use_rate' => '1'] + $page->form('/ui/profit/card-fees/new');
+            'net' => '1.00', 'vat' => '0.00', 'total' => '1.00', 'use_rate' => '1', 'current_ok' => '1'] + $page->form('/ui/profit/card-fees/new');
         $r = $job->post('/ui/profit/card-fees/new', $form);
         self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
         $id = (int) self::$db->value("SELECT id FROM gp_invoice WHERE account = 'vpg_online' AND month = '2026-11'");
@@ -110,7 +110,7 @@ final class GpFeesScreensTest extends KernelUiTestCase
         $job = $this->signIn($this->uiUser('expenses'));
         $page = $job->get('/ui/profit/card-fees');
         $form = ['account' => 'vpg_online', 'month' => '2026-11', 'merchant_no' => '55829371', 'invoice_date' => '2026-11-30', 'sales' => '50.00',
-            'net' => '1.00', 'vat' => '0.00', 'total' => '1.00'] + $page->form('/ui/profit/card-fees/new');
+            'net' => '1.00', 'vat' => '0.00', 'total' => '1.00', 'current_ok' => '1'] + $page->form('/ui/profit/card-fees/new');
         $r = $job->post('/ui/profit/card-fees/new', $form);
         self::assertSame(422, $r->status, $r->describe());
         self::assertStringContainsString('the merchant number is not this account', $r->text());
@@ -121,5 +121,56 @@ final class GpFeesScreensTest extends KernelUiTestCase
         self::assertSame(409, $r->status, $r->describe());
         self::assertStringContainsString(Words::say('PROFIT', 'gp_gap', '£50.00', '£500.00'), $r->text());
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM gp_invoice'));
+    }
+    /**
+     * The final review of 7332729: Codex M15 (the list's CW card takings are the invoice page's: Vape Big's card orders before its own first day
+     * are in them too) and Fable F5 (the form offers last month; the month still running needs its own tick).
+     */
+    public function testTheListShowsTheInvoicesTakingsAndOffersLastMonth(): void
+    {
+        $vb = (int) self::$db->value("SELECT id FROM channel WHERE code = 'vapebig'");
+        (new OrderSnapshots(self::$db))->store($vb, '9200001', ['v' => 1, 'version' => 1, 'order_no' => '', 'status' => 'completed', 'placed_at' => '2026-11-19T11:00:00Z',
+            'paid_at' => '2026-11-19T11:00:00Z', 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => null, 'lines' => [], 'delivery' => null,
+            'order_refund_inc' => 0, 'grand_inc' => 5000, 'parcels' => []], 'api');
+        $job = $this->signIn($this->uiUser('expenses'));
+        $page = $job->get('/ui/profit/card-fees');
+        self::assertSame(200, $page->status, $page->describe());
+        $nov = array_values(array_filter(self::rows($page, 'card-fees'), static fn (array $r): bool => $r[0] === '2026-11'))[0] ?? [];
+        self::assertSame('£100.00', $nov[1] ?? null, 'Vape and Go\'s £50.00 and Vape Big\'s £50.00 before its own first day: what the invoice holds');
+        self::assertSame(10000, \CW\Profit\GpInvoices::cwTakings(self::$db, 'vpg_online', '2026-11'));
+        $today = \CW\Profit\ProfitViews::today();
+        $running = substr($today, 0, 7);
+        $last = substr((new \DateTimeImmutable(substr($today, 0, 7) . '-01'))->modify('-1 day')->format('Y-m-d'), 0, 7);
+        self::assertSame($last, $page->form('/ui/profit/card-fees/new')['month'] ?? null, 'last month by default: its invoice comes early this month');
+        $form = ['account' => 'vpg_online', 'month' => $running, 'merchant_no' => '55829291', 'invoice_date' => $running . '-01', 'sales' => '100.00',
+            'net' => '1.00', 'vat' => '0.00', 'total' => '1.00', 'gap_ok' => '1'] + $page->form('/ui/profit/card-fees/new');
+        $r = $job->post('/ui/profit/card-fees/new', $form);
+        self::assertSame(409, $r->status, $r->describe());
+        self::assertStringContainsString(Words::PROFIT['gp_current_month'], $r->text());
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM gp_invoice'));
+        $r = $job->post('/ui/profit/card-fees/new', ['current_ok' => '1'] + $form + $r->form('/ui/profit/card-fees/new'));
+        self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
+        self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM gp_invoice'));
+    }
+
+    /**
+     * The final review of 7332729 (Codex M14): a change sent from a page opened before a colleague's correction is refused, and the page comes
+     * back with the invoice as it is now (its new version): the old figures are never sent again by a second press.
+     */
+    public function testAStaleChangeComesBackWithTheCurrentFigures(): void
+    {
+        $job = $this->signIn($this->uiUser('expenses'));
+        $inv = ['account' => 'vpg_online', 'month' => '2026-11', 'merchant_no' => '55829291', 'invoice_date' => '2026-11-30', 'sales' => '50.00', 'net' => '1.00',
+            'vat' => '0', 'total' => '1.00', 'note' => '', 'current_ok' => '1'];
+        $id = (new \CW\Profit\GpInvoices(self::$db))->add(Caller::system('test'), $inv)['id'];
+        $mine = $job->get("/ui/profit/card-fees/{$id}")->form("/ui/profit/card-fees/{$id}/change");
+        self::assertSame('1', $mine['seen'] ?? null);
+        (new \CW\Profit\GpInvoices(self::$db))->change(Caller::system('test'), $id, 1, ['net' => '2.00', 'total' => '2.00'] + $inv, 'a colleague corrected it');
+        $r = $job->post("/ui/profit/card-fees/{$id}/change", ['net' => '3.00', 'total' => '3.00', 'reason' => 'from my old page'] + $mine);
+        self::assertSame(409, $r->status, $r->describe());
+        $f = $r->form("/ui/profit/card-fees/{$id}/change");
+        self::assertSame(['2', '2.00', '2.00'], [$f['seen'] ?? null, $f['net'] ?? null, $f['total'] ?? null],
+            'the invoice as it is now, with its new version: a second press never sends the old figures');
+        self::assertSame(200, (int) self::$db->value("SELECT SUM(fee_pence) FROM gp_fee_order WHERE state = 'actual'"));
     }
 }

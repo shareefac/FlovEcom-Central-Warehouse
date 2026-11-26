@@ -56,6 +56,92 @@ final class GpFeesCliTest extends IntegrationTestCase
         self::assertStringContainsString('vpg_online: switched on, from 2026-11-01', $s['out']);
     }
 
+    /** bin/gp_fees.php started, not waited for (its pipes and process: finish() reads them). @return array{0: resource, 1: array<int, resource>} */
+    private static function start(string ...$args): array
+    {
+        $root = dirname(__DIR__, 3);
+        $p = proc_open([PHP_BINARY, '-d', 'memory_limit=256M', "{$root}/bin/gp_fees.php", '--db=' . TestDb::name(), '--admin', ...$args], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes, $root);
+        self::assertIsResource($p);
+        return [$p, $pipes];
+    }
+
+    /** @param array{0: resource, 1: array<int, resource>} $run @return array{code: int, out: string, err: string} */
+    private static function finish(array $run): array
+    {
+        [$p, $pipes] = $run;
+        $out = (string) stream_get_contents($pipes[1]);
+        $err = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        return ['code' => proc_close($p), 'out' => $out, 'err' => $err];
+    }
+
+    private static function store(\CW\Db $db, int $ch, string $ref, string $paid, int $grand, bool $open = false): void
+    {
+        $body = ['v' => 1, 'version' => 1, 'order_no' => '', 'status' => 'completed', 'placed_at' => $paid, 'paid_at' => $paid, 'gateway' => 'globalpay', 'currency' => 'GBP',
+            'parent_ref' => null, 'lines' => [], 'delivery' => null, 'order_refund_inc' => 0, 'grand_inc' => $grand, 'parcels' => []];
+        if (!$open) {
+            (new \CW\Profit\OrderSnapshots($db))->store($ch, $ref, $body, 'api');
+            return;
+        }
+        $now = \CW\Clock::now();
+        (new \CW\Profit\OrderSnapshots($db))->apply($db, $ch, $ref, \CW\Profit\SnapshotBody::parse($body, $now), \CW\Clock::db($now));
+    }
+
+    /**
+     * The final review of 7332729 (Codex H2, Fable F1): the 10-minute job ran while the account was off (it recorded the off settings), the account
+     * was switched on and the November backfill counted its estimates, and no job ran after it: the quick stop still goes over every counted row
+     * of the account (whatever the last run recorded) and says done only when nothing of it counts.
+     */
+    public function testTheQuickStopAfterABackfillWithNoGoodRunStopsEverything(): void
+    {
+        $ch = self::$db->insert("INSERT INTO channel (code, name, mode) VALUES ('vapeandgo', 'Vape and Go', 'live')");
+        self::assertSame(0, self::cli()['code'], 'the 10-minute job while the account is off');
+        $s = new Settings(self::$db);
+        $s->set(Caller::system('test'), 'profit.gp_from_vpg_online', '2026-11-01', 'switched on for the test');
+        $s->set(Caller::system('test'), 'profit.gp_merchant_vpg_online', '55829291', 'the merchant number');
+        self::store(self::$db, $ch, '9100001', '2026-11-19T10:00:00Z', 2999);
+        $r = self::cli('--backfill', '--account=vpg_online', '--from=2026-11-01', '--to=2026-11-20');
+        self::assertSame(0, $r['code'], $r['out'] . $r['err']);
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM gp_fee_order WHERE account = 'vpg_online' AND state <> 'off'"));
+        $r = self::cli('--stop', '--account=vpg_online', '--reason=the owner said stop');
+        self::assertSame(0, $r['code'], 'stopped and checked: ' . $r['out'] . $r['err']);
+        self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM gp_fee_order WHERE account = 'vpg_online' AND state <> 'off'"));
+        self::assertSame(0, (int) self::$db->value('SELECT COALESCE(SUM(gp_fee) + SUM(gp_fee_est) + SUM(gp_other), 0) FROM profit_day'));
+    }
+
+    /**
+     * The final review of 7332729 (Codex H4): the first card snapshot after the switch read the account switched on and has not committed when
+     * the quick stop runs: the stop waits for it (the first day's change waits for every snapshot that read the old one), then goes over the
+     * days and checks: nothing of the account counts once it says done.
+     */
+    public function testTheQuickStopWaitsForASnapshotThatReadTheOldSetting(): void
+    {
+        $ch = self::$db->insert("INSERT INTO channel (code, name, mode) VALUES ('vapeandgo', 'Vape and Go', 'live')");
+        $s = new Settings(self::$db);
+        $s->set(Caller::system('test'), 'profit.gp_from_vpg_online', '2026-11-01', 'switched on for the test');
+        $s->set(Caller::system('test'), 'profit.gp_merchant_vpg_online', '55829291', 'the merchant number');
+        $other = TestDb::connect();
+        $other->pdo()->beginTransaction();
+        try {
+            self::store($other, $ch, '9100001', '2026-11-19T10:00:00Z', 2999, true); // read "switched on", its estimate written, not committed
+            $run = self::start('--stop', '--account=vpg_online', '--reason=the owner said stop');
+            usleep(1_500_000);
+            $other->pdo()->commit();
+            $r = self::finish($run);
+        } finally {
+            if ($other->inTransaction()) {
+                $other->pdo()->rollBack();
+            }
+        }
+        self::assertSame(0, $r['code'], $r['out'] . $r['err']);
+        self::assertStringContainsString('vpg_online: stopped and checked: no card fee of it counts', $r['out']);
+        self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM gp_fee_order WHERE account = 'vpg_online' AND state <> 'off'"),
+            'the snapshot that read "on" is gone over too: nothing counts once the stop said done');
+        self::assertSame(0, (int) self::$db->value('SELECT COALESCE(SUM(gp_fee) + SUM(gp_fee_est), 0) FROM profit_day'));
+    }
+
     public function testTheQuickStopClearsTheAccountAndProvesIt(): void
     {
         $ch = self::$db->insert("INSERT INTO channel (code, name, mode) VALUES ('vapeandgo', 'Vape and Go', 'live')");

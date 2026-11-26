@@ -95,7 +95,7 @@ final class GpFeesHealthTest extends StockTestCase
         $this->store($vpg, '9100001', '2026-11-19T10:00:00Z', 5000);
         (new GpFees(self::$db))->run(self::sys());
         (new GpInvoices(self::$db))->add(self::sys(), ['account' => 'vpg_online', 'month' => '2026-11', 'merchant_no' => '55829291', 'invoice_date' => '2026-11-30',
-            'sales' => '50.00', 'net' => '1.00', 'vat' => '0', 'total' => '1.00']);
+            'sales' => '50.00', 'net' => '1.00', 'vat' => '0', 'total' => '1.00', 'current_ok' => '1']);
         $now = Clock::now()->modify('+5 minutes');
         self::assertNotContains('gp_double_count', self::kinds($now));
         $fees = (int) self::$db->value("SELECT id FROM expense_type WHERE kind = 'expense' AND name = 'Fees'");
@@ -127,7 +127,7 @@ final class GpFeesHealthTest extends StockTestCase
         $fees->syncDay('vpg_online', '2026-11-11');
         $takings = (int) self::$db->value('SELECT SUM(base_pence) FROM gp_fee_order');
         $inv = new GpInvoices(self::$db);
-        $form = ['account' => 'vpg_online', 'month' => '2026-11', 'merchant_no' => '55829291', 'invoice_date' => '2026-11-30', 'gap_ok' => '1', 'vat' => '0',
+        $form = ['account' => 'vpg_online', 'month' => '2026-11', 'merchant_no' => '55829291', 'invoice_date' => '2026-11-30', 'gap_ok' => '1', 'current_ok' => '1', 'vat' => '0',
             'sales' => sprintf('%d.%02d', intdiv($takings, 100), $takings % 100)];
         $id = $inv->add(self::sys(), $form + ['net' => '512.34', 'total' => '512.34'])['id'];
         // the snapshot job on another connection: 60 card orders made and changed again and again (other amounts, moved between 11 and 12 Nov)
