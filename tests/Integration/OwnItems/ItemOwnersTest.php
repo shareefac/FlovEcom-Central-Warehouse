@@ -19,7 +19,7 @@ use CW\Tests\Support\MappingTestCase;
  */
 final class ItemOwnersTest extends MappingTestCase
 {
-    private const NOW = '2026-11-26 10:00:00.000000';
+    private const AT = '2026-11-26 10:00:00.000000';
     private Caller $vb;
     private Caller $vpg;
     private \DateTimeImmutable $clockAt;
@@ -29,7 +29,7 @@ final class ItemOwnersTest extends MappingTestCase
         parent::setUp();
         $this->vb = $this->site('vapebig');
         $this->vpg = $this->site('vapeandgo');
-        $this->clockAt = new \DateTimeImmutable(self::NOW, new \DateTimeZone('UTC'));
+        $this->clockAt = new \DateTimeImmutable(self::AT, new \DateTimeZone('UTC'));
     }
 
     private function owners(): ItemOwners
@@ -64,7 +64,7 @@ final class ItemOwnersTest extends MappingTestCase
         $sku = $this->item('legacy', 5, 'Hayati 4000 Blue Razz');
         $this->listing($this->vb, 'VB-1', $sku);
         $a = $this->owners()->add($admin, self::code($sku), 'bought with Vape Big\'s own money');
-        self::assertSame(self::NOW, $a['from_at']);
+        self::assertSame(self::AT, $a['from_at']);
         self::assertSame([$sku => (int) $this->vb->channelId], ItemOwners::open(self::$db, [$sku]));
         $this->later('+1 hour');
         $r = $this->owners()->remove($admin, self::code($sku), 'ours again from today');
@@ -74,7 +74,7 @@ final class ItemOwnersTest extends MappingTestCase
         $this->owners()->add($admin, self::code($sku), 'Vape Big bought it back');
         $periods = ItemOwners::periods(self::$db, [$sku])[$sku];
         self::assertCount(2, $periods);
-        self::assertSame([(int) $this->vb->channelId, self::NOW, '2026-11-26 11:00:00.000000'], $periods[0]);
+        self::assertSame([(int) $this->vb->channelId, self::AT, '2026-11-26 11:00:00.000000'], $periods[0]);
         self::assertNull($periods[1][2]);
         // the moment decides: a sale paid at 10:30 was Vape Big's own, one at 11:30 ours, one at 12:30 Vape Big's own again
         self::assertSame((int) $this->vb->channelId, ItemOwners::ownerAt([$sku => $periods], $sku, '2026-11-26 10:30:00.000000'));
