@@ -85,8 +85,12 @@ final class Parcel2GoFixRoundTest extends P2gTestCase
             static fn (array $p): bool => $p['kind'] === 'p2g_needs_look'));
         self::assertCount(1, $look);
         self::assertStringContainsString('1570110', $look[0]['detail'], 'the order is named, to look at');
-        self::assertNotSame([], array_filter(DeliveryInvariants::check(self::$db), static fn (string $l): bool => str_starts_with($l, 'DB15') && str_contains($l, '1570110')));
-        $this->expectedInvariants = ['DB15 parcel odl:15701100 of order 1570110 '];
+        // G5 (the small round): a look, not a failing invariant: bin/invariants.php (nightly; install_cron's smoke) stays exit 0 and says it
+        self::assertSame([], array_values(array_filter(DeliveryInvariants::check(self::$db), static fn (string $l): bool => str_starts_with($l, 'DB15'))));
+        self::assertNotSame([], array_filter(\CW\Profit\P2gInvariants::looks(self::$db), static fn (string $l): bool => str_starts_with($l, 'DB15') && str_contains($l, '1570110')));
+        $inv = self::script('bin/invariants.php');
+        self::assertSame(0, $inv['code'], $inv['err'] . $inv['out']);
+        self::assertStringContainsString('1570110', $inv['out'] . $inv['err'], 'the look is said');
     }
 
     public function testRoyalMailsUndoCountsOnlyItsOwnAllocations(): void
@@ -287,18 +291,24 @@ final class Parcel2GoFixRoundTest extends P2gTestCase
 
     public function testA404IsTriedAgainAndAnApiRefusalIsDueAgainADayLater(): void
     {
-        // F4: 404, 408, 409, 425 are a later try; a label refused by the API (403) is due again once a day
+        // F4: 404, 408, 409, 425 are a later try; a label refused by the API (403) is due again once a day (G8: by its next try, never by
+        // updated_at, which every run that lists the label moves)
         $this->on();
         $this->clockAt = '2026-11-24 12:00:00';
-        $this->pull([P2gFixtures::apiLine(150000200, 95000200, '2026-11-24T10:00:00Z'), P2gFixtures::apiLine(150000201, 95000201, '2026-11-24T10:00:00Z')]);
+        $lines = [P2gFixtures::apiLine(150000200, 95000200, '2026-11-24T10:00:00Z'), P2gFixtures::apiLine(150000201, 95000201, '2026-11-24T10:00:00Z')];
+        $this->pullRoute(static fn (string $m, string $p): array => match (true) {
+            $p === '/api/me/orders/detail' => [200, ['Orders' => $lines]],
+            str_contains($p, '/api/invoices/95000201?'), str_contains($p, '/api/invoices/150000201?') => [403, ''],
+            default => [404, ''],
+        }, new FakePdfText());
         self::assertSame(['due', 'api_404'], [self::p2gLine(150000200)['price_state'], self::p2gLine(150000200)['refuse_code']], '404: a later try');
-        self::$db->exec("UPDATE p2g_line SET price_state = 'refused', refuse_code = 'api_403' WHERE order_line_id = 150000201");
+        self::assertSame(['refused', 'api_403'], [self::p2gLine(150000201)['price_state'], self::p2gLine(150000201)['refuse_code']], '403: refused');
         $this->clockAt = '2026-11-24 18:00:00';
-        $this->pull([]);
+        $this->pull($lines);
         self::assertSame('refused', self::p2gLine(150000201)['price_state']);
         $this->clockAt = '2026-11-25 13:00:00';
-        $this->pull([]);
-        self::assertSame('due', self::p2gLine(150000201)['price_state'], 'a day later: due again');
+        $this->pull($lines);
+        self::assertSame('due', self::p2gLine(150000201)['price_state'], 'a day later: due again (listed every run meanwhile)');
     }
 
     public function testAnExportNumberReplacesAnApiNumberOnAnUnpinnedParcel(): void
@@ -374,8 +384,14 @@ final class Parcel2GoFixRoundTest extends P2gTestCase
     /** @return array{code: int, out: string, err: string} */
     private static function cli(string ...$args): array
     {
+        return self::script('bin/p2g_pull.php', ...$args);
+    }
+
+    /** @return array{code: int, out: string, err: string} */
+    private static function script(string $script, string ...$args): array
+    {
         $root = dirname(__DIR__, 3);
-        $p = proc_open([PHP_BINARY, '-d', 'memory_limit=256M', "{$root}/bin/p2g_pull.php", '--db=' . TestDb::name(), '--admin', ...$args], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $p = proc_open([PHP_BINARY, '-d', 'memory_limit=256M', "{$root}/{$script}", '--db=' . TestDb::name(), '--admin', ...$args], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes, $root);
         self::assertIsResource($p);
         $out = (string) stream_get_contents($pipes[1]);

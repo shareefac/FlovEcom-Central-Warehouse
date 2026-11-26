@@ -124,13 +124,21 @@ final class Parcel2GoScreensTest extends KernelUiTestCase
         }), 'its token call failed: never set');
         self::assertFalse(is_file(P2gKey::path($this->keys, 'p2g_vapeandgo')), 'no key written');
         self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'p2g.key_set'"));
+        self::assertStringContainsString(Words::DELIVERY['p2g_key_not_taken'], $job->get('/ui/profit/delivery/parcel2go/key')->text(), 'G6: the refused paste is said');
         $form = $job->get('/ui/profit/delivery/parcel2go/key')->form('/ui/profit/delivery/parcel2go/key');
         self::assertSame(303, $job->post('/ui/profit/delivery/parcel2go/key', ['csrf' => $form['csrf'], 'account' => 'p2g_vapeandgo', 'client_id' => 'new-client-3',
             'client_secret' => 'Owner-Chosen-Secret-3'])->status);
         $file = P2gKeyDrop::file($this->drop, 'p2g_vapeandgo');
+        // G6: Parcel2Go out of reach while the key is proved: the paste waits for the next run (never burnt)
+        self::assertSame('p2g_key_later', self::takeCode($this, 'p2g_vapeandgo', static function (): void {
+            throw new \CW\CwException('p2g_unreachable', 'Parcel2Go could not be read', 503);
+        }));
+        self::assertTrue(is_file($file), 'the paste is kept for the next run');
+        $refused = (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'p2g.key_refused'");
         $b = (string) file_get_contents($file);
         file_put_contents($file, substr($b, 0, -4) . strrev(substr($b, -4)));
         self::assertSame('p2g_key_refused', self::takeCode($this, 'p2g_vapeandgo', self::tokenOk()), 'a paste changed after its audit: refused');
+        self::assertSame($refused + 1, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'p2g.key_refused'"), 'the out-of-reach try refused nothing');
         self::assertFalse(is_file(P2gKey::path($this->keys, 'p2g_vapeandgo')));
     }
 
