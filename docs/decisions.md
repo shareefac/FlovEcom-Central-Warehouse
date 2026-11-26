@@ -22745,3 +22745,10 @@ left; a spread's queue is counted, never listed in one statement (66,000 queued 
 FA2): GP4 leaves out an invoice whose month is outside its account's days and of which nothing counts (the health alert says it).
 **GPF36. The forms** (M3, FA4): a change is checked against its version before anything else, and a refusal keeps the typed figures with the
 version they were typed on; the month still running is refused until it ends (no tick).
+
+**The line-by-line check of e1fe6a9 (Fable: no High, GO; L1-L7 fixed, the lead's decisions, 26 Nov 2026).** **GPF37.** A batch that writes
+nothing (every row changed since the plan) still takes away the summary row its guard made on a day with nothing on it (L4). A nightly that
+failed or was killed has its days gone over by the next 10-minute run, once (the run says which in from_day..to_day; L5). The batches' key
+reads name the primary key; writing a fee row takes InnoDB's shared lock of its order for the foreign key, harmless (L7). The kit's
+double-count check reads Electrofag too, takes more names, reads the lead's reviewed ids at each step from the box (never pinned in the kit
+folder), runs before any setting of the switch, and only says it (no stop) once Vape and Go Online is on with the kit's values (L1-L3).

@@ -83,6 +83,8 @@ final class GpFees
     private readonly \Closure $clock;
     /** @var array<string, array<string, mixed>>|null */
     private ?array $cfg = null;
+    /** @var array{0: string, 1: string}|null the days of a failed nightly this run goes over (daysToSync(), L5) */
+    private ?array $recheck = null;
 
     /**
      * @param (\Closure(): \DateTimeImmutable)|null $clock
@@ -472,8 +474,9 @@ final class GpFees
 
     /**
      * One batch of planned rows written in a short transaction of its own (bounded(): every row wait 1 s at most) under the guards of $day of its
-     * shops (H2): each row's current fee row (locked: FOR UPDATE of the fee rows only, never the orders: FA3) and its order's figures read by
-     * their keys and compared with the plan (the check of 513fa3d, H1: cheap, the batch's own rows only); the hold checked right after (past
+     * shops (H2): each row's current fee row (locked: FOR UPDATE of the fee rows only, by their primary key; the orders are read without a lock:
+     * FA3, L7. Writing a fee row then takes InnoDB's shared lock of its order for the foreign key check: harmless, a snapshot holding that
+     * order holds the day's guard first) and its order's figures read by their keys and compared with the plan (the check of 513fa3d, H1: cheap, the batch's own rows only); the hold checked right after (past
      * HOLD_SEC: BUSY, the batch rolled back); then the rows that are still as planned written, each shop's day figures moved by exactly their
      * difference, the day's rows tidied and their months queued. $strict (a spread's day): a row not as planned is CHANGED (the spread is planned
      * again); else it is left out and counted.
@@ -495,11 +498,12 @@ final class GpFees
             $keys = implode(', ', array_fill(0, count($chunk), '(?, ?)'));
             $params = array_merge(...array_map(static fn (array $i): array => [(int) $i['ch'], (string) $i['ref']], $chunk));
             $rows = [];
-            foreach ($db->all("SELECT * FROM gp_fee_order WHERE (channel_id, order_ref) IN ({$keys}) FOR UPDATE", $params) as $g) {
+            foreach ($db->all("SELECT * FROM gp_fee_order FORCE INDEX (PRIMARY) WHERE (channel_id, order_ref) IN ({$keys}) FOR UPDATE", $params) as $g) {
                 $rows[$g['channel_id'] . '|' . strtolower((string) $g['order_ref'])] = $g;
             }
             $orders = [];
-            foreach ($db->all("SELECT channel_id, order_ref, day, gateway, grand_inc, parent_ref FROM sale_order WHERE (channel_id, order_ref) IN ({$keys})", $params) as $o) {
+            foreach ($db->all("SELECT channel_id, order_ref, day, gateway, grand_inc, parent_ref FROM sale_order FORCE INDEX (PRIMARY) WHERE (channel_id, order_ref) IN ({$keys})",
+                $params) as $o) {
                 $orders[$o['channel_id'] . '|' . strtolower((string) $o['order_ref'])] = $o;
             }
             $ok = [];
@@ -525,6 +529,10 @@ final class GpFees
             }
             self::holdOk($t0);
             if ($ok === []) {
+                // nothing written (every row changed since the plan): the summary row a guard made on a day with nothing on it goes again (L4)
+                foreach ($chs as $c) {
+                    DeliveryBills::tidy($db, $c, $day);
+                }
                 return [0, $left];
             }
             self::writeRows($db, array_map(static fn (array $i): array => $i['new'], $ok));
@@ -1136,10 +1144,11 @@ final class GpFees
                 // asked only) and the days it left (left_days): the next run that runs with the same settings goes over them
                 $leftDays = array_values(array_unique($leftDays));
                 sort($leftDays, SORT_STRING);
-                $this->db->exec('UPDATE gp_run SET state = ?, sig = ?, left_days = ?, orders_read = ?, rows_written = ?, pence_before = ?, pence_after = ?, finished_at = ? '
-                    . 'WHERE id = ?', [$did['left'] > 0 ? 'partial' : 'ok', $kind === 'backfill' ? null : $cfg['sig'],
-                        $kind === 'backfill' || $leftDays === [] ? null : json_encode($leftDays, JSON_THROW_ON_ERROR), $did['orders'], $did['written'], $before, $after,
-                        Clock::db(($this->clock)()), $runId]);
+                // a job that went over a failed nightly's days says which (from_day..to_day: L5; the days of them it left are in left_days)
+                $this->db->exec('UPDATE gp_run SET state = ?, sig = ?, left_days = ?, from_day = ?, to_day = ?, orders_read = ?, rows_written = ?, pence_before = ?, '
+                    . 'pence_after = ?, finished_at = ? WHERE id = ?', [$did['left'] > 0 ? 'partial' : 'ok', $kind === 'backfill' ? null : $cfg['sig'],
+                        $kind === 'backfill' || $leftDays === [] ? null : json_encode($leftDays, JSON_THROW_ON_ERROR), $kind === 'backfill' ? $from : ($this->recheck[0] ?? null),
+                        $kind === 'backfill' ? $to : ($this->recheck[1] ?? null), $did['orders'], $did['written'], $before, $after, Clock::db(($this->clock)()), $runId]);
             } catch (\Throwable $e) {
                 $this->db->exec("UPDATE gp_run SET state = 'failed', error = ?, finished_at = ? WHERE id = ?",
                     [mb_substr(self::why($e), 0, 255), Clock::db(($this->clock)()), $runId]);
@@ -1214,6 +1223,7 @@ final class GpFees
     {
         $today = $this->today();
         $days = [];
+        $this->recheck = null;
         if ($kind === 'backfill') {
             if ($from === null || $to === null || $from > $to) {
                 throw new \InvalidArgumentException('a backfill needs --from and --to, from on or before to');
@@ -1240,6 +1250,22 @@ final class GpFees
                 }
             }
         }
+        // the line-by-line check of e1fe6a9, L5: the newest nightly failed (killed, abandoned) and no run went over its days since: this run does
+        // (once: it records them in from_day..to_day)
+        $recheck = null;
+        if ($kind === 'job' && $cfg['on']) {
+            $nightly = $this->db->one("SELECT id, state FROM gp_run WHERE account = ? AND kind = 'nightly' ORDER BY id DESC LIMIT 1", [$cfg['account']]);
+            if ($nightly !== null && $nightly['state'] === 'failed' && $this->db->value("SELECT 1 FROM gp_run WHERE account = ? AND id > ? AND kind = 'job' "
+                . "AND state IN ('ok', 'partial') AND from_day IS NOT NULL LIMIT 1", [$cfg['account'], (int) $nightly['id']]) === null) {
+                $recheck = [max((string) $cfg['from'], self::addDays($today, -self::RECHECK_DAYS)), $cfg['until'] !== null && $cfg['until'] < $today ? (string) $cfg['until'] : $today];
+            }
+        }
+        if ($recheck !== null && $recheck[0] <= $recheck[1]) {
+            $days = [...$days, ...self::range($recheck[0], $recheck[1])];
+        } else {
+            $recheck = null;
+        }
+        $this->recheck = $recheck;
         if ($kind === 'nightly' && $cfg['on']) {
             $start = max((string) $cfg['from'], self::addDays($today, -self::RECHECK_DAYS));
             $end = $cfg['until'] !== null && $cfg['until'] < $today ? (string) $cfg['until'] : $today;
