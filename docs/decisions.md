@@ -22523,3 +22523,34 @@ in a minute"), and nothing is reserved (no call row). A PDF's page objects and p
 ("input counted N tokens, P page(s) shown"), never as the bound. £ example: a 5-page Royal Mail bill counted at about 54,000 tokens in
 reserves 2 x (54,000 at £3.20 + 64,000 at £16.00 a million) = about £2.40 while it is read (the byte rule reserved about £24); read, it counts
 what it used (about 25p); with the £30 limit a bill is sent while the month's spend is at most about £27.60.
+
+## A shop's own items: "Vape Big's own items" (CW-1153, branch `vb-partners`, 26 Nov 2026; VB1-VB16; migration 0083)
+
+The owner, 26 Nov 2026: give Vape Big's own stock (Hayati 4000, the Elux Legend and FireRose ranges, bought with Vape Big's own money) a
+mark, keep it out of our figures, and show it on Vape Big's page on its own line. No second warehouse, no order or stock change: the items
+stay in MAIN and sell exactly as before.
+
+**VB1. The mark is a history by period** (`item_owner`: from_at .. to_at, one open row per item, never overlapping, re-adding = a new row).
+Every figure uses the period of its event's own time (an order's paid time, a bill's posting), never today's list. History is never
+rewritten: the app login may only close a period. **VB2.** An item is wholly a shop's own or wholly ours at a moment. **VB3.** The setting
+`stock.own_items_shop` (vapebig) names whose own items Settings > Own items adds; another shop only while none of the first is marked.
+**VB4.** Settings > Own items: everyone who reads the settings looks; an admin or a reviewer adds or removes an item from now, with a reason;
+only a system tool (the go-live kit) starts a period in the past. **VB5.** A marked item is linked only on its shop's listings (422
+own_item_other_shop) and never merged or split (409 own_item_merge), checked after the items' rows are held: the mark is changed under the
+same row. **VB6.** The nightly check O1-O6 (ItemOwnerInvariants). **VB7.** A supplier bill is a shop's own bill when ALL its goods lines are
+that shop's own items when it is made final (derived, never chosen; a copy of an ERPNext invoice is none's); a mixed bill is refused; a credit
+note goes with its bill's owner. An own bill is never owed by us. A bill made final before its items were marked is marked by the kit's tool
+from the periods at its posting time. **VB8.** A purchase order of an own item is refused at its approval: "own purchases are entered as a
+bill, not a purchase order". **VB9.** A sale line is the shop's own (`sale_line.item_owner`) when its item was that shop's own at the order's
+paid time and that shop sold it; fixed with every snapshot from the periods (before its cost is known). **VB10. The money table:** the
+order's whole figures never change; its own part is kept beside them (own_units, own_sale_ex, own_refund_ex, own_cost, own_no_cost on
+sale_order and profit_day; per item on profit_item_day): line money follows the line; an order-level refund is split by the lines' sale inc
+VAT (own = mulDivRound(refund, own lines' sale, all lines' sale); a one-owner order's refund wholly that owner's; lines selling nothing: the
+shop's own only if every line is); delivery, PayPal and the order count stay the shop's; free (price 0) is a price. **VB11.** Every OUR figure
+is whole less own (Profit summary, periods, by shop / product / brand / supplier, orders, one order, no price, waiting, order refunds, real
+profit); the own goods on their own line; "lowest margin first" leaves out orders of only own goods. **VB12.** `recost_sales --items` re-costs
+only those items' lines (selection and plan). **VB13.** `bin/item_owner_refresh.php` marks the lines stored before a backdated period, by the
+money service, never moving a cost (an order waiting for a cost is the cost job's). **VB14.** Own items are never in our stock value (any
+warehouse; a past day by its periods), low or slow stock, or the units tile; the stock value page shows them apart at their buying price.
+**VB15.** Another shop's purchasing report never holds them; a receipt never sets their selling mode on another shop. **VB16.** Our reorder
+list never suggests them ("own item").
