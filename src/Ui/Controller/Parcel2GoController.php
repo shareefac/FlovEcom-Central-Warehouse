@@ -76,7 +76,7 @@ final class Parcel2GoController
             if (!in_array($account, P2gKey::ACCOUNTS, true)) {
                 throw new CwException('bad_form', Words::DELIVERY['p2g_key_no_account'], 400, ['field' => 'account']);
             }
-            P2gKeyDrop::drop($ctx->db, $ctx->caller(), P2gKeyDrop::dir(), $account, (string) ($ctx->req->field('client_id') ?? ''),
+            P2gKeyDrop::drop($ctx->db, $ctx->caller(), P2gKeyDrop::dir(), P2gKeyDrop::publicPath(), $account, (string) ($ctx->req->field('client_id') ?? ''),
                 (string) ($ctx->req->field('client_secret') ?? ''));
         } catch (CwException $e) {
             if (in_array($e->errorCode, ['staff_required', 'admin_cannot_post', 'role_not_allowed'], true)) {

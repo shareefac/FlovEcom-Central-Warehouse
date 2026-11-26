@@ -13,6 +13,7 @@ use CW\Profit\P2gApi;
 use CW\Profit\P2gInvoice;
 use CW\Profit\Parcel2Go;
 use CW\Profit\ProfitDays;
+use CW\Invariants;
 
 /**
  * The Parcel2Go money tests' base (CW-1160, docs/decisions.md PGL1-PGL12): three shops with their first reservations (Vape and Go 28 Oct, Vape Big
@@ -25,6 +26,8 @@ abstract class P2gTestCase extends StockTestCase
     protected int $vb;
     protected int $ef;
     protected string $clockAt = '2026-11-25 12:00:00';
+    /** @var list<string> the start of invariant lines a test makes ON PURPOSE (and asserts itself): every other line still fails it */
+    protected array $expectedInvariants = [];
 
     protected function setUp(): void
     {
@@ -36,6 +39,14 @@ abstract class P2gTestCase extends StockTestCase
             self::$db->exec("INSERT INTO reservation (channel_id, order_ref, status, committed_at, created_at) VALUES (?, '9000000', 'committed', ?, ?)", [$ch, $at, $at]);
         }
         P2gFixtures::accounts(self::$db, $this->vpg, $this->vb, $this->ef);
+    }
+
+    /** The nightly invariant check after every test (StockTestCase), but for the lines the test made on purpose. */
+    protected function assertPostConditions(): void
+    {
+        $left = array_values(array_filter(Invariants::check(self::$db), fn (string $l): bool => array_filter($this->expectedInvariants,
+            static fn (string $p): bool => str_starts_with($l, $p)) === []));
+        self::assertSame([], $left, 'invariants violated');
     }
 
     protected static function sys(): Caller

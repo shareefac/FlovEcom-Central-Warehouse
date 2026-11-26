@@ -70,7 +70,10 @@ CREATE TABLE IF NOT EXISTS p2g_run (
   priced          INT UNSIGNED      NOT NULL DEFAULT 0 COMMENT 'invoices read and stored',
   refused         INT UNSIGNED      NOT NULL DEFAULT 0 COMMENT 'invoices refused (each line keeps its reason)',
   placed          INT UNSIGNED      NOT NULL DEFAULT 0 COMMENT 'lines whose money was put somewhere new',
-  gap_seen        TINYINT(1)        NOT NULL DEFAULT 0 COMMENT '1: every line of a full recent list was new: lines may have been missed (the export fills them)',
+  gap_seen        TINYINT(1)        NOT NULL DEFAULT 0 COMMENT '1: every line of a full recent list was new: lines may have been missed (the export fills them); written WITH the labels',
+  gap_from        DATE              NULL COMMENT 'the gap: from the newest paid day known before the list ...',
+  gap_to          DATE              NULL COMMENT '... to the oldest paid day of the new list: an export covering these days clears it',
+  replan_after    BIGINT UNSIGNED   NULL COMMENT 'the last bill this run placed again: the next run goes on after it (NULL: from the start)',
   error           VARCHAR(255)      NULL COMMENT 'why it failed, in CW''s own words (never Parcel2Go''s text, never the key)',
   actor           VARCHAR(64)       NOT NULL,
   started_at      DATETIME(6)       NOT NULL,
@@ -78,7 +81,7 @@ CREATE TABLE IF NOT EXISTS p2g_run (
   PRIMARY KEY (id),
   KEY ix_p2g_run_account (account_id, state, started_at),
   CONSTRAINT fk_p2g_run_account FOREIGN KEY (account_id) REFERENCES carrier_account (id),
-  CONSTRAINT ck_p2g_run CHECK (gap_seen IN (0, 1) AND (state = 'running') = (finished_at IS NULL))
+  CONSTRAINT ck_p2g_run CHECK (gap_seen IN (0, 1) AND (state = 'running') = (finished_at IS NULL) AND (gap_seen = 1 OR (gap_from IS NULL AND gap_to IS NULL)))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='each run of bin/p2g_pull.php (docs/decisions.md PGL9): never deleted';
 

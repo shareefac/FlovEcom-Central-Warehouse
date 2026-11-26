@@ -14,10 +14,14 @@ declare(strict_types=1);
  *   php bin/p2g_pull.php --account=p2g_vapeandgo --switch-off     the quick stop: nothing more is read or counted, nothing counted is removed
  *   php bin/p2g_pull.php --account=p2g_vapeandgo --undo-all       every Parcel2Go bill of the account undone (switched off first; the kit's undo)
  *   php bin/p2g_pull.php --account=p2g_vapeandgo --retry-refused  refused labels due again (after the reader was corrected)
+ *   php bin/p2g_pull.php --account=p2g_vapeandgo --refresh-invoice=<transaction>   a basket's invoice read again (a corrected invoice: the
+ *                                                                 bill there stays live until the new one is read and stored)
  *   php bin/p2g_pull.php --account=p2g_vapeandgo --status [--from=YYYY-MM-DD] [--to=YYYY-MM-DD]   read only
  *
- * Exit codes: 0 done (also: switched off; another run holds the lock) · 1 a problem (Parcel2Go not read, an invoice refused: the run is recorded
- * as failed, what was read stays, its labels due) · 2 usage · 3 cannot run (no key, a refused key, no schema).
+ * Options are read strictly (a misspelt one is a usage error, never the pull). Exit codes: 0 done (also: switched off; the 10-minute job when
+ * another run holds the lock) · 1 a problem (Parcel2Go not read, an invoice refused: the run is recorded as failed, what was read stays, its
+ * labels due) · 2 usage · 3 cannot run (no key, a refused key, no schema) · 4 busy: a CONTROL mode (import, switch, undo, retry, refresh) found
+ * another run holding the Parcel2Go lock (the quick stop waits up to 300 s first): NOTHING was done, run it again.
  */
 
 use CW\Caller;
@@ -36,16 +40,18 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 const P2G_DEADLINE_SEC = 240;
 
 $usage = 'usage: php bin/p2g_pull.php --account=<p2g_vapeandgo|p2g_vapebig> [--import=<csv> | --switch-on --from=YYYY-MM-DD | --switch-off | --undo-all '
-    . '| --retry-refused | --status [--from=YYYY-MM-DD] [--to=YYYY-MM-DD]]';
-exit(Cli::main('p2g_pull', ['account:', 'import:', 'switch-on', 'switch-off', 'undo-all', 'retry-refused', 'status', 'from:', 'to:'], $usage,
+    . '| --retry-refused | --refresh-invoice=<transaction> | --status [--from=YYYY-MM-DD] [--to=YYYY-MM-DD]]';
+exit(Cli::main('p2g_pull', ['account:', 'import:', 'switch-on', 'switch-off', 'undo-all', 'retry-refused', 'refresh-invoice:', 'status', 'from:', 'to:'], $usage,
     static function (Cli $cli, array $opts) use ($usage): int {
         $account = is_string($opts['account'] ?? null) ? $opts['account'] : '';
         if (!in_array($account, P2gKey::ACCOUNTS, true)) {
             throw new InvalidArgumentException("--account=<p2g_vapeandgo|p2g_vapebig> is needed\n{$usage}");
         }
-        $modes = array_values(array_filter(['import', 'switch-on', 'switch-off', 'undo-all', 'retry-refused', 'status'], static fn (string $m): bool => isset($opts[$m])));
+        $modes = array_values(array_filter(['import', 'switch-on', 'switch-off', 'undo-all', 'retry-refused', 'refresh-invoice', 'status'],
+            static fn (string $m): bool => isset($opts[$m])));
         if (count($modes) > 1 || (isset($opts['from']) && !in_array($modes[0] ?? '', ['switch-on', 'status'], true)) || (isset($opts['to']) && ($modes[0] ?? '') !== 'status')
-            || (($modes[0] ?? '') === 'switch-on' && !isset($opts['from']))) {
+            || (($modes[0] ?? '') === 'switch-on' && !isset($opts['from']))
+            || (isset($opts['refresh-invoice']) && (!is_string($opts['refresh-invoice']) || preg_match('/^[1-9][0-9]{0,11}$/D', $opts['refresh-invoice']) !== 1))) {
             throw new InvalidArgumentException($usage);
         }
         $p2g = new Parcel2Go($cli->db);
@@ -77,12 +83,22 @@ exit(Cli::main('p2g_pull', ['account:', 'import:', 'switch-on', 'switch-off', 'u
                     $r = $p2g->import($caller, $account, (string) $opts['import']);
                     $say("{$account}: export read: {$r['rows']} rows, {$r['lines']} labels ({$r['lines_new']} new), {$r['tracking_filled']} tracking numbers filled");
                     return Cli::OK;
+                case 'refresh-invoice':
+                    $keyDir = P2gKeyDrop::keyDir(Config::load());
+                    $deadline = microtime(true) + P2G_DEADLINE_SEC;
+                    $api = new P2gApi(P2gKey::load(P2gKey::path($keyDir, $account), $account), new CurlP2gHttp(), null, $deadline);
+                    $r = $p2g->refreshInvoice($caller, $account, $api, new PdftotextText(), (int) $opts['refresh-invoice']);
+                    $say("{$account}: invoice TX-{$opts['refresh-invoice']} read again: {$r}");
+                    return Cli::OK;
             }
-            // the 10-minute job: a pasted key taken first (root), then the run (nothing while switched off)
+            // the 10-minute job: a pasted key taken first (root; set only once Parcel2Go gives a token for it), then the run (nothing while off)
             $config = Config::load();
             $keyDir = P2gKeyDrop::keyDir($config);
-            if (P2gKeyDrop::take($cli->db, P2gKeyDrop::dir($config), $keyDir, $account)) {
-                $say("{$account}: the key pasted on the key page was taken");
+            $prove = static function (P2gKey $k): void {
+                (new P2gApi($k, new CurlP2gHttp(), null, microtime(true) + 60))->proveToken();
+            };
+            if (P2gKeyDrop::take($cli->db, P2gKeyDrop::dir($config), $keyDir, P2gKeyDrop::secretPath($config), $account, $prove)) {
+                $say("{$account}: the key pasted on the key page was taken (Parcel2Go gave a token for it)");
             }
             if (!Parcel2Go::account($cli->db, $account)['on']) {
                 $say("{$account}: switched off: nothing read");
@@ -98,8 +114,9 @@ exit(Cli::main('p2g_pull', ['account:', 'import:', 'switch-on', 'switch-off', 'u
         } catch (CwException $e) {
             fwrite(STDERR, "p2g_pull: {$account}: " . Parcel2Go::why($e) . "\n");
             if ($e->errorCode === 'busy') {
-                return Cli::OK;
+                // the 10-minute job: the next run goes on; a control mode did NOTHING: never a quiet success (H4 / F6)
+                return $mode === 'pull' ? Cli::OK : Cli::BUSY;
             }
             return in_array($e->errorCode, ['p2g_key_refused', 'not_found'], true) ? Cli::CANNOT_RUN : Cli::PROBLEM;
         }
-    }, false));
+    }, false, true));

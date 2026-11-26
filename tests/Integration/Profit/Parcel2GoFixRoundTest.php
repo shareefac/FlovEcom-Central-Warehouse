@@ -86,6 +86,7 @@ final class Parcel2GoFixRoundTest extends P2gTestCase
         self::assertCount(1, $look);
         self::assertStringContainsString('1570110', $look[0]['detail'], 'the order is named, to look at');
         self::assertNotSame([], array_filter(DeliveryInvariants::check(self::$db), static fn (string $l): bool => str_starts_with($l, 'DB15') && str_contains($l, '1570110')));
+        $this->expectedInvariants = ['DB15 parcel odl:15701100 of order 1570110 '];
     }
 
     public function testRoyalMailsUndoCountsOnlyItsOwnAllocations(): void

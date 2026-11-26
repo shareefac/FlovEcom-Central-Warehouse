@@ -562,7 +562,9 @@ final class RoyalMailBills
             $pooled = "SELECT code FROM carrier WHERE family = 'pooled'";
             return ['loading' => (int) $this->db->value("SELECT COUNT(*) FROM carrier_invoice WHERE status = 'loading' AND carrier IN ({$pooled})"),
                 'live' => (int) $this->db->value("SELECT COUNT(*) FROM carrier_invoice WHERE status = 'live' AND carrier IN ({$pooled})"),
-                'unended' => (int) $this->db->value('SELECT COUNT(*) FROM carrier_allocation WHERE ended_at IS NULL')];
+                // Royal Mail's own (pooled) allocations only: another carrier family's (Parcel2Go's per-charge money, CW-1160) is not Royal Mail's to undo
+                'unended' => (int) $this->db->value("SELECT COUNT(*) FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id AND i.carrier IN ({$pooled}) "
+                    . 'WHERE a.ended_at IS NULL')];
         });
     }
 

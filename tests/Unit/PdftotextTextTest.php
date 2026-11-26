@@ -54,8 +54,12 @@ final class PdftotextTextTest extends TestCase
             pcntl_alarm(0);
         }
         self::assertLessThan(8, microtime(true) - $t, 'stopped at its timeout, never blocked on its input');
-        usleep(300_000);
-        exec("pgrep -f 'sleep 4041'", $left);
+        // (the pattern's [1] keeps pgrep from finding the shell that runs it)
+        for ($i = 0, $left = ['?']; $i < 20 && $left !== []; $i++) {
+            usleep(100_000);
+            $left = [];
+            exec("pgrep -f 'sleep 404[1]'", $left);
+        }
         self::assertSame([], $left, 'its whole process group is gone (the sleep too)');
     }
 

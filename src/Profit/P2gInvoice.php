@@ -20,8 +20,10 @@ use CW\CwException;
  *   P2G150271419 - Extra Payment                     1         £2.93      £0.00     (a LATER charge on an EARLIER label: its own P2G number)
  *   Net £23.11  /  VAT £0.00  /  Invoice Total £23.11
  *
- * A row is a "price" (its description names a delivery: a courier or a service word) or a "surcharge" ("Extra Payment": it is the named
- * label's, wherever that label was paid). Each row's VAT is 0 (international: zero-rated) or its net at 20% (whole pence, within a penny:
+ * A row is a "surcharge" when its description is EXACTLY "Extra Payment" (the named label's, wherever that label was paid); any other "Extra ..."
+ * text is a row CW does not know (the whole basket refused); else a "price" when it names a delivery (a courier or a service word): Parcel2Go::store
+ * then accepts it only as the label's own service in the label's own basket (the final review, H3). The headings Details, Parcels, Net, VAT are
+ * printed once, before the rows. Each row's VAT is 0 (international: zero-rated) or its net at 20% (whole pence, within a penny:
  * P2G may work VAT out on the price with VAT); the rows add up to the printed Net and VAT and Net + VAT = Invoice Total, to the penny. A
  * PrePay top-up's invoice is never a delivery cost: refused. Kept: the number, the transaction id, the date, the rows (P2G number, kind,
  * service, parcels, net, VAT rate, VAT, total) and the totals; never the text (names and addresses are on it).
@@ -30,7 +32,7 @@ use CW\CwException;
  */
 final class P2gInvoice
 {
-    /** The refusals, by code (p2g_line.refuse_code): CW's own words. */
+    /** The refusals, by code (p2g_line.refuse_code; the reader's and Parcel2Go::store's): CW's own words. */
     public const REFUSALS = [
         'pdf_text' => 'the invoice\'s text could not be read',
         'no_number' => 'no invoice number TX-<digits> (or more than one)',
@@ -43,6 +45,12 @@ final class P2gInvoice
         'row_twice' => 'a label priced twice on it',
         'vat_rate' => 'a row\'s VAT is neither 0 nor 20% of its net',
         'below_zero' => 'a row below 0 (a credit CW does not read yet)',
+        'no_heading' => 'its table\'s headings are not Details, Parcels, Net, VAT (once, before its rows)',
+        'service_differs' => 'a price row\'s service is not the label\'s own service on Parcel2Go\'s list or export',
+        'other_basket' => 'a price row\'s label was paid in another basket',
+        'parcels_differ' => 'it prints fewer parcels for a label than CW holds for it',
+        'other_account' => 'one of its labels is another Parcel2Go account\'s',
+        'priced_elsewhere' => 'one of its labels is priced on another invoice',
         'no_rows' => 'no rows',
         'no_totals' => 'its totals (Net, VAT, Invoice Total) are not printed once each',
         'not_adding_up' => 'its rows do not add up to its printed totals',
@@ -54,7 +62,9 @@ final class P2gInvoice
 
     private const MONEY = '-?£-?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)\.[0-9]{2}';
     private const ROW = '/^P2G([0-9]{6,12})\s+-\s+(.{2,120})$/D';
-    private const EXTRA = '/^extra\s+payment$/i';
+    /** The ONE surcharge row the real invoice shows (exactly this text: any other "Extra ..." is a row CW does not know). */
+    private const EXTRA = 'Extra Payment';
+    private const HEADINGS = ['Details', 'Parcels', 'Net', 'VAT'];
     private const DELIVERY = '/evri|hermes|royal\s+mail|parcelforce|\bdpd\b|\bups\b|\bdhl\b|fedex|yodel|inpost|parcel|delivery|collection|drop[\s-]*off|shop'
         . '|tracked|international|europe|express|economy|standard|next\s+day|\b24\b|\b48\b|letter|packet/i';
     private const TOPUP = '/pre-?pay(?:ment)?\s+top[\s-]*up|top[\s-]*up\s+(?:of\s+)?(?:your\s+)?pre-?pay|prepayment\s+invoice/i';
@@ -80,6 +90,7 @@ final class P2gInvoice
         $dates = [];
         $rows = [];
         $totals = ['net' => [], 'vat' => [], 'total' => []];
+        $headings = 0;
         foreach (preg_split('/\R/u', $text) ?: [] as $i => $raw) {
             $n = $i + 1;
             // a tab or a no-break space is a column gap; cells are what the layout put two or more spaces apart
@@ -100,8 +111,12 @@ final class P2gInvoice
                     }
                 }
             }
+            if ($cells === self::HEADINGS) {
+                $headings++;
+                continue;
+            }
             if (!str_contains($line, '£')) {
-                continue; // no money: the seller, the bill-to address, a recipient's name and address, the headings (never read into anything)
+                continue; // no money: the seller, the bill-to address, a recipient's name and address (never read into anything)
             }
             if (count($cells) === 2 && preg_match('/^' . self::MONEY . '$/u', $cells[1]) === 1) {
                 $label = strtolower((string) preg_replace('/\s+/', ' ', $cells[0]));
@@ -124,8 +139,12 @@ final class P2gInvoice
                 throw $no('row_shape', $n);
             }
             $desc = trim($m[2]);
+            if ($headings !== 1) {
+                throw $no('no_heading', $n);
+            }
             $kind = match (true) {
-                preg_match(self::EXTRA, $desc) === 1 => 'surcharge',
+                $desc === self::EXTRA => 'surcharge',
+                preg_match('/^extra\b/i', $desc) === 1 => throw $no('unknown_row', $n),
                 preg_match('/top[\s-]*up|pre-?pay/i', $desc) === 1 => throw $no('topup', $n),
                 preg_match(self::DELIVERY, $desc) === 1 => 'price',
                 default => throw $no('unknown_row', $n),
@@ -146,6 +165,9 @@ final class P2gInvoice
         }
         if (count($dates) !== 1) {
             throw $no('no_date');
+        }
+        if ($headings !== 1) {
+            throw $no('no_heading');
         }
         if ($rows === []) {
             throw $no('no_rows');

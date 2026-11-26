@@ -63,6 +63,12 @@ final class Parcel2Go
     /** The CW lock of every Parcel2Go write (run, import, switch, undo): one at a time per schema. */
     public const LOCK = 'cw_p2g:';
     public const LOCK_WAIT_SEC = 30;
+    /** The quick stop waits this long for a run of the job to end (the job's own deadline is shorter). */
+    public const STOP_WAIT_SEC = 300;
+    /** Parcel2Go's answers that are a later try, not a refusal (the final review, F4). */
+    public const API_LATER = [404, 408, 409, 425];
+    /** A label Parcel2Go's API refused (api_<status>) is due again after this many hours (F4: once a day). */
+    public const API_AGAIN_HOURS = 24;
     /** The export's ownership rule (PGL8): at least this many of its lines already known for THIS account (all, when it has fewer). */
     public const IMPORT_KNOWN = 5;
     /** The reasons the main shop takes a label's money (carrier_allocation.how), in staff words. */
@@ -75,6 +81,8 @@ final class Parcel2Go
     /** @var \Closure(): \DateTimeImmutable */
     private readonly \Closure $clock;
     private readonly DeliveryBills $bills;
+    /** @var array<int, ?string> the shops' first days, read once per run (F11) */
+    private array $starts = [];
 
     /** @param (\Closure(): \DateTimeImmutable)|null $clock */
     public function __construct(private readonly Db $db, ?\Closure $clock = null, int $lockWaitSec = DeliveryBills::LOCK_WAIT_SEC)
@@ -142,14 +150,16 @@ final class Parcel2Go
             if ($api->account() !== $key) {
                 throw new CwException('p2g_key_refused', 'the Parcel2Go key is for another account: nothing was read', 403);
             }
+            $this->starts = [];
             $run = $this->startRun($acct, 'pull', $caller);
             $sum = ['listed' => 0, 'lines_new' => 0, 'tracking_found' => 0, 'priced' => 0, 'refused' => 0, 'placed' => 0, 'gap_seen' => 0];
             try {
                 $lines = $api->recent();
-                $sum = $this->takeLines($acct, $lines, $sum);
+                $sum = $this->takeLines($acct, $lines, $sum, $run);
                 $this->tracking($acct, $api, $deadline, $sum);
+                $this->dueAgain($acct);
                 $this->prices($caller, $acct, $api, $pdf, $deadline, $sum);
-                $this->replan($caller, $acct, $sum);
+                $this->replan($caller, $acct, $run, $deadline, $sum);
                 $this->endRun($run, 'ok', $sum, $api->calls(), null);
             } catch (\Throwable $e) {
                 $this->endRun($run, 'failed', $sum, $api->calls(), self::why($e));
@@ -161,20 +171,28 @@ final class Parcel2Go
 
     /**
      * The recent list's lines stored: new ones with their parcels, due when paid on or after the account's first day; known ones only fill
-     * what is empty (PGL3). One transaction. The gap check (PGL9).
+     * what is empty (PGL3). A line the list names twice is taken once. One transaction. The gap check (PGL9): a full list of only new lines
+     * is written WITH the labels (the run's gap_seen and its days: from the newest paid day CW knew to the oldest of the new list), so a run
+     * stopped later keeps it (the final review, H8); only an export covering those days clears it (health()).
      *
      * @param list<array<string, mixed>> $lines P2gApi::recent()
      * @param array<string, int> $sum
      * @return array<string, int>
      */
-    private function takeLines(array $acct, array $lines, array $sum): array
+    private function takeLines(array $acct, array $lines, array $sum, int $run): array
     {
         $sum['listed'] = count($lines);
         if ($lines === []) {
             return $sum;
         }
+        $full = count($lines) >= self::RECENT_FULL;
+        $once = [];
+        foreach ($lines as $l) {
+            $once[(int) $l['order_line_id']] ??= $l;
+        }
+        $lines = array_values($once);
         $now = $this->now();
-        return $this->db->transaction(function (Db $db) use ($acct, $lines, $sum, $now): array {
+        return $this->db->transaction(function (Db $db) use ($acct, $lines, $sum, $now, $full, $run): array {
             $ids = array_map(static fn (array $l): int => (int) $l['order_line_id'], $lines);
             $known = [];
             foreach ($db->all('SELECT * FROM p2g_line WHERE account_id = ? AND order_line_id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ') FOR UPDATE',
@@ -182,8 +200,13 @@ final class Parcel2Go
                 $known[(int) $r['order_line_id']] = $r;
             }
             $before = (int) $db->value('SELECT COUNT(*) FROM p2g_line WHERE account_id = ?', [$acct['id']]);
-            if (count($lines) >= self::RECENT_FULL && $known === [] && $before > 0) {
+            if ($full && $known === [] && $before > 0) {
                 $sum['gap_seen'] = 1;
+                $newest = $db->value('SELECT MAX(paid_day) FROM p2g_line WHERE account_id = ?', [$acct['id']]);
+                $days = array_values(array_filter(array_map(static fn (array $l): ?string => $l['paid_at'] === null ? null : ReportRefresh::ukDay((string) $l['paid_at']), $lines)));
+                $from = $newest === null ? ($acct['from'] ?? ReportRefresh::ukDay($now)) : (string) $newest;
+                $to = $days === [] ? ReportRefresh::ukDay($now) : min($days);
+                $db->exec('UPDATE p2g_run SET gap_seen = 1, gap_from = ?, gap_to = ? WHERE id = ?', [min($from, $to), max($from, $to), $run]);
             }
             foreach ($lines as $l) {
                 $id = (int) $l['order_line_id'];
@@ -266,6 +289,8 @@ final class Parcel2Go
                     return;
                 }
                 $numbers = [];
+            } catch (\Throwable) {
+                $numbers = []; // a fault in CW with this label's answer: asked again in an hour, the run goes on
             }
             $next = Clock::db(Clock::fromDb($now)->modify('+' . self::TRACK_EVERY_MIN . ' minutes'));
             $this->db->transaction(function (Db $db) use ($acct, $id, $numbers, $next, &$sum): void {
@@ -277,9 +302,40 @@ final class Parcel2Go
 
     /**
      * Tracking numbers put on a line's parcels that have none (in parcel order), only when there are exactly as many new numbers as such
-     * parcels; a number already on a parcel of the line is not new. @param list<?string> $numbers @return int how many were put
+     * parcels; a number already on a parcel of the line is not new. The export's numbers (source report) also REPLACE the tracking API's on
+     * parcels no order took (unpinned; F8: the API's first number may be a courier's other number), only when the export names as many new
+     * numbers as there are such parcels whose number it does not name. @param list<?string> $numbers @return int how many were put
      */
     private static function fillTracking(Db $db, int $accountId, int $id, array $numbers, string $source): int
+    {
+        $put = self::fillEmpty($db, $accountId, $id, $numbers, $source);
+        if ($put > 0 || $source !== 'report') {
+            return $put;
+        }
+        $ex = array_values(array_unique(array_filter($numbers, static fn (?string $t): bool => $t !== null)));
+        sort($ex, SORT_STRING);
+        $ps = $db->all('SELECT parcel_no, tracking_no, tracking_source, cw_parcel_ref FROM p2g_parcel WHERE account_id = ? AND order_line_id = ? ORDER BY parcel_no FOR UPDATE',
+            [$accountId, $id]);
+        $have = array_map(static fn (array $p): string => (string) $p['tracking_no'], array_filter($ps, static fn (array $p): bool => $p['tracking_no'] !== null));
+        $new = array_values(array_diff($ex, $have));
+        $old = array_values(array_filter($ps, static fn (array $p): bool => $p['tracking_no'] !== null && !in_array((string) $p['tracking_no'], $ex, true)));
+        if ($new === [] || count($new) !== count($old)) {
+            return 0;
+        }
+        foreach ($old as $p) {
+            if ($p['tracking_source'] !== 'tracking_api' || $p['cw_parcel_ref'] !== null) {
+                return 0; // a pinned parcel's number, or one the export itself gave, never moves
+            }
+        }
+        foreach ($old as $i => $p) {
+            $db->exec("UPDATE p2g_parcel SET tracking_no = ?, tracking_source = 'report' WHERE account_id = ? AND order_line_id = ? AND parcel_no = ? AND cw_parcel_ref IS NULL "
+                . "AND tracking_source = 'tracking_api'", [$new[$i], $accountId, $id, (int) $p['parcel_no']]);
+        }
+        return count($old);
+    }
+
+    /** @param list<?string> $numbers @return int */
+    private static function fillEmpty(Db $db, int $accountId, int $id, array $numbers, string $source): int
     {
         $missing = array_map('intval', $db->column('SELECT parcel_no FROM p2g_parcel WHERE account_id = ? AND order_line_id = ? AND tracking_no IS NULL ORDER BY parcel_no FOR UPDATE',
             [$accountId, $id]));
@@ -300,7 +356,9 @@ final class Parcel2Go
      * Each due line's basket invoice read and stored (oldest paid first, PRICE_PER_RUN lines a run; one invoice prices every label of its
      * basket, so the others are no longer due). Asked for by the basket (OrderId, its TransactionId) when the API gave it, else by the label
      * (OrderLineId with its hash): WAITS FOR THE PROBE which of them Parcel2Go serves. A refusal of the invoice (its layout, another basket, a
-     * top-up) or of the call (4xx) marks the line refused with its reason; Parcel2Go out of reach or busy leaves it due for a later try.
+     * top-up, a row that is not the label's own service: store()) or of the call (4xx) marks the line refused with its reason; Parcel2Go out
+     * of reach or busy, a 404/408/409/425 (API_LATER) or a fault in CW with this one label leaves it due for a later try (RETRY_MIN), the run
+     * goes on with the next.
      *
      * @param array<string, int> $sum
      */
@@ -339,12 +397,13 @@ final class Parcel2Go
                 $sum['placed'] += $r === 'same' ? 0 : 1;
                 continue;
             } catch (CwException $e) {
+                $status = (int) ($e->detail['status'] ?? 0);
                 [$code, $transient] = match ($e->errorCode) {
                     'p2g_invoice_refused' => [(string) ($e->detail['refuse'] ?? 'unknown_line'), false],
                     'p2g_pdf_text' => ['pdf_text', true],
-                    'p2g_refused' => ['api_' . (int) ($e->detail['status'] ?? 0), false],
+                    'p2g_refused' => ['api_' . $status, in_array($status, self::API_LATER, true)],
                     'p2g_no_invoice' => ['no_invoice', true],
-                    'p2g_bill_conflict' => ['bill_conflict', false],
+                    'p2g_bill_conflict' => [(string) ($e->detail['refuse'] ?? 'bill_conflict'), false],
                     'p2g_deadline' => ['deadline', true],
                     'p2g_unreachable', 'p2g_shape', 'p2g_token', 'busy' => [$e->errorCode, true],
                     default => ['error', true],
@@ -352,6 +411,8 @@ final class Parcel2Go
                 if ($e->errorCode === 'p2g_deadline') {
                     return;
                 }
+            } catch (\Throwable) {
+                [$code, $transient] = ['error', true]; // a fault in CW with this one label (its own later try): the run goes on
             }
             $tries = (int) $line['price_tries'] + 1;
             $refused = !$transient || $tries > count(self::RETRY_MIN);
@@ -363,21 +424,46 @@ final class Parcel2Go
     }
 
     /**
+     * Labels Parcel2Go's API refused (api_<status>, paid in the last REPLAN_DAYS) due again once API_AGAIN_HOURS have passed since (F4): a
+     * refusal of the API may be Parcel2Go's passing state; a refusal of the invoice itself (its layout, its rows) is not tried again by itself.
+     */
+    private function dueAgain(array $acct): void
+    {
+        $now = $this->now();
+        $this->db->exec("UPDATE p2g_line SET price_state = 'due', price_tries = 0, next_try_at = NULL, updated_at = ? WHERE account_id = ? AND price_state = 'refused' "
+            . "AND refuse_code LIKE 'api\\_%' AND updated_at <= ? AND paid_day >= ?", [$now, $acct['id'],
+                Clock::db(Clock::fromDb($now)->modify('-' . self::API_AGAIN_HOURS . ' hours')), self::addDays(ReportRefresh::ukDay($now), -self::REPLAN_DAYS)]);
+    }
+
+    /**
      * Every live bill of the account of the last REPLAN_DAYS with money not on an order placed again (PGL4: a CW parcel or a tracking number may
-     * have come); a bill whose places are what they were is not written.
+     * have come); a bill whose places are what they were is not written. Within the run's deadline, resumable (H8 / F11): a run stopped by its
+     * deadline keeps the last bill it placed (p2g_run.replan_after) and the next run goes on after it; a bill whose money is only before CW
+     * start with every tracking number known is left (nothing can move it).
      *
      * @param array<string, int> $sum
      */
-    private function replan(Caller $caller, array $acct, array &$sum): void
+    private function replan(Caller $caller, array $acct, int $run, ?float $deadline, array &$sum): void
     {
         $since = self::addDays(ReportRefresh::ukDay($this->now()), -self::REPLAN_DAYS);
+        $after = (int) ($this->db->value("SELECT replan_after FROM p2g_run WHERE account_id = ? AND kind = 'pull' AND id < ? AND state <> 'running' ORDER BY id DESC LIMIT 1",
+            [$acct['id'], $run]) ?? 0);
         $bills = array_map('intval', $this->db->column("SELECT DISTINCT i.id FROM carrier_invoice i JOIN carrier_allocation a ON a.invoice_id = i.id AND a.ended_at IS NULL "
-            . "AND a.dest <> 'order' WHERE i.carrier = ? AND i.account = ? AND i.status = 'live' AND i.period_to >= ? ORDER BY i.id", [self::CARRIER, $acct['account_no'], $since]));
+            . "AND a.dest <> 'order' WHERE i.carrier = ? AND i.account = ? AND i.status = 'live' AND i.period_to >= ? AND i.id > ? AND (a.dest <> 'before_start' "
+            . 'OR EXISTS (SELECT 1 FROM p2g_charge c JOIN p2g_parcel p ON p.account_id = c.account_id AND p.order_line_id = c.order_line_id AND p.tracking_no IS NULL '
+            . 'WHERE c.invoice_id = i.id)) ORDER BY i.id', [self::CARRIER, $acct['account_no'], $since, $after]));
+        $last = null;
         foreach ($bills as $bill) {
+            if ($deadline !== null && microtime(true) >= $deadline - 20) {
+                break;
+            }
             if ($this->place($caller, $acct, $bill)) {
                 $sum['placed']++;
             }
+            $last = $bill;
         }
+        $done = $last === null ? $bills === [] : $last === end($bills);
+        $this->db->exec('UPDATE p2g_run SET replan_after = ? WHERE id = ?', [$done ? null : ($last ?? ($after === 0 ? null : $after)), $run]);
     }
 
     // ---- the money -----------------------------------------------------------------------------------------------------------------
@@ -386,8 +472,13 @@ final class Parcel2Go
      * A basket's invoice stored as ONE Parcel2Go bill (carrier_invoice TX-<n> + a row per label + p2g_charge) with its money placed, in one
      * guarded write. A label it names that CW has not seen is added (source invoice; its tracking number asked for later). Its price rows'
      * labels become priced by it. The same invoice again (by what CW keeps of it): "same". Another reading of the same number: the old bill
-     * superseded, the new one live, the days moved by the difference. Refused (p2g_bill_conflict, nothing written): a label of it that is
-     * another Parcel2Go account's, a top-up, or priced by another live bill.
+     * superseded, the new one live, the days moved by the difference. Refused whole (p2g_bill_conflict, its detail 'refuse' the code; nothing
+     * written; the final review, H3 / M10 / H7): a label of it that is another Parcel2Go account's (other_account), ANY row naming a PrePay
+     * top-up (topup), a price row of a label priced by another live bill (priced_elsewhere), of a label whose known basket is another
+     * (other_basket) or whose known service (Parcel2Go's list or export) is not the row's (service_differs), a price row printing fewer parcels
+     * than CW holds for its label (parcels_differ). A price row printing MORE parcels gives its label the missing parcels (their tracking
+     * numbers asked for later) and the other live bills charging that label are placed again. A label CW saw unpaid is paid by the invoice in
+     * the same write as its state (paid_at and price_state together).
      *
      * @param array<string, mixed> $inv P2gInvoice::read()
      * @return string stored | same | replaced
@@ -396,31 +487,51 @@ final class Parcel2Go
     {
         $this->bills->authoriseWrite($caller);
         $result = 'stored';
-        $this->bills->inLock(function () use ($caller, $acct, $inv, &$result): void {
-            $this->bills->guardedWrite(function (Db $db) use ($caller, $acct, $inv, &$result): array {
-                $conflict = static fn (string $why): CwException => new CwException('p2g_bill_conflict', "Parcel2Go invoice {$inv['invoice_no']} was not stored: {$why}", 409);
+        $grown = [];
+        $this->bills->inLock(function () use ($caller, $acct, $inv, &$result, &$grown): void {
+            $this->bills->guardedWrite(function (Db $db) use ($caller, $acct, $inv, &$result, &$grown): array {
+                $grown = [];
+                $conflict = static fn (string $code, string $why): CwException => new CwException('p2g_bill_conflict', "Parcel2Go invoice {$inv['invoice_no']} was not stored: {$why}",
+                    409, ['refuse' => $code]);
                 $ids = array_values(array_unique(array_map(static fn (array $r): int => (int) $r['order_line_id'], $inv['rows'])));
                 $lines = [];
                 foreach ($db->all('SELECT * FROM p2g_line WHERE order_line_id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ')', $ids) as $l) {
                     if ((int) $l['account_id'] !== $acct['id']) {
-                        throw $conflict('one of its labels is another Parcel2Go account\'s');
+                        throw $conflict('other_account', 'one of its labels is another Parcel2Go account\'s');
                     }
                     $lines[(int) $l['order_line_id']] = $l;
                 }
                 $old = $db->one('SELECT * FROM carrier_invoice WHERE live_key = ?', [self::CARRIER . ':' . $acct['account_no'] . ':' . $inv['invoice_no']]);
                 $priceIds = [];
+                $slots = [];
                 foreach ($inv['rows'] as $r) {
+                    $id = (int) $r['order_line_id'];
+                    $l = $lines[$id] ?? null;
+                    if ($l !== null && $l['kind'] === 'topup') {
+                        throw $conflict('topup', 'one of its rows names a PrePay top-up');
+                    }
                     if ($r['kind'] !== 'price') {
                         continue;
                     }
-                    $l = $lines[(int) $r['order_line_id']] ?? null;
-                    if ($l !== null && $l['kind'] === 'topup') {
-                        throw $conflict('one of its labels is a PrePay top-up');
-                    }
                     if ($l !== null && $l['invoice_id'] !== null && ($old === null || (int) $l['invoice_id'] !== (int) $old['id'])) {
-                        throw $conflict('one of its labels is priced on another invoice');
+                        throw $conflict('priced_elsewhere', 'one of its labels is priced on another invoice');
                     }
-                    $priceIds[] = (int) $r['order_line_id'];
+                    if ($l !== null && $l['transaction_id'] !== null && (int) $l['transaction_id'] !== (int) $inv['transaction_id']) {
+                        throw $conflict('other_basket', 'one of its price rows is a label paid in another basket');
+                    }
+                    if ($l !== null && $l['service_slug'] !== null && !self::stub($l) && (string) $l['service_slug'] !== (string) $r['service']) {
+                        throw $conflict('service_differs', 'one of its price rows is not its label\'s own service');
+                    }
+                    if ($l !== null) {
+                        $held = (int) $db->value('SELECT COUNT(*) FROM p2g_parcel WHERE account_id = ? AND order_line_id = ?', [$acct['id'], $id]);
+                        if ((int) $r['parcels'] < $held) {
+                            throw $conflict('parcels_differ', 'it prints fewer parcels for a label than CW holds for it');
+                        }
+                        if ((int) $r['parcels'] > max($held, (int) $l['parcels'])) {
+                            $slots[$id] = (int) $r['parcels'];
+                        }
+                    }
+                    $priceIds[] = $id;
                 }
                 if ($old !== null && (string) $old['file_sha256'] === (string) $inv['sha256']) {
                     $result = 'same';
@@ -449,6 +560,9 @@ final class Parcel2Go
                         $all[$id]['paid_at'] = $dateAt;
                         $all[$id]['paid_day'] = $date;
                     }
+                    if (isset($slots[$id])) {
+                        $all[$id]['parcels'] = $slots[$id];
+                    }
                 }
                 $rows = [];
                 foreach ($inv['rows'] as $k => $r) {
@@ -459,9 +573,13 @@ final class Parcel2Go
                 $was = $old === null ? [] : self::liveAllocations($db, [(int) $old['id']]);
                 $plan = $this->planBill($db, $acct, $rows, $all);
                 $result = $old === null ? 'stored' : 'replaced';
+                $grown = array_keys($slots);
+                // the verify (after the write) resolves each parcel again WITHOUT the pins this write made (H5 / F9): what it trusts is what was
+                // there before, read again under the guards
+                $mine = self::pinKeys($plan['pins']);
                 return ['before' => self::facts($was), 'after' => self::facts($plan['alloc']), 'versions' => $plan['versions'],
-                    'verify' => fn (Db $db): bool => $this->planBill($db, $acct, $rows, $all)['dests'] === $plan['dests'],
-                    'write' => function (Db $db) use ($caller, $acct, $inv, $old, $stubs, $all, $priceIds, $rows, $plan, $was, $now): void {
+                    'verify' => fn (Db $db): bool => $this->planBill($db, $acct, $rows, $all, $mine)['dests'] === $plan['dests'],
+                    'write' => function (Db $db) use ($caller, $acct, $inv, $old, $stubs, $all, $priceIds, $rows, $plan, $was, $now, $slots): void {
                         foreach ($stubs as $s) {
                             $db->exec('INSERT INTO p2g_line (account_id, order_line_id, transaction_id, source, kind, service_slug, parcels, paid_at, paid_day, price_state, first_at, '
                                 . 'updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [$s['account_id'], $s['order_line_id'], $s['transaction_id'], $s['source'], $s['kind'],
@@ -469,10 +587,15 @@ final class Parcel2Go
                             $this->parcelRows($db, $acct['id'], (int) $s['order_line_id'], (int) $s['parcels']);
                         }
                         foreach ($all as $id => $l) {
-                            // a label CW saw unpaid: paid by this invoice (its day the invoice's)
-                            $db->exec('UPDATE p2g_line SET paid_at = COALESCE(paid_at, ?), paid_day = COALESCE(paid_day, ?), transaction_id = COALESCE(transaction_id, ?), '
-                                . 'updated_at = ? WHERE account_id = ? AND order_line_id = ?', [$l['paid_at'], $l['paid_day'],
-                                    in_array($id, $priceIds, true) ? $inv['transaction_id'] : null, $now, $acct['id'], $id]);
+                            // a label CW saw unpaid: paid by this invoice (its day the invoice's), its state with it in the same write (H6 / F3: never
+                            // paid and unpaid at once); a price row printing more parcels than CW held: the label's missing parcels
+                            $db->exec("UPDATE p2g_line SET price_state = IF(price_state = 'unpaid', ?, price_state), paid_at = COALESCE(paid_at, ?), "
+                                . 'paid_day = COALESCE(paid_day, ?), transaction_id = COALESCE(transaction_id, ?), parcels = GREATEST(parcels, ?), updated_at = ? '
+                                . 'WHERE account_id = ? AND order_line_id = ?', [self::stateFor($acct, (string) $l['kind'], (string) $l['paid_day']), $l['paid_at'], $l['paid_day'],
+                                    in_array($id, $priceIds, true) ? $inv['transaction_id'] : null, (int) $l['parcels'], $now, $acct['id'], $id]);
+                            if (isset($slots[$id])) {
+                                $this->parcelRows($db, $acct['id'], $id, $slots[$id]);
+                            }
                         }
                         if ($old !== null) {
                             self::endAllocations($db, $was, $now);
@@ -509,7 +632,47 @@ final class Parcel2Go
                     }];
             });
         });
+        if ($grown !== [] && $result !== 'same') {
+            // a label given more parcels: the other live bills charging it (an Extra Payment of it) shared over its parcels again
+            foreach (array_map('intval', $this->db->column("SELECT DISTINCT c.invoice_id FROM p2g_charge c JOIN carrier_invoice i ON i.id = c.invoice_id AND i.status = 'live' "
+                . 'WHERE c.account_id = ? AND c.order_line_id IN (' . implode(', ', array_fill(0, count($grown), '?')) . ') ORDER BY c.invoice_id', [$acct['id'], ...$grown])) as $bill) {
+                $this->place($caller, $acct, $bill);
+            }
+        }
         return $result;
+    }
+
+    /**
+     * A basket's invoice read again by its transaction and stored (M11: a corrected invoice; `--refresh-invoice`): the bill there stays live until
+     * the new reading is read and stored (store(): "replaced", the old superseded); an invoice that does not read leaves it as it is (refused).
+     */
+    public function refreshInvoice(Caller $caller, string $key, P2gApi $api, P2gPdfText $pdf, int $transactionId): string
+    {
+        $this->bills->authoriseWrite($caller);
+        return $this->locked(function () use ($caller, $key, $api, $pdf, $transactionId): string {
+            $acct = self::account($this->db, $key);
+            if (!$acct['on']) {
+                throw new CwException('p2g_off', 'this Parcel2Go account is switched off: nothing was read', 409);
+            }
+            if ($api->account() !== $key) {
+                throw new CwException('p2g_key_refused', 'the Parcel2Go key is for another account: nothing was read', 403);
+            }
+            $this->starts = [];
+            $inv = P2gInvoice::read($pdf->text($api->invoice($transactionId, 'OrderId', null)), null, $transactionId);
+            $r = $this->store($caller, $acct, $inv);
+            Audit::write($this->db, $caller, 'p2g.refresh_invoice', 'carrier_account', (string) $acct['id'], null, ['account' => $key, 'invoice' => $inv['invoice_no'], 'result' => $r]);
+            return $r;
+        });
+    }
+
+    /** @param list<array{0: int, 1: int, 2: int, 3: string, 4: string}> $pins @return array<string, true> "P2G number:parcel" of each */
+    private static function pinKeys(array $pins): array
+    {
+        $out = [];
+        foreach ($pins as [$id, $no]) {
+            $out[$id . ':' . $no] = true;
+        }
+        return $out;
     }
 
     /** The labels a bill's price rows price: priced by it (a top-up never: refused before). @param list<int> $ids */
@@ -549,8 +712,9 @@ final class Parcel2Go
                     return ['before' => [], 'after' => [], 'write' => static fn (Db $db): null => null];
                 }
                 $now = $this->now();
+                $mine = self::pinKeys($plan['pins']);
                 return ['before' => self::facts($was), 'after' => self::facts($want), 'versions' => $plan['versions'],
-                    'verify' => fn (Db $db): bool => $this->planBill($db, $acct, $rows, $all)['dests'] === $plan['dests'],
+                    'verify' => fn (Db $db): bool => $this->planBill($db, $acct, $rows, $all, $mine)['dests'] === $plan['dests'],
                     'write' => static function (Db $db) use ($acct, $was, $want, $plan, $now): void {
                         self::endAllocations($db, $was, $now);
                         self::insertAllocations($db, $want, $now);
@@ -567,11 +731,12 @@ final class Parcel2Go
      * puts money on (DeliveryBills::orderVersions).
      *
      * @param list<array{invoice_id: int, row_no: int, order_line_id: int, net: int, day: string, kind: string}> $rows
-     * @param array<int, array<string, mixed>> $lines by P2G number (a label not stored yet: as it will be)
+     * @param array<int, array<string, mixed>> $lines by P2G number (a label not stored yet: as it will be; its 'parcels' what it will hold)
+     * @param array<string, true> $ignorePins "P2G number:parcel" whose pin is not trusted (the verify: the pins its own write made)
      * @return array{alloc: list<array<string, mixed>>, dests: array<string, array<string, mixed>>, pins: list<array{0: int, 1: int, 2: int, 3: string, 4: string}>,
      *   versions: array<string, string>}
      */
-    private function planBill(Db $db, array $acct, array $rows, array $lines): array
+    private function planBill(Db $db, array $acct, array $rows, array $lines, array $ignorePins = []): array
     {
         $dests = [];
         $pins = [];
@@ -582,10 +747,13 @@ final class Parcel2Go
             $line = $lines[$id];
             $ps = $db->all('SELECT parcel_no, tracking_no, cw_channel_id, cw_order_ref, cw_parcel_ref FROM p2g_parcel WHERE account_id = ? AND order_line_id = ? ORDER BY parcel_no',
                 [$acct['id'], $id]);
-            if ($ps === []) {
-                // a label the invoice adds: its parcels have no tracking number yet
-                for ($i = 1; $i <= max(1, (int) $line['parcels']); $i++) {
-                    $ps[] = ['parcel_no' => $i, 'tracking_no' => null, 'cw_channel_id' => null, 'cw_order_ref' => null, 'cw_parcel_ref' => null];
+            // a label the invoice adds, or a parcel its price row prints that CW did not hold: no tracking number yet
+            for ($i = count($ps) + 1; $i <= max(1, (int) $line['parcels']); $i++) {
+                $ps[] = ['parcel_no' => $i, 'tracking_no' => null, 'cw_channel_id' => null, 'cw_order_ref' => null, 'cw_parcel_ref' => null];
+            }
+            foreach ($ps as $k => $p) {
+                if (isset($ignorePins[$id . ':' . $p['parcel_no']])) {
+                    $ps[$k] = ['cw_channel_id' => null, 'cw_order_ref' => null, 'cw_parcel_ref' => null] + $p;
                 }
             }
             $parcels[$id] = $ps;
@@ -623,13 +791,37 @@ final class Parcel2Go
     }
 
     /**
-     * One parcel's destination (see the class).
+     * One parcel's destination (see the class). Every main-shop outcome (no tracking number after the wait, two CW parcels, another shop, a
+     * cost already there, no CW parcel) of a label paid on or before the main shop's first CW day is before CW start (M9 / F7: never in the
+     * shop's profit before it was in CW); it stays eligible for an order when a CW parcel comes (replan()).
      *
      * @param array<string, mixed> $line
      * @param array<string, mixed> $p its p2g_parcel row
      * @return array{dest: string, how: string, channel_id: ?int, order_ref: ?string, parcel_ref: ?string, held_reason: ?string}
      */
     private function dest(Db $db, array $acct, array $line, array $p): array
+    {
+        $d = $this->destOf($db, $acct, $line, $p);
+        if ($d['dest'] === 'shop') {
+            $start = $this->startDay($db, $acct['main']);
+            if ($start === null || (string) $line['paid_day'] <= $start) {
+                return ['dest' => 'before_start', 'how' => 'before_start', 'channel_id' => $acct['main'], 'order_ref' => null, 'parcel_ref' => null, 'held_reason' => null];
+            }
+        }
+        return $d;
+    }
+
+    /** A shop's first CW day (DeliveryBills::startDay), read once per run. */
+    private function startDay(Db $db, int $channel): ?string
+    {
+        if (!array_key_exists($channel, $this->starts)) {
+            $this->starts[$channel] = DeliveryBills::startDay($db, $channel);
+        }
+        return $this->starts[$channel];
+    }
+
+    /** @return array{dest: string, how: string, channel_id: ?int, order_ref: ?string, parcel_ref: ?string, held_reason: ?string} */
+    private function destOf(Db $db, array $acct, array $line, array $p): array
     {
         if ($p['cw_parcel_ref'] !== null) {
             return ['dest' => 'order', 'how' => 'label', 'channel_id' => (int) $p['cw_channel_id'], 'order_ref' => (string) $p['cw_order_ref'],
@@ -676,11 +868,7 @@ final class Parcel2Go
             return ['dest' => 'order', 'how' => 'label', 'channel_id' => $ch, 'order_ref' => (string) $c['order_ref'], 'parcel_ref' => (string) $c['parcel_ref'],
                 'held_reason' => null];
         }
-        $start = DeliveryBills::startDay($db, $acct['main']);
-        if ($start === null || $day <= $start) {
-            return ['dest' => 'before_start', 'how' => 'before_start', 'channel_id' => $acct['main'], 'order_ref' => null, 'parcel_ref' => null, 'held_reason' => null];
-        }
-        return self::shop($acct, 'no_parcel');
+        return self::shop($acct, 'no_parcel'); // before CW start when paid on or before the shop's start (dest())
     }
 
     /** @return array{dest: string, how: string, channel_id: int, order_ref: null, parcel_ref: null, held_reason: null} the main shop's "not on an order" */
@@ -816,8 +1004,9 @@ final class Parcel2Go
                     } else {
                         $db->exec('UPDATE p2g_line SET service_slug = COALESCE(service_slug, ?), country_iso3 = COALESCE(country_iso3, ?), updated_at = ? WHERE account_id = ? '
                             . 'AND order_line_id = ?', [$l['service_slug'], $l['country'], $now, $acct['id'], $id]);
-                        if (self::stub($k)) {
-                            // first seen as an Extra Payment of another basket: its own day (the export's Created) and its own price due
+                        if (self::stub($k) || ($k['price_state'] === 'unpaid' && $k['kind'] === 'parcel')) {
+                            // first seen as an Extra Payment of another basket, or unpaid when the list last showed it (H6): its own day (the export's
+                            // Created) and its own price due
                             $db->exec('UPDATE p2g_line SET paid_at = ?, paid_day = ?, price_state = ?, updated_at = ? WHERE account_id = ? AND order_line_id = ?',
                                 [$l['paid_at'], $day, self::stateFor($acct, 'parcel', $day), $now, $acct['id'], $id]);
                         }
@@ -853,7 +1042,7 @@ final class Parcel2Go
         });
     }
 
-    /** The account switched off (its jobs stop; nothing counted is removed): the quick stop. */
+    /** The account switched off (its jobs stop; nothing counted is removed): the quick stop, waiting up to STOP_WAIT_SEC for a run to end. */
     public function switchOff(Caller $caller, string $key): void
     {
         $this->locked(function () use ($caller, $key): void {
@@ -863,7 +1052,7 @@ final class Parcel2Go
             $run = $this->startRun($acct, 'switch', $caller);
             $this->endRun($run, 'ok', [], 0, null);
             Audit::write($this->db, $caller, 'p2g.switch_off', 'carrier_account', (string) $acct['id'], null, ['account' => $key]);
-        });
+        }, self::STOP_WAIT_SEC);
     }
 
     /**
@@ -936,8 +1125,10 @@ final class Parcel2Go
             $states[$r['price_state'] . '|' . $r['source']] = (int) $r['n'];
         }
         $money = [];
-        foreach ($db->all("SELECT a.dest, a.how, a.channel_id, COUNT(DISTINCT l.order_line_id) AS n, SUM(a.pence) AS p FROM p2g_line l JOIN carrier_allocation a ON a.invoice_id = l.invoice_id "
-            . "AND a.ended_at IS NULL WHERE {$w} GROUP BY a.dest, a.how, a.channel_id ORDER BY a.dest, a.how, a.channel_id", $p) as $r) {
+        // each live row's own allocations (by invoice AND row), its label the one the row names: every penny once (F1 / M14)
+        foreach ($db->all("SELECT a.dest, a.how, a.channel_id, COUNT(DISTINCT l.order_line_id) AS n, SUM(a.pence) AS p FROM p2g_charge c JOIN carrier_invoice i ON i.id = c.invoice_id "
+            . "AND i.status = 'live' JOIN carrier_allocation a ON a.invoice_id = c.invoice_id AND a.row_no = c.row_no AND a.ended_at IS NULL JOIN p2g_line l "
+            . "ON l.account_id = c.account_id AND l.order_line_id = c.order_line_id WHERE {$w} GROUP BY a.dest, a.how, a.channel_id ORDER BY a.dest, a.how, a.channel_id", $p) as $r) {
             $money[] = ['dest' => (string) $r['dest'], 'how' => (string) $r['how'], 'channel_id' => $r['channel_id'] === null ? null : (int) $r['channel_id'], 'lines' => (int) $r['n'],
                 'pence' => (int) $r['p']];
         }
@@ -993,11 +1184,29 @@ final class Parcel2Go
                 $out[] = ['key' => 'p2g_failed:' . $key, 'kind' => 'p2g_failed', 'detail' => "{$a['name']}: the last Parcel2Go read failed: " . (string) $newest['error'],
                     'data' => ['account' => $key, 'error' => (string) $newest['error']]] + $base;
             }
-            $gap = $db->value("SELECT MAX(started_at) FROM p2g_run WHERE account_id = ? AND kind = 'pull' AND gap_seen = 1", [$a['id']]);
-            $imp = $db->value('SELECT MAX(imported_at) FROM p2g_import WHERE account_id = ?', [$a['id']]);
-            if ($gap !== null && ($imp === null || (string) $imp < (string) $gap)) {
+            // a gap (written with the labels) is cleared only by an export read after it whose days cover it (H8)
+            $gap = $db->one("SELECT r.started_at, r.gap_from, r.gap_to FROM p2g_run r WHERE r.account_id = ? AND r.kind = 'pull' AND r.gap_seen = 1 AND NOT EXISTS "
+                . '(SELECT 1 FROM p2g_import m WHERE m.account_id = r.account_id AND m.imported_at >= r.started_at AND (r.gap_from IS NULL OR m.first_day <= r.gap_from) '
+                . 'AND (r.gap_to IS NULL OR m.last_day >= r.gap_to)) ORDER BY r.id DESC LIMIT 1', [$a['id']]);
+            if ($gap !== null) {
+                $days = $gap['gap_from'] === null ? '' : " ({$gap['gap_from']} to {$gap['gap_to']})";
                 $out[] = ['key' => 'p2g_gap:' . $key, 'kind' => 'p2g_gap', 'detail' => "{$a['name']}: more Parcel2Go labels were made between two reads than Parcel2Go's list shows "
-                    . '(25): some may be missing. Export My Orders (this month) from Parcel2Go and give it to the CW team', 'data' => ['account' => $key, 'since' => (string) $gap]] + $base;
+                    . "(25){$days}: some may be missing. Export My Orders from Parcel2Go for those days and give it to the CW team",
+                    'data' => ['account' => $key, 'since' => (string) $gap['started_at'], 'from' => $gap['gap_from'], 'to' => $gap['gap_to']]] + $base;
+            }
+            // a CW parcel with this account's money and another carrier's cost too (H1 / F10: DPD or Royal Mail matched it after Parcel2Go):
+            // both real costs stay; the order is named to look at (DB15 says it too)
+            $twice = $db->all("SELECT DISTINCT a.channel_id, a.order_ref FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id AND i.status = 'live' "
+                . "AND i.carrier = ? AND i.account = ? WHERE a.ended_at IS NULL AND a.dest = 'order' AND (EXISTS (SELECT 1 FROM carrier_allocation b JOIN carrier_invoice j "
+                . "ON j.id = b.invoice_id AND j.status = 'live' WHERE b.ended_at IS NULL AND b.dest = 'order' AND b.channel_id = a.channel_id AND b.order_ref = a.order_ref "
+                . 'AND b.parcel_ref = a.parcel_ref AND NOT (j.carrier = i.carrier AND j.account = i.account)) OR EXISTS (SELECT 1 FROM carrier_invoice_line l '
+                . "JOIN carrier_invoice k ON k.id = l.invoice_id AND k.status = 'live' WHERE l.match_state = 'matched' AND l.channel_id = a.channel_id AND l.order_ref = a.order_ref "
+                . 'AND l.parcel_ref = a.parcel_ref)) ORDER BY a.channel_id, a.order_ref LIMIT 21', [self::CARRIER, $a['account_no']]);
+            if ($twice !== []) {
+                $refs = array_map(static fn (array $r): string => (string) $r['order_ref'], array_slice($twice, 0, 20));
+                $out[] = ['key' => 'p2g_needs_look:' . $key, 'kind' => 'p2g_needs_look', 'detail' => sprintf('%s: %s%d CW orders have a Parcel2Go label\'s cost and another carrier\'s '
+                    . 'cost on the same parcel (both are counted): look at orders %s and tell the CW team which is right', $a['name'], count($twice) > 20 ? 'more than ' : '',
+                    min(20, count($twice)), implode(', ', $refs)), 'data' => ['account' => $key, 'orders' => $refs]] + $base;
             }
             $limit = Clock::db($now->modify("-{$waitH} hours"));
             $w = $db->one("SELECT COUNT(*) AS n, MIN(paid_at) AS oldest FROM p2g_line WHERE account_id = ? AND price_state IN ('due', 'refused') AND paid_at < ?", [$a['id'], $limit]);
@@ -1042,10 +1251,10 @@ final class Parcel2Go
      * @param \Closure(): T $fn
      * @return T
      */
-    private function locked(\Closure $fn): mixed
+    private function locked(\Closure $fn, int $waitSec = self::LOCK_WAIT_SEC): mixed
     {
         $name = self::LOCK . (string) $this->db->value('SELECT DATABASE()');
-        if ((int) $this->db->value('SELECT GET_LOCK(?, ?)', [$name, self::LOCK_WAIT_SEC]) !== 1) {
+        if ((int) $this->db->value('SELECT GET_LOCK(?, ?)', [$name, $waitSec]) !== 1) {
             throw new CwException('busy', 'another Parcel2Go run holds its lock right now: nothing was done (the next run goes on)', 503);
         }
         try {

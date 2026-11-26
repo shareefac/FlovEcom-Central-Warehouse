@@ -66,6 +66,13 @@ final class P2gApi
         return $this->calls;
     }
 
+    /** A new token asked for with this key (a pasted key is set only once this works: P2gKeyDrop::take). */
+    public function proveToken(): void
+    {
+        $this->token = null;
+        $this->token();
+    }
+
     /**
      * The account's most recent order lines, as CW keeps them.
      *
@@ -157,7 +164,8 @@ final class P2gApi
         $hash = is_string($o['Hash'] ?? null) && preg_match('/^[A-Za-z0-9+\/=_-]{8,128}$/D', $o['Hash']) === 1 ? $o['Hash'] : null;
         return ['order_line_id' => $olid, 'transaction_id' => is_int($tx) && $tx > 0 ? $tx : null,
             'paid_at' => $paid === null ? null : (is_string($paid) ? self::utc($paid, $n) : throw new CwException('p2g_shape', "line {$n} of Parcel2Go's list has a paid date CW cannot read", 502)),
-            'service_slug' => is_string($o['ServiceSlug'] ?? null) ? self::slug($o['ServiceSlug'], 64) : null,
+            // the service as its NAME's slug, as the invoice prints it (a price row must be the label's own service: Parcel2Go::store); no name: unknown
+            'service_slug' => is_string($o['Service'] ?? null) ? self::slug($o['Service'], 64) : null,
             'courier_slug' => is_string($o['Courier'] ?? null) ? self::slug($o['Courier'], 40) : null, 'p2g_source' => $source,
             'kind' => $source === 'AutoTopup' ? 'topup' : 'parcel', 'country_iso3' => $country, 'parcels' => max(1, min(50, $parcels)), 'doc_hash' => $hash];
     }
