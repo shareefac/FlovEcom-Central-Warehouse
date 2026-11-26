@@ -152,7 +152,7 @@ final class SetItYourselfScreensTest extends KernelUiTestCase
         self::assertNotNull((new \DOMXPath($page->dom()))->query('//article[@id="rule-PO"]')->item(0), 'the purchase orders\' rule');
         self::assertFalse($page->hasForm('/ui/reference/approvals'), 'a buyer looks');
         self::assertSame(['/ui/reference/company', '/ui/reference/warehouses', '/ui/reference/access', null, '/ui/reference/reasons',
-            '/ui/reference/expense-types' /* 0079, EX10 */, '/ui/reference/settings', '/ui/reference/series'], array_column(self::segments($page), 'href'), 'the Settings pages a buyer may open, its Show (RD7; the one shown: no link, CV13)');
+            '/ui/reference/expense-types' /* 0079, EX10 */, '/ui/reference/own-items' /* 0083, VB4 */, '/ui/reference/settings', '/ui/reference/series'], array_column(self::segments($page), 'href'), 'the Settings pages a buyer may open, its Show (RD7; the one shown: no link, CV13)');
         self::assertSame(['Settings', null], [self::currentSection($page), self::currentTab($page)]);
 
         $rev = $this->signIn($this->uiUser('reviewer'));
@@ -622,7 +622,8 @@ final class SetItYourselfScreensTest extends KernelUiTestCase
     {
         $web = $this->signIn($this->uiUser('reviewer'));
         self::assertSame([null, '/ui/reference/warehouses', '/ui/system/sites', '/ui/system/apis', '/ui/reference/access', '/ui/reference/approvals',
-            '/ui/reference/reasons', '/ui/reference/expense-types' /* 0079, EX10 */, '/ui/reference/settings', '/ui/reference/series', '/ui/system/checks', '/ui/system/audit'],
+            '/ui/reference/reasons', '/ui/reference/expense-types' /* 0079, EX10 */, '/ui/reference/own-items' /* 0083, VB4 */, '/ui/reference/settings',
+            '/ui/reference/series', '/ui/system/checks', '/ui/system/audit'],
             array_column(self::segments($web->get('/ui/reference/company')), 'href'), 'Settings\' one Show (RD7; the one shown: no link, CV13)');
         self::assertSame([['Audit log', null, true]], array_values(array_filter(array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current']],
             self::segments($web->get('/ui/system/audit'))), static fn (array $t): bool => $t[0] === 'Audit log')), 'Settings › Audit log (RD7)');

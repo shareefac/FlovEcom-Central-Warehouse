@@ -186,7 +186,7 @@ final class RedesignCTemplatesTest extends TestCase
         $nav = $t['settings_nav'];
         self::balanced('settings_nav', $nav);
         self::assertStringContainsString('ReferenceController::settingsSections($who)', $nav);
-        self::assertSame(['company', 'warehouses', 'sites', 'apis', 'people', 'approvals', 'reasons', 'expense_types', 'settings', 'series', 'integrity', 'audit'],
+        self::assertSame(['company', 'warehouses', 'sites', 'apis', 'people', 'approvals', 'reasons', 'expense_types', 'own_items' /* 0083, VB4 */, 'settings', 'series', 'integrity', 'audit'],
             array_keys(\CW\Ui\Controller\ReferenceController::SETTINGS_SECTIONS), 'the artboard\'s order, APIs after Stores (0063, AK9), Expense types after Reasons (0079, EX10)');
         self::assertStringContainsString('<a class="set-nav-item" aria-current="page">', $nav, 'the section shown is not a link');
         self::assertSame(['Company', 'Warehouses', 'Stores', 'APIs', 'Users and roles', 'Approval rules', 'Reasons', 'Expense types', 'Rules and numbers', 'Numbering',
