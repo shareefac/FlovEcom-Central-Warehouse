@@ -22599,6 +22599,7 @@ covered by the link guards (a link decision and a sale's owner read the item's r
 names the item. The kit's one run holds the items' rows at most 3 s (Db::waitsUntil; past it, rolled back whole). **VB12** a batch tool's
 work on an order that has nothing left to write still takes the order's intake lock and reads the queue at its end (a correction stored
 meanwhile = deferred), and a re-cost counts an order whose guard or rows another money writer holds as deferred and goes on to the next.
+
 ## Global Payments' card fees in Real profit (CW-1174, branch `gp-fees`, 26 Nov 2026; GPF1-GPF14; migration 0084)
 
 The owner (CW chat, 26 Nov 2026 ~14:10 UK), after the lead's proposal: "Yes, do that, estimate is fine." Global Payments gives no daily charge
