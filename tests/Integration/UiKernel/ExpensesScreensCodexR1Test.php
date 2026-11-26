@@ -193,7 +193,7 @@ final class ExpensesScreensCodexR1Test extends KernelUiTestCase
             $real = $rev->get('/ui/profit/real');
             self::assertSame(200, $real->status, $real->describe());
             self::assertSame([Words::PROFIT['real_sales'], Words::PROFIT['real_cost'], Words::PROFIT['real_delivery_charged'], Words::PROFIT['real_delivery'],
-                Words::PROFIT['real_fees'], Words::PROFIT['real_fees_other']], array_column(self::rows($real, 'real-profit'), 0),
+                Words::PROFIT['real_fees'], Words::PROFIT['real_fees_other'], Words::PROFIT['real_gp']], array_column(self::rows($real, 'real-profit'), 0),
                 'no expenses, regular costs or real profit without expenses.view (CW-1172: the fees\' "not on an order" line stays: not an expense)');
             self::assertStringContainsString(Words::PROFIT['real_no_expenses'], $real->text());
             $head = static fn (UiResponse $r): array => array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
