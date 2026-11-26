@@ -11,9 +11,9 @@ use CW\Tests\Support\IntegrationTestCase;
 use CW\Tests\Support\MigrationFixture;
 
 /**
- * 0086 (CW-1152, goods in without the supplier invoice, per supplier; docs/decisions.md NI1), applied to a scratch schema at the file before
- * it: it only ADDS one supplier column, INSTANTLY, 0 for every supplier (nothing changes for anyone until a person ticks a supplier); no row
- * changed or deleted; a second run changes nothing (a tick set meanwhile stays). It does not need 0085 (Parcel2Go, built on another branch):
+ * 0086 (CW-1152, goods in without the supplier invoice, per supplier; docs/decisions.md NI1, NI8), applied to a scratch schema at the file
+ * before it: it only ADDS two columns, INSTANTLY: supplier.goods_in_without_invoice, 0 for every supplier (nothing changes for anyone until a
+ * person ticks a supplier), and supplier_invoice.separate_delivery (NULL: no invoice confirmed as a separate delivery); no row changed or deleted; a second run changes nothing (a tick set meanwhile stays). It does not need 0085 (Parcel2Go, built on another branch):
  * 0086 goes in with 0085 missing, and an 0085 that comes later is applied after it.
  */
 final class Migration0086Test extends IntegrationTestCase
@@ -32,7 +32,7 @@ final class Migration0086Test extends IntegrationTestCase
     {
         $sql = (string) file_get_contents(dirname(__DIR__, 2) . '/migrations/' . self::FILE);
         self::assertDoesNotMatchRegularExpression('/\bDELETE\s+FROM\b|\bUPDATE\s+\w+\s+SET\b|\bDROP\b|\bCREATE\b|\bINSERT\b/i', $sql, 'nothing deleted, changed, made or added but the column');
-        self::assertSame(1, substr_count($sql, "ALGORITHM = INSTANT'"), 'the ALTER is instant (a copy fails instead of running)');
+        self::assertSame(2, substr_count($sql, "ALGORITHM = INSTANT'"), 'each ALTER is instant (a copy fails instead of running)');
         $files = array_map('basename', glob(dirname(__DIR__, 2) . '/migrations/*.sql') ?: []);
         sort($files, SORT_STRING);
         $at = array_search(self::FILE, $files, true);
@@ -50,6 +50,8 @@ final class Migration0086Test extends IntegrationTestCase
         self::assertSame(['tinyint(1)', 'NO', '0'], array_values(array_map('strval', $col)));
         $after = (array) $db->one("SELECT * FROM supplier WHERE code = 'OLDSUP'");
         self::assertSame('0', (string) $after['goods_in_without_invoice'], 'every supplier off at install');
+        self::assertSame(['varchar(500)', 'YES', ''], array_values(array_map('strval', (array) $db->one("SELECT COLUMN_TYPE, IS_NULLABLE, COALESCE(COLUMN_DEFAULT, '') "
+            . "FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'supplier_invoice' AND column_name = 'separate_delivery'"))));
         unset($after['goods_in_without_invoice']);
         self::assertSame($before, $after, 'nothing else of the supplier changed');
 

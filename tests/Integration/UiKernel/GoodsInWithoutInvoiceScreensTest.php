@@ -96,7 +96,7 @@ final class GoodsInWithoutInvoiceScreensTest extends KernelUiTestCase
         (new ItemCards(self::$db))->save(Caller::staff($this->uiUser('stock_controller')['id']), $sku, 0, ['product_type' => 'coil', 'duty_liable' => 'no']);
         $docs = new Documents(self::$db, DocumentHandlers::all(self::$db));
         $grns = new GoodsReceipts(self::$db, $docs, null, fn (): FileStore => new FileStore(self::$db, new LocalFileStorage($this->dir . '/store')));
-        $d = $grns->createDraft($desk, $sid, []);
+        $d = $grns->createDraft($desk, $sid, ['delivery_note' => 'PAGE-SCR-1']); // without the number the page is compulsory (H1)
         $d = $grns->saveDraft($desk, $d->id, $d->version, [], [['sku_id' => $sku, 'packs' => 4, 'units_per_pack' => 1, 'pack_price' => '2.50']]);
         $d = $grns->bench(Caller::staff($this->uiUser('goods_in')['id']), $d->id, $docs->get($d->id)->version, ['paperwork_ok' => '1'],
             [1 => ['stamp_on_pack' => '1', 'stamp_type' => 'digital']]);
@@ -112,6 +112,9 @@ final class GoodsInWithoutInvoiceScreensTest extends KernelUiTestCase
         $grnPage = $web->get('/ui/receiving/' . $p->id);
         self::assertSame(200, $grnPage->status, $grnPage->describe());
         self::assertStringContainsString(Words::RECEIPT['invoice_to_come'], $grnPage->text());
+        // L9: its Files section says nothing must be attached before booking (it is booked): a neutral line.
+        self::assertStringNotContainsString(Words::RECEIPT['files_none'], $grnPage->text());
+        self::assertStringContainsString(Words::RECEIPT['files_none_posted'], $grnPage->text());
         $list = $web->get('/ui/purchasing/invoices/not-invoiced');
         self::assertSame(200, $list->status, $list->describe());
         self::assertStringContainsString((string) $p->number, $list->text());
@@ -123,5 +126,19 @@ final class GoodsInWithoutInvoiceScreensTest extends KernelUiTestCase
             'the invoice is started with no number: the desk types it from the paper');
         $inv = $web->get('/ui/purchasing/invoices/' . $m[1]);
         self::assertSame(200, $inv->status, $inv->describe());
+
+        // H2: "New invoice" with a line of the same product, no delivery named: the page names the delivery waiting and takes "a separate delivery".
+        $si = new \CW\Invoices\SupplierInvoices(self::$db, $docs, fn (): FileStore => new FileStore(self::$db, new LocalFileStorage($this->dir . '/store')));
+        $other = $si->createDraft($desk, 'invoice', $sid, ['invoice_number' => 'SCR-SEP-1', 'invoice_date' => gmdate('Y-m-d', time() - 86400)]);
+        $other = $si->saveLines($desk, $other->id, $other->version, [['kind' => 'goods', 'sku_id' => $sku, 'packs' => 4, 'units_per_pack' => 1, 'pack_price' => '2.5000']]);
+        $page = $web->get('/ui/purchasing/invoices/' . $other->id);
+        self::assertSame(200, $page->status, $page->describe());
+        self::assertStringContainsString((string) $p->number, $page->text(), 'the delivery waiting for its invoice is named');
+        $sep = '/ui/purchasing/invoices/' . $other->id . '/separate';
+        self::assertTrue($page->hasForm($sep), 'the confirmation form');
+        $r = $web->post($sep, ['separate' => '1', 'separate_reason' => 'Another delivery came the next day'] + $page->form($sep));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame('Another delivery came the next day', self::$db->value('SELECT separate_delivery FROM supplier_invoice WHERE document_id = ?', [$other->id]));
+        self::assertFalse($web->follow($r)->hasForm($sep), 'confirmed: nothing to confirm any more');
     }
 }
