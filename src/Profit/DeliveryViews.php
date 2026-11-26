@@ -27,7 +27,8 @@ final class DeliveryViews
     }
 
     /**
-     * The bills, newest upload first, each with its lines on orders, on no order and before CW start.
+     * The bills, newest upload first, each with its lines on orders, on no order and before CW start. Parcel2Go's (0085: one per checkout basket,
+     * several a day) are on Profit > Delivery bills > Parcel2Go (docs/decisions.md PGL11), never here.
      *
      * @return list<array<string, mixed>>
      */
@@ -35,7 +36,7 @@ final class DeliveryViews
     {
         $rows = $this->db->all('SELECT i.id, i.carrier, i.account, i.invoice_no, i.period_from, i.period_to, i.net_pence, i.line_count, i.status, i.uploaded_actor, '
             . 'i.uploaded_at, i.ended_actor, c.name AS shop, u.display_name AS uploaded_name FROM carrier_invoice i JOIN channel c ON c.id = i.channel_id '
-            . 'LEFT JOIN staff_user u ON u.id = i.uploaded_by ORDER BY i.uploaded_at DESC, i.id DESC LIMIT ' . self::LIST_LIMIT);
+            . "LEFT JOIN staff_user u ON u.id = i.uploaded_by WHERE i.carrier <> 'parcel2go' ORDER BY i.uploaded_at DESC, i.id DESC LIMIT " . self::LIST_LIMIT);
         if ($rows === []) {
             return [];
         }

@@ -22752,3 +22752,58 @@ failed or was killed has its days gone over by the next 10-minute run, once (the
 reads name the primary key; writing a fee row takes InnoDB's shared lock of its order for the foreign key, harmless (L7). The kit's
 double-count check reads Electrofag too, takes more names, reads the lead's reviewed ids at each step from the box (never pinned in the kit
 folder), runs before any setting of the switch, and only says it (no stop) once Vape and Go Online is on with the kit's values (L1-L3).
+
+## CW-1160 Parcel2Go labels in the delivery cost (0085; design cw_work/runs/P2G_STATE.md "PHASE A DESIGN"; the owner, 26 Nov 2026: "start parcel2go", Q1-Q3; the lead's D1-D9)
+
+**PGL1. What Parcel2Go gives.** Its public API (https://www.parcel2go.com/api/swagger/docs/v1, read 26 Nov 2026) has no list of labels by date and no
+price as data: the account's 25 most recent order lines (GET /api/me/orders/detail: no price, no tracking number, no status), each label's
+courier tracking number once scanned (GET /api/tracking/{P2G number}), and the invoice PDF (GET /api/invoices/{n}?referenceType=OrderId|
+OrderLineId). The owner's real invoice (TX-95792472, 26 Nov) is ONE PER CHECKOUT BASKET, a row per label ("P2G<n> - <service> | parcels |
+net | VAT"), an "Extra Payment" row a later charge of an EARLIER label; international rows have VAT £0.00. The export (My Orders CSV) has no
+price. So: the labels from the recent list every 10 minutes and from the export for the backfill; the price from the basket's invoice.
+**PGL2. Switched off as installed.** Two accounts (carrier_account, carrier parcel2go, family per_charge): p2g_vapeandgo (main shop Vape and
+Go) and p2g_vapebig (main shop Vape Big), each serving Vape and Go, Vape Big and Electrofag. An account counts only while its state is active
+AND its first day is set (delivery.p2g_from_<shop>): only the go-live kit's switch step sets both (bin/p2g_pull.php --switch-on). Emptying the
+first day is the quick stop (nothing more read, nothing counted removed).
+**PGL3. A label.** p2g_line per P2G number (fields filled only when empty, whichever source came first: api, report, invoice), its parcels
+(p2g_parcel) with their tracking numbers (taken only when Parcel2Go names as many new numbers as the label has parcels without one: never a
+guess). A label is DUE for its price when it is paid on or after its account's first day; written due before anything is asked (a run that
+stops leaves it due). A top-up (Source AutoTopup, a prepayment invoice, a "top up" row) is never a cost (PGL7).
+**PGL4. Where a label's money goes** (the owner's Q2; DL86 "no hold"). Each row of a bill goes on the parcels of the label it NAMES, shared
+over them (PooledPlanner::shares): a parcel pinned before: its order (sticky); no tracking number yet: held `no_tracking` up to
+delivery.p2g_tracking_wait_days (3), then the main shop's "not on an order" until the number comes; the number on exactly one CW parcel (not
+removed, its label day 3 days before to 14 days after the label's paid day, ANY carrier word) of a shop the account serves: that order, in
+THAT order's shop (a Vape Big account label of a Vape and Go order: Vape and Go's); two CW parcels, a shop not served, the parcel already
+holding another carrier account's cost (`costed_twice`), the number on another Parcel2Go label (`tracking_twice`): the main shop's line (to
+look at, never a guessed order); no CW parcel: before CW start when the label's paid day is on or before the main shop's start (Vape Big
+before 17 Nov), else the main shop's line (`no_parcel`). Never by any reference. On an order it counts on the order's paid day (DL11); on the
+main shop's line on the row's own day. The money on no order moves to the order when its parcel or number comes (every run, 60 days back).
+**PGL5. A bill = a basket's invoice.** carrier_invoice (TX-<transaction>, the account's main shop, net / VAT / gross as printed, the
+fingerprint of what CW keeps of it), a carrier_bill_row per row (SVC a price, SURCH an Extra Payment; VAT code S or Z), its p2g_charge (the
+label it names), every penny as carrier_allocation (kind row): DeliveryBills::orderCost / dayFigures and ProfitDays::compute read them
+unchanged. The same invoice again: nothing. Another reading of the same number: the old superseded, its labels priced by the new. A label of
+another account, a top-up, or a label priced on another live invoice: refused whole (`bill_conflict`). A label the invoice names that CW has
+not seen is added (source invoice, its day the invoice's).
+**PGL6. The key** (the owner's Q3; D4, D6). He creates one API client per account (Client Credentials) and pastes its Client ID and secret on
+Profit > Delivery bills > Parcel2Go > Keys (the Delivery bills job: staff 1 and 2): the web app only DROPS it (P2gKeyDrop, 0600 in its own
+folder, a nonce audited, never shown back or logged); the root job takes it into /etc/cw/<account>.key.json (root:root 0600) and removes the
+drop. CW asks for a `public-api` token only (it cannot pay) and sends only P2gApi::CALLS (GETs and the token POST; a test proves every other
+call is refused before a request). A `payment` token, if the probe shows invoices need it, only in the lead's one-off backfill (D4).
+**PGL7. The invoice is read strictly** (P2gInvoice, the real layout; the text by pdftotext -layout run as nobody, behind P2gPdfText): every
+line with money is a row "P2G<n> - <description>  <parcels>  £net  £vat", or Net, VAT, Invoice Total once each; the rows add up to them to
+the penny; a row's VAT is 0 or 20% of its net (within a penny); a row below 0, an unknown row or line, a label twice: the WHOLE invoice
+refused (the label `refused` with the reason; tried again after the reader is put right: --retry-refused). Never the text kept.
+**PGL8. The export** (P2gCsv): by column names; kept Reference, Created, Country, Service, TrackingNumber (Customer, Postcode, Product, Value,
+Sku, Tags, CustomerReference never read); one bad row refuses the file. Proved the account's FIRST: at least 5 of its labels (all, when
+fewer) already known for THIS account and none of another account's.
+**PGL9. The job and the alerts.** bin/p2g_pull.php per account every 10 minutes (root; deadline 240 s; one Parcel2Go run at a time):
+p2g_not_read (no good run for an hour), p2g_failed, p2g_gap (a full list of 25 labels all new: some may be missing; until an export is read),
+p2g_waiting (paid labels without a price after delivery.p2g_price_wait_hours, 6).
+**PGL10. Checks** (P2gInvariants, nightly): DB7 and DB8 for Parcel2Go's bills; DB13 every row names one label of its account; DB14 one live
+price a label, a priced label names its live bill; DB15 no parcel with Parcel2Go money and another carrier account's cost; DB16 money on an
+order is on a parcel pinned to its label; DB17 no order's Parcel2Go money below 0; DB18 no row of a top-up.
+**PGL11. The screens.** Profit > Delivery bills > Parcel2Go: the accounts (on from / off, read up to, labels, where the money went) and the
+newest 200 labels (price without VAT, where it went); the known limit said (a refund paid back to a card is not seen: Q1). The Delivery bills
+list leaves Parcel2Go's bills out (several a day). An order's page shows its Parcel2Go cost per parcel (the allocations, as Royal Mail's).
+**PGL12. Undo.** The release before (15e32fa) with 0085 added byte for byte (RollbackReleaseTest); the kit's undo: switch off, then every
+Parcel2Go bill of the account undone (--undo-all: its days moved back, its labels due again), under the Parcel2Go lock.

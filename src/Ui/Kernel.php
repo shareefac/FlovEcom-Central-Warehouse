@@ -74,6 +74,7 @@ use CW\Ui\Controller\WarehousesController;
 use CW\Ui\Controller\FamiliesController;
 use CW\Ui\Controller\HandMadeController;
 use CW\Ui\Controller\PacksController;
+use CW\Ui\Controller\Parcel2GoController;
 use CW\Ui\Controller\RepackController;
 
 /**
@@ -658,6 +659,11 @@ final class Kernel
         $r->add('POST', DeliveryBillsController::PATH . '/labels', DeliveryBillsController::PERM_UPLOAD, $bills->labels(...));
         // a Royal Mail bill's PDF or photo Claude reads for the person who sent it (CW-1182, AI3): the page that waits, then the check
         $r->add('GET', DeliveryBillsController::PATH . '/read/{id}', DeliveryBillsController::PERM_UPLOAD, $bills->reading(...));
+        // Parcel2Go (CW-1160, 0085; docs/decisions.md PGL11): its labels (Finance and the Delivery bills job look) and the write-only key page (the job)
+        $p2g = new Parcel2GoController();
+        $r->add('GET', Parcel2GoController::PATH, Parcel2GoController::PERM_VIEW, $p2g->lines(...));
+        $r->add('GET', Parcel2GoController::PATH . '/key', Parcel2GoController::PERM_KEY, $p2g->keyPage(...));
+        $r->add('POST', Parcel2GoController::PATH . '/key', Parcel2GoController::PERM_KEY, $p2g->key(...));
         $r->add('GET', DeliveryBillsController::PATH . '/{id}', DeliveryBillsController::PERM_VIEW, $bills->bill(...));
         $r->add('POST', DeliveryBillsController::PATH . '/{id}/replace', DeliveryBillsController::PERM_UPLOAD, $bills->replace(...));
         $r->add('POST', DeliveryBillsController::PATH . '/{id}/undo', DeliveryBillsController::PERM_UPLOAD, $bills->undo(...));

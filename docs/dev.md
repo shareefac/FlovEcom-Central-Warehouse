@@ -1629,3 +1629,15 @@ The poll of an open draft order and the rule that it keeps no session alive. Not
   permission's row and section. Runner: `/root/cw_work/runs/profit_run.sh`,
   `profit_full.sh <tag>` (its last part runs tests/Integration/Profit and Migration0074Test, which part C's list does not name).
 
+
+## Parcel2Go (CW-1160, 0085; docs/decisions.md PGL1-PGL12)
+
+| Where | What |
+|---|---|
+| `src/Profit/Parcel2Go.php` | the service: `run()` (the 10-minute job: recent labels, tracking numbers, the baskets' invoices, the money placed again), `store()` (a basket's invoice as ONE bill, guarded write), `place()`, `import()` (the export), `switchOn/Off`, `undoAll`, `retryRefused`, `status`, `health` |
+| `src/Profit/P2gApi.php`, `P2gHttp.php`, `CurlP2gHttp.php`, `P2gKey.php`, `P2gKeyDrop.php` | the read-only client (`CALLS`, `public-api` token), the key file (root:root 0600), the key page's drop and the job's take |
+| `src/Profit/P2gInvoice.php`, `P2gPdfText.php`, `PdftotextText.php`, `P2gCsv.php` | the strict readers: the basket invoice (the real layout), its text (pdftotext as nobody), the My Orders export |
+| `src/Profit/P2gInvariants.php` | DB13-DB18 (from `DeliveryInvariants::check`) |
+| `bin/p2g_pull.php`, `deploy/*/cw-*.cron` | the job and its two cron lines (per account) |
+| `src/Ui/Controller/Parcel2GoController.php`, `views/profit_parcel_{labels,keys}.php` | Profit > Delivery bills > Parcel2Go and its write-only key page |
+| `tests/Unit/P2g{Api,Csv,Invoice}Test.php`, `tests/Integration/Profit/Parcel2GoTest.php`, `tests/Integration/UiKernel/Parcel2GoScreensTest.php`, `Migration0085Test` | the tests (Parcel2Go never called: `tests/Support/{P2gFixtures,FakeP2gHttp,FakePdfText}.php`) |

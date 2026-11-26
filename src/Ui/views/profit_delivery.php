@@ -15,6 +15,7 @@ $gbp = static fn (int $p): string => \CW\Profit\DpdInvoiceFile::gbp($p);
 $accept = ($aiOn ?? false) ? '.csv,text/csv,.html,.htm,text/html,.pdf,application/pdf,image/jpeg,image/png,image/webp,image/gif' : '.csv,text/csv,.html,.htm,text/html';
 ?>
 <?= $head(\CW\Ui\Words::MENU['profit_delivery'], intro: 'profit_delivery', aside: $explain('delivery_bills', \CW\Ui\Words::MENU['profit_delivery'])) ?>
+<p><a href="/ui/profit/delivery/parcel2go"><?= $word('DELIVERY', 'p2g_link') ?></a></p>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
