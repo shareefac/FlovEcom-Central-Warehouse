@@ -37,7 +37,8 @@ abstract class IntegrationTestCase extends TestCase
             . "WHEN 'profit.gp_rate_vpg_online' THEN CAST('\"1.01\"' AS JSON) WHEN 'profit.gp_until_ef_online' THEN CAST('\"2026-12-24\"' AS JSON) "
             . "WHEN 'profit.gp_shops_ef_online' THEN CAST('\"electrofag\"' AS JSON) WHEN 'profit.gp_rate_ef_online' THEN CAST('\"2.28\"' AS JSON) "
             . "WHEN 'profit.gp_expense_suppliers' THEN CAST('\"Global Payments,GlobalPay,Global Pay\"' AS JSON) "
-            . "WHEN 'profit.gp_takings_gap_pct' THEN CAST('\"10\"' AS JSON) ELSE CAST('\"\"' AS JSON) END WHERE setting_key LIKE 'profit.gp\\_%'");
+            . "WHEN 'profit.gp_takings_gap_pct' THEN CAST('\"10\"' AS JSON) WHEN 'profit.gp_invoice_late_days' THEN CAST('12' AS JSON) "
+            . "ELSE CAST('\"\"' AS JSON) END WHERE setting_key LIKE 'profit.gp\\_%'");
         // "Claude reads the upload" (0082, AI7) starts back at its seeded state after a test that set it: off, no key, the month's limit and
         // the prices as seeded (a schema before 0082 has none of these rows: nothing changes).
         self::$db->exec("UPDATE app_setting SET value_json = CASE setting_key WHEN 'ai.read_uploads' THEN CAST('false' AS JSON) "
