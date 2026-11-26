@@ -124,7 +124,9 @@ final class OwnItemsReviewR1Test extends InvoicesTestCase
         [$h, $o] = $this->two();
         self::$db->exec("UPDATE profit_job SET mark_at = '2026-11-19 09:00:00' WHERE job = 'item_cost'"); // the cost job has not reached the sale yet
         $this->store('9502', [self::sl('8521', '40101', 599), self::sl('8522', '40103', 1200)]);
-        self::$db->exec("UPDATE sale_line SET cost_source = 'cw_cost', unit_cost_e4 = 36250, cost = 363, costed_by = 'sale', cost_at = NOW(6) WHERE line_id = '8521'");
+        // the listed line's cost fixed (as the cost job fixes it: through the money service, its order and day following); the other line still waits
+        (new OrderSnapshots(self::$db))->recompute((int) $this->vbs->channelId, '9502', ['8521' => ['e4' => 36250, 'source' => 'cw_cost', 'by' => 'sale']], true);
+        self::assertSame(363, (int) self::$db->value("SELECT cost FROM sale_line WHERE line_id = '8521'"));
         self::$db->exec("UPDATE profit_job SET mark_at = '2030-01-01' WHERE job = 'item_cost'"); // ... and now it has: the unlisted line could be fixed
         $before = self::$db->one("SELECT cost_source, unit_cost_e4, cost, costed_by, cost_at FROM sale_line WHERE line_id = '8522'");
         self::assertNull($before['cost_source']);
