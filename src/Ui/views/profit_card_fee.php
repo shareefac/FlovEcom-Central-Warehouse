@@ -73,7 +73,7 @@ $acctName = $P['gp_account_' . $inv['account']] ?? (string) $inv['account'];
   <p class="muted"><?= $word('PROFIT', 'gp_delete_note') ?></p>
   <div class="field"><label for="gpd-reason"><?= $word('PROFIT', 'gp_reason') ?></label><input id="gpd-reason" type="text" name="reason" maxlength="500" required></div>
   <label class="choice"><input type="checkbox" name="sure" value="1" required> <?= $word('PROFIT', 'gp_sure') ?></label>
-  <p class="actions"><button type="submit" class="btn danger"><?= $word('PROFIT', 'gp_delete') ?></button></p>
+  <p class="actions"><button type="submit" class="btn risky"><?= $word('PROFIT', 'gp_delete') ?></button></p>
 </form>
 <?php endif; ?>
 
