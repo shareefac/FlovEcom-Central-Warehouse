@@ -26,10 +26,16 @@ final class Purchasing
     {
     }
 
-    /** @return array{items: list<array<string, mixed>>, next_after_sku: ?int} */
-    public function report(int $afterSku = 0, int $limit = self::DEFAULT_LIMIT): array
+    /**
+     * CW-1153 (docs/decisions.md VB15): with $channelId (the shop calling), an item that is ANOTHER shop's own goods now is not in its
+     * report at all (neither its stock nor its sales): only its own shop sees it.
+     *
+     * @return array{items: list<array<string, mixed>>, next_after_sku: ?int}
+     */
+    public function report(int $afterSku = 0, int $limit = self::DEFAULT_LIMIT, ?int $channelId = null): array
     {
         $limit = max(1, min($limit, self::MAX_LIMIT));
+        $notTheirs = $channelId === null ? '' : ' AND NOT EXISTS (SELECT 1 FROM item_owner p WHERE p.sku_id = s.id AND p.to_at IS NULL AND p.channel_id <> ?)';
         $rows = $this->db->all(
             'SELECT s.id, s.code, s.name, s.brand, s.sell_policy, MAX(IF(w.is_sellable = 1, b.counted_at, NULL)) AS counted_at, '
             . 'COALESCE(SUM(IF(w.is_sellable = 1, b.on_hand, 0)), 0) AS on_hand, '
@@ -37,8 +43,8 @@ final class Purchasing
             . 'COALESCE(SUM(IF(w.is_sellable = 1, b.held, 0)), 0) AS held, '
             . 'COALESCE(SUM(IF(w.is_sellable = 0, b.on_hand, 0)), 0) AS other_on_hand '
             . 'FROM sku s LEFT JOIN stock_balance b ON b.sku_id = s.id LEFT JOIN warehouse w ON w.id = b.warehouse_id '
-            . 'WHERE s.id > ? GROUP BY s.id ORDER BY s.id LIMIT ?',
-            [$afterSku, $limit],
+            . 'WHERE s.id > ?' . $notTheirs . ' GROUP BY s.id ORDER BY s.id LIMIT ?',
+            [$afterSku, ...($channelId === null ? [] : [$channelId]), $limit],
         );
         $ids = array_map(static fn (array $r): int => (int) $r['id'], $rows);
         /** @var array<int, array<string, int>> $units */

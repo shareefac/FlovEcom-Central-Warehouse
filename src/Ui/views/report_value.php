@@ -13,6 +13,9 @@ $more = array_values(array_filter([
         $notSold === null ? null : \CW\Ui\Words::say('RD_REPORTS', 'not_sold', \CW\Ui\Html::money($notSold), $slowDays)]))),
     $figures['not_costed'] > 0 ? \CW\Ui\Words::say('RD_REPORTS', 'no_cost', \CW\Ui\Html::int($figures['not_costed'])) : null,
     $figures['theirs'] > 0 ? \CW\Ui\Words::say('RD_REPORTS', 'theirs', \CW\Ui\Html::int($figures['theirs'])) : null,
+    // CW-1153 (VB14): a shop's own stock: never in our value, said apart
+    ...array_map(static fn (array $o): string => \CW\Ui\Words::say('RD_REPORTS', 'own_stock', $o['shop'], \CW\Ui\Html::int($o['units']), \CW\Ui\Html::money($o['value']))
+        . ($o['unpriced'] > 0 ? ' ' . \CW\Ui\Words::say('RD_REPORTS', 'own_unpriced', \CW\Ui\Html::int($o['unpriced'])) : ''), $figures['own'] ?? []),
     $pastDay === null ? $asOf : \CW\Ui\Words::RD_REPORTS['as_of_note']], static fn (?string $v): bool => $v !== null && $v !== ''));
 ?>
 <div class="doc-head rp-head">

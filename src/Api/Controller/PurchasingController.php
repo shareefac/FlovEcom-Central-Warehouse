@@ -18,6 +18,7 @@ final class PurchasingController
         return Response::ok((new Purchasing($c->db))->report(
             Input::queryInt($q, 'after_sku', 0, 0, PHP_INT_MAX),
             Input::queryInt($q, 'limit', Purchasing::DEFAULT_LIMIT, 1, Purchasing::MAX_LIMIT),
+            $c->caller()->channelId, // CW-1153 (VB15): another shop's own items are not in a shop's report
         ));
     }
 }

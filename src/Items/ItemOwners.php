@@ -188,7 +188,7 @@ final class ItemOwners
             }
             $fromAt = Clock::db($d);
         }
-        return $this->db->transaction(function (Db $db) use ($caller, $code, $reason, $fromAt, $now): array {
+        $r = $this->db->transaction(function (Db $db) use ($caller, $code, $reason, $fromAt, $now): array {
             ConfigHistory::authorise($db, $caller);
             $shop = self::shop($db) ?? throw new CwException('no_own_items_shop', 'the setting "' . self::SETTING . '" names no shop', 409);
             $sku = $db->one('SELECT id, code, merged_into_sku_id FROM sku WHERE code = ? FOR UPDATE', [$code])
@@ -219,6 +219,8 @@ final class ItemOwners
                 'period' => $pid, 'reason' => $reason]);
             return ['period_id' => $pid, 'sku_id' => $id, 'code' => (string) $sku['code'], 'channel_id' => $shop['id'], 'from_at' => $from];
         });
+        self::refreshReorder($this->db, [$r['sku_id']]);
+        return $r;
     }
 
     /**
@@ -232,7 +234,7 @@ final class ItemOwners
         $reason = ConfigHistory::reason($reason);
         $code = strtoupper(trim($code));
         $now = Clock::db(($this->clock)());
-        return $this->db->transaction(function (Db $db) use ($caller, $code, $reason, $now): array {
+        $r = $this->db->transaction(function (Db $db) use ($caller, $code, $reason, $now): array {
             ConfigHistory::authorise($db, $caller);
             $sku = $db->one('SELECT id, code FROM sku WHERE code = ? FOR UPDATE', [$code])
                 ?? throw new CwException('unknown_item', 'there is no item ' . mb_substr($code, 0, 16), 422, ['field' => 'code']);
@@ -248,6 +250,67 @@ final class ItemOwners
                 'reason' => $reason]);
             return ['period_id' => (int) $open['id'], 'sku_id' => $id, 'code' => (string) $sku['code'], 'to_at' => $now];
         });
+        self::refreshReorder($this->db, [$r['sku_id']]);
+        return $r;
+    }
+
+    /**
+     * The go-live kit's step for a bill made final BEFORE its items were marked (Cloud Tech's SINV-000627; docs/decisions.md VB7): the bill
+     * becomes the shop's own bill when EVERY goods line's item was that one shop's own at the bill's posting time (the periods, never a
+     * choice); otherwise refused (409 bill_not_own: none or another of its items is, or two shops'). Under the bill's row and its items' rows.
+     * Its write-once posting check (V2) does not cover this column. Audit item_owner.bill. $apply false: what it would do, nothing written.
+     *
+     * @return array{document_id: int, number: string, channel_id: int, lines: int, changed: bool}
+     */
+    public function markBill(Caller $caller, string $number, bool $apply): array
+    {
+        return $this->db->transaction(function (Db $db) use ($caller, $number, $apply): array {
+            ConfigHistory::authorise($db, $caller);
+            $d = $db->one("SELECT d.id, d.number, d.posted_at, d.status, si.item_owner FROM document d JOIN supplier_invoice si ON si.document_id = d.id "
+                . "WHERE d.number = ? AND d.doc_type = 'SINV' FOR UPDATE", [$number])
+                ?? throw new CwException('unknown_bill', 'there is no supplier invoice ' . mb_substr($number, 0, 32), 404);
+            if ($d['status'] !== 'posted' || $d['posted_at'] === null) {
+                throw new CwException('bill_not_final', "{$d['number']} is not final: its owner is decided when it is made final", 409);
+            }
+            $skus = array_map('intval', $db->column("SELECT DISTINCT dl.sku_id FROM sinv_line sl JOIN document_line dl ON dl.document_id = sl.document_id AND dl.line_no = sl.line_no "
+                . "WHERE sl.document_id = ? AND sl.kind = 'goods' AND dl.sku_id IS NOT NULL ORDER BY dl.sku_id", [(int) $d['id']]));
+            foreach (array_chunk($skus, 500) as $chunk) {
+                $db->all('SELECT id FROM sku WHERE id IN (' . self::marks($chunk) . ') ORDER BY id FOR SHARE', $chunk);
+            }
+            $periods = self::periods($db, $skus);
+            $owners = [];
+            foreach ($skus as $s) {
+                $owners[self::ownerAt($periods, $s, (string) $d['posted_at']) ?? 0] = true;
+            }
+            if ($skus === [] || count($owners) !== 1 || isset($owners[0])) {
+                throw new CwException('bill_not_own', "{$d['number']}'s goods were not all one shop's own items when it was made final", 409);
+            }
+            $ch = (int) array_key_first($owners);
+            $changed = $d['item_owner'] === null || (int) $d['item_owner'] !== $ch;
+            if ($apply && $changed) {
+                $db->exec('UPDATE supplier_invoice SET item_owner = ? WHERE document_id = ?', [$ch, (int) $d['id']]);
+                Audit::write($db, $caller, 'item_owner.bill', 'document', (string) $d['id'], null, ['number' => $d['number'], 'channel' => $ch, 'lines' => count($skus)]);
+            }
+            return ['document_id' => (int) $d['id'], 'number' => (string) $d['number'], 'channel_id' => $ch, 'lines' => count($skus), 'changed' => $changed];
+        });
+    }
+
+    /**
+     * The item's stored reorder line worked out again after its mark changed (VB16: a shop's own item is never suggested), after the mark's
+     * commit and on its own. A failure here never undoes the mark: the reorder job of every night works every line out again.
+     *
+     * @param list<int> $skus
+     */
+    public static function refreshReorder(Db $db, array $skus): void
+    {
+        if ($db->inTransaction()) {
+            return; // a caller's own transaction (a tool marking many): it refreshes once after its commit
+        }
+        try {
+            (new \CW\Reorder\ReorderRefresh($db, new \CW\PurchaseOrders\PurchaseOrders($db, new \CW\Documents\Documents($db, []))))->items($skus);
+        } catch (\Throwable) {
+            // left to the nightly refresh (ReorderJobs): the list says "never suggested" from then on
+        }
     }
 
     /** @param array<mixed> $values */

@@ -68,8 +68,10 @@ final class DashboardTiles
             $figure = match ($key) {
                 'inbox' => null,
                 'orders' => $me->can('purchasing.view') ? [self::openOrders($db), '/ui/purchasing/orders'] : null,
+                // CW-1153 (docs/decisions.md VB14): our units: a shop's own items are not ours
                 'units' => $me->can('catalogue.view') ? [(int) $db->value('SELECT COALESCE(SUM(sb.on_hand), 0) FROM stock_balance sb '
-                    . 'JOIN warehouse w ON w.id = sb.warehouse_id WHERE w.is_sellable = 1'), '/ui/stock'] : null,
+                    . 'JOIN warehouse w ON w.id = sb.warehouse_id WHERE w.is_sellable = 1 '
+                    . 'AND NOT EXISTS (SELECT 1 FROM item_owner p WHERE p.sku_id = sb.sku_id AND p.to_at IS NULL)'), '/ui/stock'] : null,
                 'deliveries' => $me->can('receiving.view') ? [(int) $db->value("SELECT COUNT(*) FROM document WHERE doc_type = 'GRN' AND status = 'draft'"),
                     '/ui/receiving'] : null,
                 'products' => $me->can('catalogue.view') ? [(int) $db->value('SELECT COUNT(*) FROM sku WHERE merged_into_sku_id IS NULL'), '/ui/items/cards'] : null,

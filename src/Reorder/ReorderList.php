@@ -156,7 +156,9 @@ final class ReorderList
             . 'si.moq_packs, si.order_multiple_packs, si.lead_days AS si_lead, si.last_pack_price, sup.code AS supplier_code_cw, sup.name AS supplier_name, '
             . 'sup.status AS supplier_status, sup.default_lead_days, sup.review_days, ic.product_type AS card_type, ic.liquid_ml AS card_ml, '
             . 'ic.nicotine_mg AS card_mg, ic.single_use AS card_single_use, ic.discontinued AS card_discontinued, ic.first_confirmed_at AS card_first_confirmed, '
-            . 'ic.confirmed_at AS card_confirmed_at, ic.confirmed_breaches AS card_confirmed_breaches '
+            . 'ic.confirmed_at AS card_confirmed_at, ic.confirmed_breaches AS card_confirmed_breaches, '
+            // CW-1153 (docs/decisions.md VB16): a shop's own item (its own stock, bought with its own money) is never ours to reorder
+            . '(SELECT oc.name FROM item_owner op JOIN channel oc ON oc.id = op.channel_id WHERE op.sku_id = s.id AND op.to_at IS NULL) AS own_shop '
             // The list's items: with demand, a smallest stock or a low-stock figure. For some items (the refresh's chunks, a draft, one
             // item's page) the same test on the item's own rows, so the whole list's ids are not read for every chunk (pack G, PG12).
             . ($skus === null ? 'FROM (SELECT sku_id FROM reorder_demand UNION SELECT sku_id FROM item_reorder WHERE min_stock IS NOT NULL OR low_stock_level IS NOT NULL) base '
@@ -195,6 +197,7 @@ final class ReorderList
             $discontinued = (int) ($r['card_discontinued'] ?? 0) === 1;
             $never = match (true) {
                 $r['merged_into_sku_id'] !== null => 'merged into ' . ($r['merged_code'] ?? 'another item'),
+                $r['own_shop'] !== null => (string) $r['own_shop'] . '\'s own item (its own purchases, not ours)',
                 (int) ($r['do_not_reorder'] ?? 0) === 1 => 'marked "do not reorder"',
                 $discontinued => 'discontinued (item card)',
                 $cardLevel === 'block' => 'blocked by its item card: ' . ItemRules::labels($card['blocked']),
@@ -228,6 +231,9 @@ final class ReorderList
             }
             if ((int) ($r['do_not_reorder'] ?? 0) === 1) {
                 $flags[] = 'do_not_reorder';
+            }
+            if ($r['own_shop'] !== null) {
+                $flags[] = 'own_item';
             }
             if ($discontinued) {
                 $flags[] = 'discontinued';

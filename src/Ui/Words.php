@@ -2799,6 +2799,7 @@ final class Words
         'no_price' => 'No price yet',
         'merged' => 'Replaced by another product',
         'do_not_reorder' => 'Never suggested',
+        'own_item' => 'A shop\'s own item: never ours to buy', // CW-1153 (VB16)
         'no_history' => 'No sales data',
         'site_stock_unreliable' => 'Website stock may be wrong',
         'in_draft' => 'On a draft order already',
@@ -11862,6 +11863,9 @@ final class Words
         'items_n' => '%s items',
         'not_sold' => '%s not sold in %s days',
         'theirs' => 'Another account\'s %s units left out',
+        // CW-1153 (docs/decisions.md VB14): a shop's own stock (Settings > Own items), never in our value
+        'own_stock' => '%s\'s own stock (not ours, not in this value): %s units, worth %s at its buying price.',
+        'own_unpriced' => '%s of its items have no buying price yet.',
         'no_cost' => '%s units have no cost yet',
         'find' => 'Find',
         'only_no_cost' => 'Only items without a cost',

@@ -228,9 +228,14 @@ final class SiteModes
         ksort($writes);
         $rows = $this->current(array_keys($writes), array_keys($channels), true);
         $now ??= Clock::db(Clock::now()); // the posting's clock (SellingModes::current compares these times)
+        // CW-1153 (docs/decisions.md VB15): a shop's own item is never put on sale on another shop's website by a receipt
+        $owners = \CW\Items\ItemOwners::open($this->db, array_map('intval', array_keys($writes)));
         $changed = [];
         foreach ($writes as $sku => $w) {
             foreach (array_keys($channels) as $cid) {
+                if (isset($owners[(int) $sku]) && $owners[(int) $sku] !== (int) $cid) {
+                    continue;
+                }
                 $cur = $rows[self::key((int) $sku, $cid)] ?? null;
                 $prev = SellingModes::previousFor(['mode' => $cur['mode'] ?? null, 'previous' => $cur['previous'] ?? null], $w['mode']);
                 $this->write($this->db, $caller, (int) $sku, $cid, $cur, $w['mode'], $prev, $cur['threshold'] ?? null, 'receipt', $documentId, $w['line_no'], null, $now);

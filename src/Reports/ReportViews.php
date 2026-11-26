@@ -107,6 +107,7 @@ final class ReportViews
             . 'LEFT JOIN stock_balance b ON b.sku_id = s.id AND b.warehouse_id IN (' . ($sellable === [] ? '0' : implode(', ', $sellable)) . ') '
             . 'LEFT JOIN item_reorder o ON o.sku_id = s.id LEFT JOIN item_card c ON c.sku_id = s.id '
             . "WHERE s.merged_into_sku_id IS NULL AND COALESCE(c.discontinued, 0) = 0 AND EXISTS (SELECT 1 FROM channel_listing cl WHERE cl.sku_id = s.id AND cl.status = 'mapped')"
+            . $this->notOwn('s.id') // CW-1153 (VB14): a shop's own items are not ours to restock
             . ($where === [] ? '' : ' AND ' . implode(' AND ', $where))
             . ' GROUP BY s.id, s.code, s.name, s.brand, o.min_stock HAVING available <= low_at';
         $show = $show === 'out' ? 'out' : 'low';
@@ -121,7 +122,7 @@ final class ReportViews
      * The figures over the tab: our stock's value at average cost, its units with a cost and without one, how many items have some
      * (W13.3: the approved TP_Report's "Items with stock"), and the units in another account's warehouses (left out of our value).
      *
-     * @return array{value: string, costed: int, not_costed: int, items: int, theirs: int}
+     * @return array{value: string, costed: int, not_costed: int, items: int, theirs: int, own: list<array<string, mixed>>}
      */
     public function valueFigures(): array
     {
@@ -129,7 +130,7 @@ final class ReportViews
         [$bal, $rep, $src] = $this->sources();
         foreach ($this->db->all('SELECT w.stock_owner, COALESCE(SUM(' . self::VALUE . '), 0) AS value, COALESCE(SUM(IF(r.in_units > 0, b.on_hand, 0)), 0) AS costed, '
             . "COALESCE(SUM(IF(r.in_units > 0, 0, b.on_hand)), 0) AS not_costed, COUNT(DISTINCT b.sku_id) AS items FROM {$bal} b JOIN warehouse w ON w.id = b.warehouse_id "
-            . "LEFT JOIN {$rep} r ON r.sku_id = b.sku_id WHERE b.on_hand > 0 GROUP BY w.stock_owner", $src) as $r) {
+            . "LEFT JOIN {$rep} r ON r.sku_id = b.sku_id WHERE b.on_hand > 0" . $this->notOwn('b.sku_id') . ' GROUP BY w.stock_owner', $src) as $r) {
             if ($r['stock_owner'] === 'own') {
                 $out['value'] = (string) $r['value'];
                 $out['costed'] = (int) $r['costed'];
@@ -139,6 +140,8 @@ final class ReportViews
                 $out['theirs'] += (int) $r['costed'] + (int) $r['not_costed'];
             }
         }
+        // CW-1153 (VB14): the shops' own stock, never in our value: shown apart (its own line under the report's head)
+        $out['own'] = $this->ownValue();
         return $out;
     }
 
@@ -162,7 +165,7 @@ final class ReportViews
         [$bal, $rep, $src] = $this->sources();
         $inner = 'SELECT s.id AS sku_id, s.code, s.name, s.brand, SUM(b.on_hand) AS units, ' . self::AVG . ' AS avg_cost, SUM(' . self::VALUE . ') AS value '
             . "FROM {$bal} b JOIN warehouse w ON w.id = b.warehouse_id AND w.stock_owner = 'own' JOIN sku s ON s.id = b.sku_id "
-            . "LEFT JOIN {$rep} r ON r.sku_id = b.sku_id WHERE b.on_hand > 0" . ($where === [] ? '' : ' AND ' . implode(' AND ', $where))
+            . "LEFT JOIN {$rep} r ON r.sku_id = b.sku_id WHERE b.on_hand > 0" . $this->notOwn('b.sku_id') . ($where === [] ? '' : ' AND ' . implode(' AND ', $where))
             . ' GROUP BY s.id, s.code, s.name, s.brand, r.in_units, r.in_value';
         return $this->paged($inner, [...$src, ...$params], $noCost ? 'units DESC, name, sku_id' : 'value DESC, name, sku_id', $page, $limit);
     }
@@ -177,7 +180,7 @@ final class ReportViews
         $cut = (new \DateTimeImmutable($today))->modify("-{$days} days")->format('Y-m-d');
         return (string) $this->db->value('SELECT COALESCE(SUM(' . self::VALUE . '), 0) FROM stock_balance b '
             . "JOIN warehouse w ON w.id = b.warehouse_id AND w.stock_owner = 'own' JOIN report_item r ON r.sku_id = b.sku_id "
-            . 'WHERE b.on_hand > 0 AND COALESCE(r.last_sale_on, r.first_in_on) <= ?', [$cut]);
+            . 'WHERE b.on_hand > 0 AND COALESCE(r.last_sale_on, r.first_in_on) <= ?' . $this->notOwn('b.sku_id'), [$cut]);
     }
 
     /** @return list<array{brand: ?string, products: int, units: int, value: string, not_costed: int}> our stock by brand, the biggest value first */
@@ -188,7 +191,7 @@ final class ReportViews
             'products' => (int) $r['products'], 'units' => (int) $r['units'], 'value' => (string) $r['value'], 'not_costed' => (int) $r['not_costed']],
             $this->db->all('SELECT s.brand, COUNT(DISTINCT b.sku_id) AS products, SUM(b.on_hand) AS units, SUM(' . self::VALUE . ') AS value, '
                 . "SUM(IF(r.in_units > 0, 0, b.on_hand)) AS not_costed FROM {$bal} b JOIN warehouse w ON w.id = b.warehouse_id AND w.stock_owner = 'own' "
-                . "JOIN sku s ON s.id = b.sku_id LEFT JOIN {$rep} r ON r.sku_id = b.sku_id WHERE b.on_hand > 0" . ($warehouseId === null ? '' : ' AND b.warehouse_id = ?')
+                . "JOIN sku s ON s.id = b.sku_id LEFT JOIN {$rep} r ON r.sku_id = b.sku_id WHERE b.on_hand > 0" . $this->notOwn('b.sku_id') . ($warehouseId === null ? '' : ' AND b.warehouse_id = ?')
                 . ' GROUP BY s.brand ORDER BY value DESC, s.brand', $warehouseId === null ? $src : [...$src, $warehouseId]));
     }
 
@@ -200,7 +203,7 @@ final class ReportViews
             'products' => (int) $r['products'], 'units' => (int) $r['units'], 'value' => (string) $r['value'], 'not_costed' => (int) $r['not_costed']],
             $this->db->all('SELECT w.id, w.name, w.stock_owner, COUNT(*) AS products, SUM(b.on_hand) AS units, SUM(' . self::VALUE . ') AS value, '
                 . "SUM(IF(r.in_units > 0, 0, b.on_hand)) AS not_costed FROM {$bal} b JOIN warehouse w ON w.id = b.warehouse_id "
-                . "LEFT JOIN {$rep} r ON r.sku_id = b.sku_id WHERE b.on_hand > 0 GROUP BY w.id, w.name, w.stock_owner, w.sort_order "
+                . "LEFT JOIN {$rep} r ON r.sku_id = b.sku_id WHERE b.on_hand > 0" . $this->notOwn('b.sku_id') . ' GROUP BY w.id, w.name, w.stock_owner, w.sort_order '
                 . "ORDER BY w.stock_owner = 'own' DESC, w.sort_order, w.id", $src));
     }
 
@@ -257,6 +260,37 @@ final class ReportViews
     }
 
     /**
+     * CW-1153 (docs/decisions.md VB14): the condition that leaves out the items that are a shop's own goods (not ours: never in our value,
+     * low stock or slow stock) at the moment read: now, or (at()) as they were at its end (the periods of that moment). $col: the item's id.
+     */
+    private function notOwn(string $col): string
+    {
+        $at = $this->end === null ? 'p.to_at IS NULL'
+            : 'p.from_at < ' . $this->db->pdo()->quote($this->end) . ' AND (p.to_at IS NULL OR p.to_at >= ' . $this->db->pdo()->quote($this->end) . ')';
+        return " AND NOT EXISTS (SELECT 1 FROM item_owner p WHERE p.sku_id = {$col} AND {$at})";
+    }
+
+    /**
+     * CW-1153 (VB14): the shops' own stock, shown apart from ours: per shop, its items with stock (on hand above zero, every warehouse), their
+     * units and their value at each item's buying price now (item_cost: 0 is free, a price; an item with none is counted in `unpriced`).
+     *
+     * @return list<array{shop: string, items: int, units: int, value: string, unpriced: int}>
+     */
+    public function ownValue(): array
+    {
+        [$bal, , $src] = $this->sources();
+        $at = $this->end === null ? 'p.to_at IS NULL'
+            : 'p.from_at < ' . $this->db->pdo()->quote($this->end) . ' AND (p.to_at IS NULL OR p.to_at >= ' . $this->db->pdo()->quote($this->end) . ')';
+        $srcBal = $this->end === null ? [] : [$this->end];
+        return array_map(static fn (array $r): array => ['shop' => (string) $r['shop'], 'items' => (int) $r['items'], 'units' => (int) $r['units'],
+            'value' => number_format(((int) $r['value_e4']) / 10000, 2, '.', ''), 'unpriced' => (int) $r['unpriced']],
+            $this->db->all("SELECT c.name AS shop, COUNT(DISTINCT b.sku_id) AS items, SUM(b.on_hand) AS units, COALESCE(SUM(b.on_hand * ic.unit_cost_e4), 0) AS value_e4, "
+                . "COUNT(DISTINCT IF(ic.unit_cost_e4 IS NULL, b.sku_id, NULL)) AS unpriced FROM {$bal} b JOIN item_owner p ON p.sku_id = b.sku_id AND {$at} "
+                . 'JOIN channel c ON c.id = p.channel_id LEFT JOIN item_cost ic ON ic.sku_id = b.sku_id WHERE b.on_hand > 0 GROUP BY c.id, c.name ORDER BY c.name',
+                array_slice($src, 0, count($srcBal))));
+    }
+
+    /**
      * The FROM sources of the valuation reads: [balances `b`, report_item `r`, their values in that order]: today's tables, or (at()) the
      * same columns as they stood at the end.
      *
@@ -297,7 +331,7 @@ final class ReportViews
         $inner = 'SELECT s.id AS sku_id, s.code, s.name, s.brand, SUM(b.on_hand) AS units, r.last_sale_on, r.first_in_on, '
             . 'COALESCE(r.last_sale_on, r.first_in_on) AS since, SUM(' . self::VALUE . ') AS value '
             . "FROM stock_balance b JOIN warehouse w ON w.id = b.warehouse_id AND w.stock_owner = 'own' JOIN sku s ON s.id = b.sku_id "
-            . 'JOIN report_item r ON r.sku_id = b.sku_id WHERE b.on_hand > 0 AND COALESCE(r.last_sale_on, r.first_in_on) <= ?'
+            . 'JOIN report_item r ON r.sku_id = b.sku_id WHERE b.on_hand > 0 AND COALESCE(r.last_sale_on, r.first_in_on) <= ?' . $this->notOwn('b.sku_id')
             . ($where === [] ? '' : ' AND ' . implode(' AND ', $where))
             . ' GROUP BY s.id, s.code, s.name, s.brand, r.last_sale_on, r.first_in_on, r.in_units, r.in_value';
         $show = $show === 'dead' ? 'dead' : 'slow';
