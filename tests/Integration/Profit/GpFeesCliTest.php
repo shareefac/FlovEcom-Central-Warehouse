@@ -41,7 +41,8 @@ final class GpFeesCliTest extends IntegrationTestCase
         try {
             $r = self::cli('--backfill', '--account=vpg_online', '--from=2026-11-01', '--to=2026-11-02');
             self::assertSame(4, $r['code'], 'a backfill asked for by hand while the lock is held: BUSY, nothing done: ' . $r['out'] . $r['err']);
-            self::assertSame(0, self::cli()['code'], 'the 10-minute run finding it held: skipped');
+            self::assertSame(4, self::cli()['code'], 'the 10-minute run finding it held: BUSY too (never a silent 0: the Codex review of 6043729, H4)');
+            self::assertSame(4, self::cli('--stop', '--account=vpg_online', '--reason=the owner said stop')['code'], 'the quick stop finding it held: BUSY');
             self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM gp_run WHERE kind = 'backfill'"));
         } finally {
             self::$db->value('SELECT RELEASE_LOCK(?)', [$name]);
@@ -53,5 +54,28 @@ final class GpFeesCliTest extends IntegrationTestCase
         $s = self::cli('--status');
         self::assertSame(0, $s['code']);
         self::assertStringContainsString('vpg_online: switched on, from 2026-11-01', $s['out']);
+    }
+
+    public function testTheQuickStopClearsTheAccountAndProvesIt(): void
+    {
+        $ch = self::$db->insert("INSERT INTO channel (code, name, mode) VALUES ('vapeandgo', 'Vape and Go', 'live')");
+        $s = new Settings(self::$db);
+        $s->set(Caller::system('test'), 'profit.gp_from_vpg_online', '2026-10-01', 'switched on for the test');
+        $s->set(Caller::system('test'), 'profit.gp_merchant_vpg_online', '55829291', 'the merchant number');
+        (new \CW\Profit\OrderSnapshots(self::$db))->store($ch, '9100001', ['v' => 1, 'version' => 1, 'order_no' => '', 'status' => 'completed',
+            'placed_at' => '2026-11-19T10:00:00Z', 'paid_at' => '2026-11-19T10:00:00Z', 'gateway' => 'globalpay', 'currency' => 'GBP', 'parent_ref' => null, 'lines' => [],
+            'delivery' => null, 'order_refund_inc' => 0, 'grand_inc' => 2999, 'parcels' => []], 'api');
+        (new \CW\Profit\GpInvoices(self::$db))->add(Caller::system('test'), ['account' => 'vpg_online', 'month' => '2026-10', 'merchant_no' => '55829291',
+            'invoice_date' => '2026-10-31', 'sales' => '0', 'net' => '25.00', 'vat' => '0', 'total' => '25.00']);
+        self::assertSame(2530, (int) self::$db->value('SELECT SUM(gp_fee) + SUM(gp_other) FROM profit_day'), '30p estimated + the October invoice on no order');
+        // the RUNBOOK's quick stop, as it is written there (with this schema)
+        $r = self::cli('--stop', '--account=vpg_online', '--reason=the owner said stop');
+        self::assertSame(0, $r['code'], $r['out'] . $r['err']);
+        self::assertStringContainsString('vpg_online: stopped and checked: no card fee of it counts', $r['out']);
+        self::assertSame('""', (string) self::$db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'profit.gp_from_vpg_online'"));
+        self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM gp_fee_order WHERE account = 'vpg_online' AND state <> 'off'"));
+        self::assertSame(0, (int) self::$db->value("SELECT SUM(other_pence) FROM gp_invoice WHERE account = 'vpg_online'"));
+        self::assertSame(0, (int) self::$db->value('SELECT COALESCE(SUM(gp_fee) + SUM(gp_other), 0) FROM profit_day'));
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM config_change WHERE subject_key = 'profit.gp_from_vpg_online' AND reason = 'the owner said stop'"));
     }
 }
