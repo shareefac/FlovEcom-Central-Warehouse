@@ -50,6 +50,68 @@ final class ProfitMath
         return (int) ($neg && $q !== '0' ? '-' . $q : $q);
     }
 
+    /**
+     * A card fee rate (CW-1174, docs/decisions.md GPF3): "1.01", "0.9823" or "2.28" (percent, at most four decimals that matter, from 0 to 10)
+     * => millionths of the amount (10,100; 9,823; 22,800). Null when it is not one.
+     */
+    public static function rateE4(string $percent): ?int
+    {
+        if (preg_match('/^(0|[1-9]|10)(?:\.([0-9]{1,4})0*)?$/D', trim($percent), $m) !== 1) {
+            return null;
+        }
+        $e4 = (int) $m[1] * 10_000 + (int) str_pad($m[2] ?? '', 4, '0');
+        return $e4 <= 100_000 ? $e4 : null;
+    }
+
+    /** A rate in millionths of the amount as the percent a person reads ("1.01", "1.0099", "0"): at most four decimals, no trailing zeros. */
+    public static function ratePercent(int $e4): string
+    {
+        $s = intdiv($e4, 10_000) . '.' . str_pad((string) ($e4 % 10_000), 4, '0', STR_PAD_LEFT);
+        return rtrim(rtrim($s, '0'), '.');
+    }
+
+    /**
+     * $total pence shared over $weights (pence each, 0 or more) by weight (CW-1174, GPF5): each share rounded down, then the pennies left one
+     * each to the largest remainders, ties to the earlier key (the caller orders the keys). The shares add up to $total exactly. All weights 0
+     * (or none): every share 0 (the caller places $total elsewhere). $total and every weight 0 or more.
+     *
+     * @param array<array-key, int> $weights
+     * @return array<array-key, int> the same keys, in the same order
+     */
+    public static function shareOut(int $total, array $weights): array
+    {
+        if ($total < 0) {
+            throw new \InvalidArgumentException('a total of 0 or more is shared');
+        }
+        $sum = 0;
+        foreach ($weights as $w) {
+            if ($w < 0) {
+                throw new \InvalidArgumentException('weights of 0 or more');
+            }
+            $sum += $w;
+        }
+        $out = array_map(static fn (): int => 0, $weights);
+        if ($sum === 0) {
+            return $out;
+        }
+        $rest = [];
+        $given = 0;
+        $i = 0;
+        foreach ($weights as $k => $w) {
+            $p = bcmul((string) $total, (string) $w, 0);
+            $q = (int) bcdiv($p, (string) $sum, 0);
+            $out[$k] = $q;
+            $given += $q;
+            $rest[] = [(int) bcmod($p, (string) $sum), $i++, $k];
+        }
+        $left = $total - $given;
+        usort($rest, static fn (array $a, array $b): int => $b[0] <=> $a[0] ?: $a[1] <=> $b[1]);
+        for ($j = 0; $j < $left; $j++) {
+            $out[$rest[$j][2]]++;
+        }
+        return $out;
+    }
+
     /** "20", "17.5" or "5.0000" (percent) => basis points (2000, 1750, 500); null when it is not a percent from 0 to 100 with at most two decimals. */
     public static function vatBp(string $percent): ?int
     {

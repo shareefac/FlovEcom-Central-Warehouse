@@ -87,7 +87,9 @@ final class Grants
         // Every file a supplier named as its evidence, the replaced ones too (0079, the fix round 2 of 8dbee81; EX61).
         'supplier_file',
         // 0080 (docs/decisions.md PPF8): every change of a PayPal row, before and after.
-        'paypal_txn_history'];
+        'paypal_txn_history',
+        // 0084 (docs/decisions.md GPF10): every add, change, delete and spread of a Global Payments invoice.
+        'gp_invoice_history'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -172,6 +174,12 @@ final class Grants
         // CW-1153 (0083, docs/decisions.md VB1): a period an item is a shop's own is added once and only ended later (when, who, why); its item,
         // shop, start and why it was added never change, and it is never removed: every past figure reads the period of its own time.
         'item_owner' => ['to_at', 'remove_reason', 'removed_by', 'removed_actor'],
+        // CW-1174 (0084, docs/decisions.md GPF10): a Global Payments invoice's account and month and who added it when are frozen; its figures
+        // are changed in place (version + 1, its history keeps before and after), its spread and its charge on no order written by the spread,
+        // and it is deleted by a mark with a reason, never removed.
+        'gp_invoice' => ['merchant_no', 'invoice_date', 'sales_pence', 'net_pence', 'vat_pence', 'total_pence', 'rate_e4', 'note', 'spread_state', 'spread_version',
+            'spread_at', 'spread_orders', 'spread_pence', 'cw_takings_pence', 'other_channel', 'other_day', 'other_pence', 'version', 'updated_by', 'updated_actor',
+            'updated_at', 'deleted_at', 'deleted_by', 'deleted_actor', 'deleted_reason'],
     ];
     /**
      * Tables the app login may INSERT into naming only the listed columns (column-level INSERT instead of a table-level one; the
@@ -270,7 +278,10 @@ final class Grants
         // audit; never removed: bills and labels name them) and the labels (a second source fills empty fields; never removed).
         'delivery_party', 'carrier_account', 'carrier_account_party', 'carrier_channel', 'carrier_party_rule', 'carrier_label',
         // 0080 (docs/decisions.md PPF2, PPF9): a PayPal transaction read (changed in place with its history, never removed) and a run of the job.
-        'paypal_txn', 'paypal_run'];
+        'paypal_txn', 'paypal_run',
+        // 0084 (docs/decisions.md GPF4): a card order's Global Payments fee (decided again in place, switched off, never removed) and a run of
+        // bin/gp_fees.php. gp_due keeps FULL rights: a month queued is taken away once its invoice is marked due again.
+        'gp_fee_order', 'gp_run'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

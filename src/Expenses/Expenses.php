@@ -53,6 +53,8 @@ final class Expenses
             ExpenseAccess::mayEdit($db, $caller);
             $v = $this->fields($db, $in, null);
             $supplier = $this->supplierFor($db, $caller, $v['supplier'], (bool) ($in['new_supplier'] ?? false), null);
+            // CW-1174 (0084, docs/decisions.md GPF9): a Global Payments invoice entered on Profit > Card fees is never an expense too
+            \CW\Profit\GpInvoices::guardExpense($db, $v['supplier'], $v['shop'], $v['invoice_date'], $v['net'], $v['net'] + $v['vat']);
             $this->checkSame($db, $supplier, $v, null, $same);
             $fileId = $file === null ? null : ExpenseFiles::store($this->files(), $caller, $file['path'], $file['name']);
             $now = Clock::db(Clock::now());
@@ -98,6 +100,9 @@ final class Expenses
             if ($unchanged && $file === null) {
                 return ['changed' => false, 'version' => (int) $row['version']];
             }
+            // CW-1174 (0084, docs/decisions.md GPF9): as add() (the supplier as it is now; its name read under the lock the form's supplier took)
+            \CW\Profit\GpInvoices::guardExpense($db, (string) $db->value('SELECT name FROM expense_supplier WHERE id = ?', [$supplier]), $v['shop'], $v['invoice_date'],
+                $v['net'], $v['net'] + $v['vat']);
             // Checked again when it could meet another: a new supplier, shop, number, day or total, an invoice made a credit note or back (EX37;
             // a day or total too, since a bill of no number meets one of the same day and total: EX42).
             if ($supplier !== (int) $row['supplier_id'] || $v['shop'] !== (int) $row['channel_id'] || $v['invoice_no'] !== (string) $row['invoice_no']

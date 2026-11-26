@@ -1058,7 +1058,7 @@ final class DeliveryBills
     }
 
     /** A store's day row left with nothing to show (every figure 0, no paid order, no line on no order dated that day): removed. */
-    private static function tidy(Db $db, int $channelId, string $day): void
+    public static function tidy(Db $db, int $channelId, string $day): void
     {
         $row = $db->one('SELECT ' . implode(', ', ProfitDays::DAY_FIELDS) . ' FROM profit_day WHERE day = ? AND channel_id = ?', [$day, $channelId]);
         if ($row === null || array_filter(array_map('intval', $row)) !== []) {
@@ -1070,7 +1070,9 @@ final class DeliveryBills
             || $db->value("SELECT 1 FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id AND i.status = 'live' WHERE a.dest = 'shop' AND a.day = ? "
                 . 'AND a.channel_id = ? AND a.ended_at IS NULL LIMIT 1', [$day, $channelId]) !== null
             // PayPal's money counted on the day itself (0080, PPF7): the day's row is kept, as a rebuild keeps it
-            || PaypalFees::anyOnDay($db, $channelId, $day)) {
+            || PaypalFees::anyOnDay($db, $channelId, $day)
+            // a Global Payments invoice's charge on no order on the day itself (0084, GPF7): kept, as a rebuild keeps it
+            || GpFees::anyOnDay($db, $channelId, $day)) {
             return;
         }
         $db->exec('DELETE FROM profit_day WHERE day = ? AND channel_id = ?', [$day, $channelId]);

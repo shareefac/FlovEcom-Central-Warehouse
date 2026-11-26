@@ -64,6 +64,8 @@ final class OrderSnapshots
      *   right after the outermost commit (paypalAfter(); 0080, PPF54, PPF59)
      */
     private array $paypalOrders = [];
+    /** Global Payments' card fees (0084, GPF4): its settings read once per instance (a request, a batch run). */
+    private ?GpFees $gp = null;
 
     /** How long a snapshot waits for another one of the same order (or of its first order) before it answers 503 busy. */
     public const LOCK_WAIT_SEC = 10;
@@ -649,8 +651,10 @@ final class OrderSnapshots
                     [$sh['own_units'], $sh['own_sale_ex'], $sh['own_refund_ex'], $sh['own_cost'], $sh['own_no_cost'], $channelId, $ref]);
                 $delivery = DeliveryBills::orderCost($db, $channelId, $ref);
                 $fee = PaypalFees::orderFee($db, $channelId, $ref);
-                ProfitDays::change($db, $channelId, ProfitDays::orderShare($old, $p['lines'], $delivery, $fee),
-                    ProfitDays::orderShare(array_merge($old, $sh), $p['new_lines'], $delivery, $fee));
+                // its card fee (0084, GPF4) stays the shop's and on its day: the same before and after (VB10)
+                $gp = GpFees::orderFee($db, $channelId, $ref);
+                ProfitDays::change($db, $channelId, ProfitDays::orderShare($old, $p['lines'], $delivery, $fee, $gp),
+                    ProfitDays::orderShare(array_merge($old, $sh), $p['new_lines'], $delivery, $fee, $gp));
                 return true;
             });
         });
@@ -962,7 +966,12 @@ final class OrderSnapshots
         $delivery = $old === null ? 0 : DeliveryBills::orderCost($db, $channelId, $ref);
         // Its PayPal sale fees (0080, docs/decisions.md PPF7) go with it the same way (PaypalFees' write holds this order's guard while it changes them).
         $fee = $old === null ? 0 : PaypalFees::orderFee($db, $channelId, $ref);
-        ProfitDays::change($db, $channelId, ProfitDays::orderShare($old, $oldLines, $delivery, $fee), ProfitDays::orderShare($order, $newLines, $delivery, $fee));
+        // Its Global Payments card fee (0084, docs/decisions.md GPF1-GPF4): decided again from the order as written now (gateway, paid day, what the
+        // card was charged) and written with it, under the day guards taken above: what it counted before on its old day, what it counts now on
+        // its day. A refund changes nothing of it.
+        [$gpOld, $gpNew] = ($this->gp ??= new GpFees($this->db, $this->clock))->onSnapshot($db, $channelId, $ref, $order, $now);
+        ProfitDays::change($db, $channelId, ProfitDays::orderShare($old, $oldLines, $delivery, $fee, $gpOld),
+            ProfitDays::orderShare($order, $newLines, $delivery, $fee, $gpNew));
         // Its PayPal chargebacks (0080, docs/decisions.md PPF54, PPF59): whether each counts rests on this order's refunds and payment, so when it
         // has any the order is queued in THIS transaction (paypal_order_due: durable with the snapshot; no PayPal row written or locked, so this
         // snapshot never waits for one a PayPal read holds while it holds the order's guard and its days) and they are decided again right after

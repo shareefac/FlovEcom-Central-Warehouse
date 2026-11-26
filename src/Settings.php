@@ -73,6 +73,23 @@ final class Settings
         'profit.paypal_form_vapeandgo' => ['pattern' => '/^\^[^()]*\([^()]+\)[^()]*\$$/D', 'pattern_says' => 'a pattern from ^ to $ with one (part): the order number'],
         'profit.paypal_form_electrofag' => ['pattern' => '/^\^[^()]*\([^()]+\)[^()]*\$$/D', 'pattern_says' => 'a pattern from ^ to $ with one (part): the order number'],
         'profit.paypal_form_hayati' => ['pattern' => '/^\^[^()]*\([^()]+\)[^()]*\$$/D', 'pattern_says' => 'a pattern from ^ to $ with one (part): the order number'],
+        // 0084 (CW-1174, docs/decisions.md GPF2, GPF3): Global Payments' card fees. Each account's first day is the 1st of a month (an invoice is
+        // never spread over part of its month; empty: not switched on); its shops (the main shop first); its estimate rate, a percent with at
+        // most four decimals from 0 to 10 (kept without trailing zeros); its merchant number (an invoice entered for it must print it); the
+        // expense supplier names that are Global Payments (the double-count guard, GPF9); the takings gap that asks for a tick (GPF6).
+        'profit.gp_from_vpg_online' => ['pattern' => '/^(20[0-9]{2}-(0[1-9]|1[0-2])-01)?$/D', 'pattern_says' => 'the 1st of a month, like 2026-11-01 (empty: not switched on)'],
+        'profit.gp_from_ef_online' => ['pattern' => '/^(20[0-9]{2}-(0[1-9]|1[0-2])-01)?$/D', 'pattern_says' => 'the 1st of a month, like 2026-12-01 (empty: not switched on)'],
+        'profit.gp_shops_vpg_online' => ['pattern' => '/^[a-z][a-z0-9_]{0,31}(,[a-z][a-z0-9_]{0,31})*$/D',
+            'pattern_says' => 'shop codes separated by commas, the main shop first, like vapeandgo,vapebig'],
+        'profit.gp_shops_ef_online' => ['pattern' => '/^[a-z][a-z0-9_]{0,31}(,[a-z][a-z0-9_]{0,31})*$/D',
+            'pattern_says' => 'shop codes separated by commas, the main shop first, like electrofag'],
+        'profit.gp_rate_vpg_online' => ['min' => '0', 'max' => '10', 'fee_rate' => true],
+        'profit.gp_rate_ef_online' => ['min' => '0', 'max' => '10', 'fee_rate' => true],
+        'profit.gp_merchant_vpg_online' => ['pattern' => '/^([0-9]{6,16})?$/D', 'pattern_says' => 'the merchant number as the invoice prints it (6 to 16 digits)'],
+        'profit.gp_merchant_ef_online' => ['pattern' => '/^([0-9]{6,16})?$/D', 'pattern_says' => 'the merchant number as the invoice prints it (6 to 16 digits)'],
+        'profit.gp_expense_suppliers' => ['pattern' => '/^[^,\x00-\x1F]{2,100}(,[^,\x00-\x1F]{2,100})*$/D',
+            'pattern_says' => 'expense supplier names separated by commas, like Global Payments,GlobalPay'],
+        'profit.gp_takings_gap_pct' => ['min' => '0', 'max' => '100', 'percent' => true],
         'reorder.short_weight' => ['min' => '0', 'max' => '1'],
         'reorder.promo_price_drop' => ['min' => '0', 'max' => '1'],
         'reorder.promo_units_uplift' => ['min' => '1', 'max' => '100'],
@@ -576,6 +593,9 @@ final class Settings
         if (($rule['percent'] ?? false) === true && \CW\Profit\ProfitMath::vatBp((string) $value) === null) {
             throw $bad('must be a percent from 0 to 100 with at most two decimals, like 20 or 17.5');
         }
+        if (($rule['fee_rate'] ?? false) === true && \CW\Profit\ProfitMath::rateE4((string) $value) === null) {
+            throw $bad('must be a percent from 0 to 10 with at most four decimals, like 1.01 or 0.9823'); // 0084, GPF3
+        }
         if (($rule['pence'] ?? false) === true && preg_match('/^[0-9]{1,9}(\.[0-9]{1,2})?$/D', (string) $value) !== 1) {
             throw $bad('must be pounds with at most two decimals, like 50 or 12.50'); // 0080, fix round 1: never a value the reader would not take
         }
@@ -680,7 +700,7 @@ final class Settings
             }
             $after = self::parse($type, $raw);
             $this->checkRule($key, $after);
-            if ((self::RULES[$key]['percent'] ?? false) === true && is_string($after) && str_contains($after, '.')) {
+            if (((self::RULES[$key]['percent'] ?? false) === true || (self::RULES[$key]['fee_rate'] ?? false) === true) && is_string($after) && str_contains($after, '.')) {
                 $after = rtrim(rtrim($after, '0'), '.'); // "5.0000" is "5", "17.50" is "17.5"
             }
             $json = self::encode($type, $after);

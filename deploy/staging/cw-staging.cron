@@ -105,3 +105,9 @@ MAILTO=""
 # switched on (profit.paypal_from_<shop>) or its key file is not placed (exit 3; the health alert says it once a shop is switched on). Its
 # own deadline is 240 s (within the installer's 6-minute drain); timeout 300 is the hard stop.
 20 5 * * *  root  cd /opt/cw-staging && timeout 300 php bin/paypal_fees.php --db=cw_staging --account=vapeandgo >> /var/log/cw/paypal_fees.log 2>&1
+
+# Global Payments' card fees (CW-1174, docs/decisions.md GPF8): nothing is read from Global Payments; the months whose invoice must be spread again,
+# an account's days gone over again when its settings changed, estimates at an old rate worked out again, invoices due spread. The nightly also goes
+# over the last 62 days. Nothing to do while no account is switched on (profit.gp_from_<account>).
+3-59/10 * * * *  root  cd /opt/cw-staging && timeout 540 php bin/gp_fees.php --db=cw_staging >> /var/log/cw/gp_fees.log 2>&1
+35 5 * * *  root  cd /opt/cw-staging && timeout 1800 php bin/gp_fees.php --db=cw_staging --nightly >> /var/log/cw/gp_fees.log 2>&1

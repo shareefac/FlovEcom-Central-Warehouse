@@ -37,7 +37,10 @@ final class ProfitDays
         'fee_cost', 'fee_other',
         // CW-1153 (0083, docs/decisions.md VB10): the selling shop's own goods' part of units, sale_ex, order_refund_ex, cost and units_no_cost
         // (inside them: the whole figures never change; ours = whole - own)
-        'own_units', 'own_sale_ex', 'own_refund_ex', 'own_cost', 'own_no_cost'];
+        'own_units', 'own_sale_ex', 'own_refund_ex', 'own_cost', 'own_no_cost',
+        // CW-1174 (0084, docs/decisions.md GPF4): Global Payments' card fees on the day's orders, the part of them still estimated, and an
+        // invoice's charge on no order
+        'gp_fee', 'gp_fee_est', 'gp_other'];
     public const ITEM_FIELDS = ['units', 'sale_ex', 'cost', 'units_no_cost', 'own_units', 'own_sale_ex', 'own_cost', 'own_no_cost'];
     /** bin/rebuild_profit_days.php --apply waits at most this long for a store-day's row held elsewhere, then names it and goes on (PR132). */
     public const REBUILD_LOCK_WAIT_SEC = 10;
@@ -47,9 +50,10 @@ final class ProfitDays
      * @param array<string, array<string, mixed>> $lines its sale_line rows
      * @param int $deliveryCost what the live carrier bill lines on the order cost (DeliveryBills::orderCost), pence ex VAT
      * @param int $feeCost its PayPal sale fees (PaypalFees::orderFee, 0080: docs/decisions.md PPF7), pence: they count on its paid day
+     * @param array{fee: int, est: int} $gp its Global Payments card fee and the part of it still estimated (GpFees::share, 0084: GPF4): on its paid day
      * @return array{days: array<string, array<string, int>>, items: array<string, array<string, int>>} "day" and "day|sku" => figures
      */
-    public static function orderShare(?array $order, array $lines, int $deliveryCost = 0, int $feeCost = 0): array
+    public static function orderShare(?array $order, array $lines, int $deliveryCost = 0, int $feeCost = 0, array $gp = ['fee' => 0, 'est' => 0]): array
     {
         if ($order === null || $order['day'] === null) {
             return ['days' => [], 'items' => []];
@@ -63,7 +67,8 @@ final class ProfitDays
             'units_no_cost' => (int) $order['units_no_cost'], 'delivery_ex' => (int) $order['delivery_ex'], 'delivery_cost' => $deliveryCost, 'delivery_other' => 0,
             'fee_cost' => $feeCost, 'fee_other' => 0,
             'own_units' => (int) ($order['own_units'] ?? 0), 'own_sale_ex' => (int) ($order['own_sale_ex'] ?? 0), 'own_refund_ex' => (int) ($order['own_refund_ex'] ?? 0),
-            'own_cost' => (int) ($order['own_cost'] ?? 0), 'own_no_cost' => (int) ($order['own_no_cost'] ?? 0)]];
+            'own_cost' => (int) ($order['own_cost'] ?? 0), 'own_no_cost' => (int) ($order['own_no_cost'] ?? 0),
+            'gp_fee' => (int) $gp['fee'], 'gp_fee_est' => (int) $gp['est'], 'gp_other' => 0]];
         $items = [];
         foreach ($lines as $r) {
             if ($r['removed_at'] !== null) {
@@ -134,6 +139,27 @@ final class ProfitDays
         }
     }
 
+    /**
+     * A store's day's figures moved by $delta (only figures of DAY_FIELDS; the row made when missing), inside the caller's transaction, under
+     * that day's guard: the card fees' writes (GpFees, 0084: GPF4), which change no order.
+     *
+     * @param array<string, int> $delta
+     */
+    public static function bump(Db $db, int $channelId, string $day, array $delta): void
+    {
+        $delta = array_filter($delta, static fn (int $v): bool => $v !== 0);
+        if ($delta === []) {
+            return;
+        }
+        $fields = array_keys($delta);
+        if (array_diff($fields, self::DAY_FIELDS) !== []) {
+            throw new \LogicException('only the day figures move');
+        }
+        $db->exec('INSERT INTO profit_day (channel_id, day, ' . implode(', ', $fields) . ') VALUES (?, ?, ' . implode(', ', array_fill(0, count($fields), '?'))
+            . ') AS n ON DUPLICATE KEY UPDATE ' . implode(', ', array_map(static fn (string $c): string => "{$c} = profit_day.{$c} + n.{$c}", $fields)),
+            [$channelId, $day, ...array_values($delta)]);
+    }
+
     public static function rebuild(Db $db, int $channelId, string $day): array
     {
         return $db->transaction(static function (Db $db) use ($channelId, $day): array {
@@ -179,13 +205,16 @@ final class ProfitDays
         // PayPal's money (0080, PPF7): the sale fees on each paid order, and what counts on the day itself (on orders: refunds, chargebacks,
         // fees; on no order).
         $fees = PaypalFees::dayFigures($db, $channelId, $day);
+        // Global Payments' card fees (0084, GPF4): each paid order's, and an invoice's charge on no order dated that day.
+        $gp = GpFees::dayFigures($db, $channelId, $day);
         $days = [];
         $items = [];
         foreach ($orders as $ref => $x) {
             if (!isset($x['o'])) {
                 continue;
             }
-            $s = self::orderShare($x['o'], $x['lines'], $delivery['orders'][strtolower((string) $ref)] ?? 0, $fees['orders'][strtolower((string) $ref)] ?? 0);
+            $s = self::orderShare($x['o'], $x['lines'], $delivery['orders'][strtolower((string) $ref)] ?? 0, $fees['orders'][strtolower((string) $ref)] ?? 0,
+                $gp['orders'][strtolower((string) $ref)] ?? ['fee' => 0, 'est' => 0]);
             $days = self::add($days, $s['days'], self::DAY_FIELDS);
             $items = self::add($items, $s['items'], self::ITEM_FIELDS);
         }
@@ -197,6 +226,10 @@ final class ProfitDays
             $days[$day] ??= array_fill_keys(self::DAY_FIELDS, 0);
             $days[$day]['fee_cost'] += $fees['on_orders'];
             $days[$day]['fee_other'] += $fees['other'];
+        }
+        if ($gp['rows'] > 0) {
+            $days[$day] ??= array_fill_keys(self::DAY_FIELDS, 0);
+            $days[$day]['gp_other'] += $gp['other'];
         }
         $bySku = [];
         foreach ($items as $k => $f) {

@@ -73,6 +73,15 @@ final class GpFeesTest extends StockTestCase
         }
     }
 
+    /** As same(), the rows of zeros an order moved to another day leaves (the snapshot's way since 0074: --apply takes them away) aside. */
+    private static function sameButZeros(Caller $site, string ...$days): void
+    {
+        foreach ($days as $d) {
+            self::assertSame([], array_values(array_filter(ProfitDays::differences(self::$db, (int) $site->channelId, $d),
+                static fn (string $l): bool => !str_contains($l, 'row of zeros'))), "a rebuild of {$d} gives the same figures");
+        }
+    }
+
     /** @param array<string, string> $over */
     private static function invoice(array $over = []): array
     {
@@ -167,7 +176,7 @@ final class GpFeesTest extends StockTestCase
         self::assertSame([40, 40, 0], self::day($vpg, '2026-11-20'));
         $this->store($vpg, '9100010', null, 4000, 'globalpay', 1005, $line(0));
         self::assertSame(['off', [0, 0, 0]], [(string) self::row($vpg, '9100010')['state'], self::day($vpg, '2026-11-20')], 'not paid any more: counts nothing');
-        self::same($vpg, '2026-11-19', '2026-11-20');
+        self::sameButZeros($vpg, '2026-11-19', '2026-11-20');
     }
 
     public function testTheInvoiceReplacesTheMonthToThePenny(): void
