@@ -22701,3 +22701,31 @@ settles at its full net charge whatever its rate (only the estimate rate is capp
 starting work at 230 s (cron's hard stop 300 s, inside the installer's 6-minute drain), the nightly and the stop wait 50 s for the lock; a run
 left "running" by a process that stopped is marked failed by the next. **GPF24. Re-dating inside the month** (L15): an actual order moved to
 another day of its month queues the month, so the rounding penny follows the day order.
+
+**The two final reviews of 9b98e38..7332729 (Codex gpt-6.2-astra: H1-H5, M6-M15; Fable: F1-F11; the lead's guidance, 26 Nov 2026), each shown
+failing first (GpFeesFinalTest, GpFeesCliTest, GpFeesScreensTest, GpFeesUnitTest; the kit's negative trial).** **GPF25. Every change
+queues its month, invoice or not** (H1): a snapshot (and a day pass) that changes a card order's row queues the order's month in its own
+transaction (gp_due), so an invoice entered and spread while the snapshot was open is spread again once it commits; a Vape Big order before
+its own first day the same. The job keeps the queue of a month with a live invoice of an account switched on (the invoice marked due) until a
+spread that covers it is done; any other month's queue (no invoice yet, the account switched off) is dropped. A spread reads the month's queue
+before each plan and takes away exactly those rows when it is done (one a snapshot still has open is never taken); a queue row it did not
+read keeps it due (F7). GP4 judges a queued month by its queue rows, an invoice due since it was saved by when it was saved (F8); Real profit
+and Profit > Card fees say "estimated" while a month is queued (F6). **GPF26. A day is read outside its guards** (H3): a day pass and a
+spread's day read and plan the day in one consistent snapshot, take the guards (a wait of 1 s at most each, never one that could keep the
+others past 2 s), check the day's fingerprint (the orders' gateway, amount and re-send, the card fee rows, the shops with a row; changed:
+planned again, three times at most) and write in batches of 250, each started only while the guards have been held less than 2 s (past it:
+rolled back, left for the next run). A day with nothing to change takes no guard. A row whose order lost its paid day is switched off with its
+fee taken off the day it counted on (F10). **GPF27. The quick stop goes over everything** (H2, H4): `GpFees::stop` (bin/gp_fees.php --stop)
+empties the first day (each card snapshot holds the first days it read to its commit, so the change waits for every snapshot that read the
+old one), then under the spreads' lock runs the job's pass of the account and goes over every day with a counted row of the account and every
+charge on no order of it directly, whatever its last run recorded, until nothing of it counts (exit 0) or its time is up (exit 1; the spreads'
+lock not had: exit 4). The job also goes over an account switched off that still counts something. **GPF28. An invoice outside its account's
+days** (H5): a month that has no day in the account's first to last day now (a day corrected after the invoice was entered) is settled back
+(its rows off or estimates, its charge on no order taken away) and the invoice waits, due (`parked`); it is never put on a day of another
+month; the health alert `gp_invoice_outside` says it. **GPF29. The deadline and the cursor** (M6, M7): the job's deadline caps the spreads'
+lock waits and stops a spread before its next day; a run that left work is `partial` (gp_run.state; never a good run for the health alert,
+which says so); when a settings change's days were not all gone over, the run records its settings and the first day left (its busy day
+first: gp_run.from_day), and the next run goes on from there. **GPF30. The forms** (M14, M15, F5): a change refused as changed meanwhile comes
+back with the invoice as it is now and its new version; the list's CW card takings are the invoice page's (GpInvoices::cwTakingsByMonth: the
+shops' card orders before their own first day too); the form offers last month, and the month still running needs its own tick
+(`current_ok`). **GPF31. Vape Big's note** (F9): a shop's card fees count from the later of its account's first day and its own.

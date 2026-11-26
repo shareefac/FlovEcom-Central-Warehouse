@@ -192,6 +192,8 @@ final class AlertDispatch
             'gp_invoice_overdue' => Words::say('ALERT', 'gp_invoice_overdue', (string) ($d['account_name'] ?? ''), (string) ($d['months'] ?? ''), (string) $n('late')),
             'gp_double_count' => Words::say('ALERT', 'gp_double_count', (string) ($d['account_name'] ?? ''), (string) $n('count'), (string) ($d['net'] ?? ''),
                 (string) ($d['date'] ?? ''), (string) ($d['month'] ?? '')),
+            'gp_invoice_outside' => Words::say('ALERT', 'gp_invoice_outside', (string) ($d['account_name'] ?? ''), (string) ($d['months'] ?? ''), (string) ($d['from'] ?? ''),
+                ($d['until'] ?? '') === '' ? 'no end' : (string) $d['until']),
             'ai_waiting' => Words::say('ALERT', 'ai_waiting', $n('count'), $n('limit'), self::duration($n('age'))), // CW-1182 (AI17)
             'ai_reader_failed' => Words::say('ALERT', 'ai_reader_failed', self::duration($n('age')), (string) ($d['error'] ?? '')),
             default => (string) ($p['detail'] ?? $p['kind']),

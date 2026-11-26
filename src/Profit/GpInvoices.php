@@ -42,7 +42,8 @@ final class GpInvoices
     /**
      * Adds an invoice. $in: account, month (YYYY-MM), merchant_no, invoice_date (YYYY-MM-DD), sales, net, vat, total (pounds as printed), note,
      * use_rate (true / '1' / 'on': set the account's estimate rate from it, when it is the newest month entered), gap_ok (the person checked
-     * figures that differ from CW's card takings of the month by more than profit.gp_takings_gap_pct).
+     * figures that differ from CW's card takings of the month by more than profit.gp_takings_gap_pct), current_ok (the month still running is
+     * the one meant: F5).
      *
      * @param array<string, mixed> $in
      * @return array{id: int, rate: string, rate_set: bool}
@@ -57,6 +58,11 @@ final class GpInvoices
                 : throw new CwException('gp_choose_account', 'choose the Global Payments account the invoice is for', 422, ['field' => 'account']);
             $month = trim((string) ($in['month'] ?? ''));
             $v = $this->fields($db, $cfg[$acct], $month, $in);
+            // the month still running (its invoice comes after it ends): only with its own tick (the final review of 7332729, F5)
+            if ($month === substr(\CW\Reports\ReportRefresh::ukDay(Clock::db(($this->clock)())), 0, 7) && !self::ticked($in['current_ok'] ?? null)) {
+                throw new CwException('gp_current_month', 'the month is still running: its invoice comes after it ends. Check the month, then tick that it is this '
+                    . 'month\'s invoice', 409, ['field' => 'current_ok']);
+            }
             if (($live = $db->value('SELECT id FROM gp_invoice WHERE live_key = ? FOR UPDATE', [$acct . '|' . $month])) !== null) {
                 throw new CwException('gp_month_entered', "the {$month} invoice of this account is entered already: change that one", 409,
                     ['field' => 'month', 'invoice' => (int) $live]);
@@ -181,14 +187,33 @@ final class GpInvoices
 
     /**
      * CW's card takings of an account's month (GPF6): the bases of its card orders that count, and the card orders of its shops before their own
-     * first day (H2: an invoice holds them too).
+     * first day (H2: an invoice holds them too). The one calculation of the invoice's page, its form's check and the list (cwTakingsByMonth()).
      */
     public static function cwTakings(Db $db, string $acct, string $month): int
     {
-        [$first, $last] = ExpenseViews::monthDays($month);
-        $pre = GpFees::preStartOrders($db, GpFees::readConfig($db)[$acct], $first, $last);
-        return (int) $db->value("SELECT COALESCE(SUM(base_pence), 0) FROM gp_fee_order WHERE account = ? AND day BETWEEN ? AND ? AND state <> 'off'", [$acct, $first, $last])
-            + array_sum(array_map(static fn (array $r): int => (int) $r['grand_inc'], $pre));
+        return self::cwTakingsByMonth($db, $acct, $month)[$month] ?? 0;
+    }
+
+    /**
+     * CW's card takings of each month of an account (GPF6; the final review of 7332729, M15: the list of Profit > Card fees and an invoice's page
+     * say the same): per month YYYY-MM, its counted card orders' bases and its shops' card orders before their own first day. Only $month when
+     * given.
+     *
+     * @return array<string, int>
+     */
+    public static function cwTakingsByMonth(Db $db, string $acct, ?string $month = null): array
+    {
+        [$first, $last] = $month === null ? ['2000-01-01', '2099-12-31'] : ExpenseViews::monthDays($month);
+        $out = [];
+        foreach ($db->all("SELECT LEFT(day, 7) AS m, SUM(base_pence) AS b FROM gp_fee_order WHERE account = ? AND day BETWEEN ? AND ? AND state <> 'off' GROUP BY m",
+            [$acct, $first, $last]) as $r) {
+            $out[(string) $r['m']] = (int) $r['b'];
+        }
+        foreach (GpFees::preStartOrders($db, GpFees::readConfig($db)[$acct], $first, $last) as $r) {
+            $m = substr((string) $r['day'], 0, 7);
+            $out[$m] = ($out[$m] ?? 0) + (int) $r['grand_inc'];
+        }
+        return $out;
     }
 
     /**

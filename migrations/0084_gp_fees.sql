@@ -13,8 +13,10 @@
 --    account's first day to its last): its base (what the card was charged: grand_inc), its state (estimate at the rate in rate_e4, actual
 --    from an invoice, off: counts nothing now), its fee. Written only under the order's day guard (ProfitDays::guard) with the day's figures,
 --    so the days always add up to the rows (docs/decisions.md GPF4). Never deleted.
---  * gp_due: a month of an account whose invoice must be spread again (an order of it changed after the spread): taken by bin/gp_fees.php.
---  * gp_run: each run of bin/gp_fees.php and each spread (what it did, ok or failed in CW's words). Never deleted.
+--  * gp_due: a month of an account whose card orders changed (invoice or not): its invoice is spread again; a month with no invoice is dropped
+--    by bin/gp_fees.php.
+--  * gp_run: each run of bin/gp_fees.php and each spread (what it did, ok, partial or failed in CW's words; a partial run of a settings change
+--    keeps the first day it left in from_day: the next run goes on from there). Never deleted.
 --  * profit_day gets three figures (ADD COLUMN, ALGORITHM = INSTANT: no copy): gp_fee (the card fees on the day's orders), gp_fee_est (the
 --    part of gp_fee still estimated) and gp_other (an invoice's charge on no order).
 --  * The settings (Settings > Profit, each change kept with its history): per account (vpg_online: Vape and Go Online, which also takes Vape
@@ -133,7 +135,7 @@ CREATE TABLE IF NOT EXISTS gp_due (
   PRIMARY KEY (id),
   KEY ix_gp_due_month (account, month)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='a month whose invoice must be spread again (an order of it changed after the spread; docs/decisions.md GPF): taken by bin/gp_fees.php';
+  COMMENT='a month whose card orders changed (invoice or not; docs/decisions.md GPF25): its invoice spread again, else dropped by bin/gp_fees.php';
 
 CREATE TABLE IF NOT EXISTS gp_run (
   id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -141,7 +143,7 @@ CREATE TABLE IF NOT EXISTS gp_run (
   kind          ENUM('job','nightly','backfill','spread','off') NOT NULL,
   from_day      DATE            NULL,
   to_day        DATE            NULL,
-  state         ENUM('running','ok','failed') NOT NULL DEFAULT 'running',
+  state         ENUM('running','ok','partial','failed') NOT NULL DEFAULT 'running' COMMENT 'partial: it left days or invoices for the next run (never a good run)',
   sig           CHAR(16)        NULL COMMENT 'the account''s first day, last day and shops it ran with (another later: its days are gone over again)',
   orders_read   INT UNSIGNED    NOT NULL DEFAULT 0,
   rows_written  INT UNSIGNED    NOT NULL DEFAULT 0,

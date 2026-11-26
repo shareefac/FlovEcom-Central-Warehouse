@@ -163,6 +163,9 @@ final class GpFeesR1Test extends StockTestCase
         $this->set('profit.gp_shop_from_vapebig', '2026-11-01');
         $this->store($vpg, '9100001', '2026-11-19T10:00:00Z', 5000);
         $this->store($vb, '9200001', '2026-11-19T10:00:00Z', 5000);
+        // the rate changed: the day's estimates are written again (a day with nothing to change takes no guard at all: the final review of
+        // 7332729, GPF26)
+        $this->set('profit.gp_rate_vpg_online', '1.02');
         foreach ([$vb, $vpg] as $held) {
             $other = TestDb::connect();
             $other->exec('START TRANSACTION');
@@ -302,9 +305,12 @@ final class GpFeesR1Test extends StockTestCase
         self::assertSame(['failed', 'abandoned: its process stopped before it finished'], array_map('strval', array_values(self::$db->one("SELECT state, error FROM gp_run "
             . "WHERE kind = 'nightly'") ?? [])), 'the next run marks it failed');
         self::assertGreaterThan(0, $d['vpg_online']['left'], 'its deadline passed at once: the days are left for the next run');
-        self::assertNull(self::$db->value("SELECT sig FROM gp_run WHERE kind = 'job' AND account = 'vpg_online' ORDER BY id DESC LIMIT 1"), 'not finished: its settings are gone over again');
+        // not finished: partial, with the first day left (the final review of 7332729, M7: the next run goes on from it)
+        self::assertSame(['partial', '2026-11-01'], array_map('strval', array_values(self::$db->one("SELECT state, from_day FROM gp_run WHERE kind = 'job' "
+            . "AND account = 'vpg_online' ORDER BY id DESC LIMIT 1") ?? [])), 'not finished: its settings\' days are gone over again');
         (new GpFees(self::$db))->run(self::sys());
-        self::assertNotNull(self::$db->value("SELECT sig FROM gp_run WHERE kind = 'job' AND account = 'vpg_online' ORDER BY id DESC LIMIT 1"));
+        self::assertSame(['ok', ''], array_map('strval', array_values(self::$db->one("SELECT state, from_day FROM gp_run WHERE kind = 'job' "
+            . "AND account = 'vpg_online' ORDER BY id DESC LIMIT 1") ?? [])));
     }
 
     public function testL15ReDatingAnActualOrderInsideItsMonthSpreadsTheMonthAgain(): void

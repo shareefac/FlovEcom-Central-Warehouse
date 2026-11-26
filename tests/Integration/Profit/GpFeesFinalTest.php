@@ -330,10 +330,11 @@ final class GpFeesFinalTest extends StockTestCase
         $vpg = $this->site('vapeandgo', 'live');
         $this->on();
         $this->store($vpg, '9100001', '2026-11-01T10:00:00Z', 5000);
+        $this->store($vpg, '9100003', '2026-11-02T10:00:00Z', 5000);
         $this->store($vpg, '9100002', '2026-11-05T10:00:00Z', 5000);
         (new GpFees(self::$db))->run(self::sys());
-        // a setting of the account changed (its last day): every day from its first is gone over again
-        $this->set('profit.gp_until_vpg_online', '2099-12-31');
+        // a setting that changes which orders count (Vape and Go's own first day moved to 3 Nov): every day from the first is gone over again
+        $this->set('profit.gp_shop_from_vapeandgo', '2026-11-03');
         $other = TestDb::connect();
         $other->exec('START TRANSACTION');
         ProfitDays::guard($other, (int) $vpg->channelId, ['2026-11-02']);
@@ -352,6 +353,8 @@ final class GpFeesFinalTest extends StockTestCase
         $r2 = self::$db->one("SELECT state, from_day FROM gp_run WHERE account = 'vpg_online' ORDER BY id DESC LIMIT 1") ?? [];
         self::assertSame(['ok', null], [(string) $r2['state'], $r2['from_day']]);
         self::assertSame(0, (new GpFees(self::$db))->run(self::sys())['vpg_online']['days'], 'then nothing to go over again');
+        self::assertSame(['off', 'off', 'estimate'], [(string) self::row($vpg, '9100001')['state'], (string) self::row($vpg, '9100003')['state'],
+            (string) self::row($vpg, '9100002')['state']]);
     }
 
     public function testF6AQueuedMonthSaysEstimated(): void

@@ -373,11 +373,12 @@ final class ExpenseViews
             if ($withExpenses) {
                 $this->guard();
             }
-            // each shop's Global Payments account switched on (0084, GPF11): the shop's card fees are a figure, with their first day
+            // each shop's Global Payments account switched on (0084, GPF11): the shop's card fees are a figure, from the later of the account's first
+            // day and the shop's own (GPF17; Vape Big from 1 Dec: the final review of 7332729, F9)
             $gp = [];
             foreach (\CW\Profit\GpFees::readConfig($this->db) as $acct => $c) {
                 foreach ($c['on'] ? $c['shops'] : [] as $ch) {
-                    $gp[$ch] ??= ['account' => (string) $acct, 'from' => (string) $c['from']];
+                    $gp[$ch] ??= ['account' => (string) $acct, 'from' => max((string) $c['from'], (string) ($c['shop_from'][$ch] ?? $c['from']))];
                 }
             }
             $out = [];
@@ -425,11 +426,15 @@ final class ExpenseViews
         });
     }
 
-    /** Whether an invoice of the account for a month touching $from..$to is still being spread (GPF11: its days are "estimated" until it is done). */
+    /**
+     * Whether an invoice of the account for a month touching $from..$to is still being spread, or such a month is queued to be spread again (a
+     * card order of it changed: the final review of 7332729, F6): its days are "estimated" until it is done (GPF11).
+     */
     private static function gpDue(Db $db, string $acct, string $from, string $to): bool
     {
-        return $db->value("SELECT 1 FROM gp_invoice WHERE account = ? AND month BETWEEN ? AND ? AND deleted_at IS NULL AND spread_state = 'due' LIMIT 1",
-            [$acct, substr($from, 0, 7), substr($to, 0, 7)]) !== null;
+        $m = [$acct, substr($from, 0, 7), substr($to, 0, 7)];
+        return $db->value("SELECT 1 FROM gp_invoice WHERE account = ? AND month BETWEEN ? AND ? AND deleted_at IS NULL AND spread_state = 'due' LIMIT 1", $m) !== null
+            || $db->value('SELECT 1 FROM gp_due WHERE account = ? AND month BETWEEN ? AND ? LIMIT 1', $m) !== null;
     }
 
     /** @return array{0: string, 1: string} the first and last day of a month YYYY-MM */

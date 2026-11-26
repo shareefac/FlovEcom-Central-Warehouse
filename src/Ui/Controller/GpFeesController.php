@@ -31,7 +31,7 @@ final class GpFeesController
     public const PERM_VIEW = ExpenseAccess::PERM_VIEW;
     public const PERM_EDIT = ExpenseAccess::PERM_EDIT;
     private const NOTICES = ['added', 'changed', 'unchanged', 'deleted'];
-    private const FIELDS = ['account', 'month', 'merchant_no', 'invoice_date', 'sales', 'net', 'vat', 'total', 'note', 'use_rate', 'gap_ok'];
+    private const FIELDS = ['account', 'month', 'merchant_no', 'invoice_date', 'sales', 'net', 'vat', 'total', 'note', 'use_rate', 'gap_ok', 'current_ok'];
 
     public function list(Context $ctx): HtmlResponse
     {
@@ -66,7 +66,10 @@ final class GpFeesController
         try {
             $r = (new GpInvoices($ctx->db))->change($ctx->caller(), $id, self::seen($ctx), $typed, (string) ($ctx->req->field('reason') ?? ''));
         } catch (CwException $e) {
-            return ExpensesController::deniedWrite($e) ? ExpensesController::denied($ctx, $e) : $this->one($ctx, $id, $e->httpStatus, $e, $typed, null);
+            // changed by someone else since the page was opened: the invoice as it is now with its new version (never the old figures as typed,
+            // which a second press would send again over the other change: the final review of 7332729, M14)
+            return ExpensesController::deniedWrite($e) ? ExpensesController::denied($ctx, $e)
+                : $this->one($ctx, $id, $e->httpStatus, $e, $e->errorCode === 'changed_meanwhile' ? null : $typed, null);
         }
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['notice' => $r['changed'] ? 'changed' : 'unchanged']));
     }
@@ -100,14 +103,26 @@ final class GpFeesController
         $accounts = [];
         foreach (GpFees::readConfig($db) as $acct => $c) {
             $months = [];
-            foreach ($db->all("SELECT LEFT(day, 7) AS m, COUNT(*) AS n, SUM(base_pence) AS b, SUM(fee_pence) AS f, SUM(IF(state = 'estimate', fee_pence, 0)) AS est "
+            foreach ($db->all("SELECT LEFT(day, 7) AS m, COUNT(*) AS n, SUM(fee_pence) AS f, SUM(IF(state = 'estimate', fee_pence, 0)) AS est "
                 . "FROM gp_fee_order WHERE account = ? AND state <> 'off' GROUP BY m ORDER BY m DESC", [$acct]) as $r) {
-                $months[(string) $r['m']] = ['month' => (string) $r['m'], 'orders' => (int) $r['n'], 'takings' => (int) $r['b'], 'fees' => (int) $r['f'], 'est' => (int) $r['est'],
-                    'invoice' => null];
+                $months[(string) $r['m']] = ['month' => (string) $r['m'], 'orders' => (int) $r['n'], 'takings' => 0, 'fees' => (int) $r['f'], 'est' => (int) $r['est'],
+                    'invoice' => null, 'queued' => false];
+            }
+            // CW's card takings: the invoice page's own calculation (its shops' card orders before their own first day too: the final review of
+            // 7332729, M15)
+            foreach (GpInvoices::cwTakingsByMonth($db, (string) $acct) as $m => $t) {
+                $months[$m] ??= ['month' => $m, 'orders' => 0, 'takings' => 0, 'fees' => 0, 'est' => 0, 'invoice' => null, 'queued' => false];
+                $months[$m]['takings'] = $t;
+            }
+            // a month queued to be spread again (a card order of it changed): "estimated" until it is (F6)
+            foreach ($db->column('SELECT DISTINCT month FROM gp_due WHERE account = ?', [$acct]) as $m) {
+                if (isset($months[(string) $m])) {
+                    $months[(string) $m]['queued'] = true;
+                }
             }
             foreach ($db->all('SELECT id, month, net_pence, sales_pence, rate_e4, spread_state, other_pence FROM gp_invoice WHERE account = ? AND deleted_at IS NULL', [$acct]) as $i) {
                 $m = (string) $i['month'];
-                $months[$m] ??= ['month' => $m, 'orders' => 0, 'takings' => 0, 'fees' => 0, 'est' => 0, 'invoice' => null];
+                $months[$m] ??= ['month' => $m, 'orders' => 0, 'takings' => 0, 'fees' => 0, 'est' => 0, 'invoice' => null, 'queued' => false];
                 $months[$m]['invoice'] = ['id' => (int) $i['id'], 'net' => (int) $i['net_pence'], 'sales' => (int) $i['sales_pence'],
                     'rate' => ProfitMath::ratePercent((int) $i['rate_e4']), 'due' => $i['spread_state'] === 'due', 'other' => (int) $i['other_pence']];
             }
@@ -116,11 +131,13 @@ final class GpFeesController
                 'rate' => $c['rate'] === null ? null : ProfitMath::ratePercent($c['rate']), 'merchant' => $c['merchant'] !== '',
                 'shops' => array_map(static fn (int $id): string => $names[$id] ?? (string) $id, $c['shops']), 'months' => array_values($months)];
         }
-        $defaults = ['account' => '', 'month' => substr($today, 0, 7), 'merchant_no' => '', 'invoice_date' => '', 'sales' => '', 'net' => '', 'vat' => '0.00', 'total' => '',
-            'note' => '', 'use_rate' => '1', 'gap_ok' => ''];
+        // last month by default: its invoice comes early this month; the month still running needs its own tick (the final review of 7332729, F5)
+        $defaults = ['account' => '', 'month' => self::prev(substr($today, 0, 7)), 'merchant_no' => '', 'invoice_date' => '', 'sales' => '', 'net' => '', 'vat' => '0.00',
+            'total' => '', 'note' => '', 'use_rate' => '1', 'gap_ok' => '', 'current_ok' => ''];
         return $ctx->page('profit_card_fees', ['accounts' => $accounts, 'canEdit' => $ctx->me()->can(self::PERM_EDIT), 'typed' => $typed + $defaults,
             'error' => $error === null ? null : ExpensesController::plain($error), 'errorField' => $error?->detail['field'] ?? null, 'notice' => $notice,
-            'formKey' => ExpensesController::formKey($ctx, $error), 'gap' => $error !== null && $error->errorCode === 'gp_takings_gap' ? $error->detail : null],
+            'formKey' => ExpensesController::formKey($ctx, $error), 'gap' => $error !== null && $error->errorCode === 'gp_takings_gap' ? $error->detail : null,
+            'current' => $error !== null && $error->errorCode === 'gp_current_month'],
             $status, ['title' => Words::MENU['profit_card_fees']]);
     }
 

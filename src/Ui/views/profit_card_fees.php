@@ -45,7 +45,7 @@ $today = \CW\Profit\ProfitViews::today();
     <tr>
       <th scope="row"><?= $e($m['month']) ?></th>
       <td class="num" data-label="<?= $word('PROFIT', 'gp_cw_takings') ?>"><?= $e($gbp($m['takings'])) ?></td>
-      <td class="num" data-label="<?= $word('PROFIT', 'gp_fees_counted') ?>"><?= $e($gbp($m['fees'] + ($m['invoice']['other'] ?? 0))) ?><?php if ($m['est'] > 0 || ($m['invoice']['due'] ?? false)): ?> <?= $chip('waiting', $P['real_gp_estimated']) ?><?php endif; ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'gp_fees_counted') ?>"><?= $e($gbp($m['fees'] + ($m['invoice']['other'] ?? 0))) ?><?php if ($m['est'] > 0 || ($m['invoice']['due'] ?? false) || ($m['invoice'] !== null && ($m['queued'] ?? false))): ?> <?= $chip('waiting', $P['real_gp_estimated']) ?><?php endif; ?></td>
       <td data-label="<?= $word('PROFIT', 'gp_invoice_col') ?>"><?php if ($m['invoice'] === null): ?><span class="muted"><?= $word('PROFIT', 'gp_none') ?></span><?php else: ?><a href="<?= $e('/ui/profit/card-fees/' . $m['invoice']['id']) ?>"><?= $e(\CW\Ui\Words::say('PROFIT', 'gp_invoice_figures', $gbp($m['invoice']['net']), $gbp($m['invoice']['sales']), $m['invoice']['rate'])) ?></a><?php if ($m['invoice']['due']): ?> <?= $chip('waiting', $P['gp_state_due']) ?><?php endif; ?><?php endif; ?></td>
     </tr>
 <?php endforeach; ?>
@@ -115,6 +115,12 @@ $today = \CW\Profit\ProfitViews::today();
 <?php if ($gap !== null): ?>
   <p class="note" role="status"><?= $say('PROFIT', 'gp_gap', $gbp((int) $gap['cw']), $gbp((int) $gap['sales'])) ?></p>
   <label class="choice"><input type="checkbox" name="gap_ok" value="1" aria-invalid="true"> <?= $word('PROFIT', 'gp_f_gap_ok') ?></label>
+<?php endif; ?>
+<?php if ($current || $t['current_ok'] === '1'): ?>
+<?php if ($current): ?>
+  <p class="note" role="status"><?= $word('PROFIT', 'gp_current_month') ?></p>
+<?php endif; ?>
+  <label class="choice"><input type="checkbox" name="current_ok" value="1"<?php if ($t['current_ok'] === '1'): ?> checked<?php endif; ?><?php if ($current): ?> aria-invalid="true"<?php endif; ?>> <?= $word('PROFIT', 'gp_f_current_ok') ?></label>
 <?php endif; ?>
   <p class="actions"><button type="submit" class="btn primary"><?= $word('PROFIT', 'gp_save') ?></button></p>
 </form>

@@ -13,9 +13,11 @@ declare(strict_types=1);
  *   php bin/gp_fees.php --backfill --account=vpg_online --from=2026-11-01 --to=2026-11-28   these UK days gone over (the go-live kit)
  *   php bin/gp_fees.php --status [--account=vpg_online]   read only: the settings, the newest runs, the months and their invoices
  *   php bin/gp_fees.php --stop --account=vpg_online --reason="..." --admin   THE QUICK STOP (the RUNBOOK's): the account's first day emptied
- *                                               (a version of the setting with the reason), the account's days and invoices gone over at once
+ *                                               (a version of the setting with the reason; it waits for every order snapshot that read the
+ *                                               old first day), then, under the spreads' lock, every day with a counted row of the account and
+ *                                               every invoice charge on no order of it gone over directly, whatever its last run recorded
  *                                               (every row off, every charge on no order taken away), then CHECKED: exit 0 only when nothing
- *                                               of the account counts any more
+ *                                               of the account counts any more (GpFees::stop)
  *
  * Exit codes: 0 done · 1 a problem (the run is recorded as failed; a backfill or a stop that could not finish its days: run it again) · 2
  * usage · 4 busy (another run holds the job's lock: nothing done; the nightly and the stop wait 50 s for it first). Every run stops starting work at
@@ -85,17 +87,19 @@ exit(Cli::main('gp_fees', ['nightly', 'backfill', 'status', 'stop', 'account:', 
         }
         $fees = new GpFees($cli->db);
         if (isset($opts['stop'])) {
-            // THE QUICK STOP: the first day emptied (its version kept with the reason), then the account's days and invoices gone over, then checked
-            (new \CW\Settings($cli->db))->set(Caller::system('gp_fees'), "profit.gp_from_{$account}", '', (string) $opts['reason']);
-            $did = $fees->run(Caller::system('gp_fees'), 'job', null, null, $account)[$account];
-            $left = $cli->db->one("SELECT COUNT(*) AS n, COALESCE(SUM(fee_pence), 0) AS f FROM gp_fee_order WHERE account = ? AND state <> 'off'", [$account]) ?? ['n' => -1, 'f' => -1];
-            $other = (int) $cli->db->value('SELECT COALESCE(SUM(other_pence), 0) FROM gp_invoice WHERE account = ?', [$account]);
-            if ((int) $left['n'] !== 0 || $other !== 0) {
-                $cli->error(sprintf('%s: switched off, but %d card fees (%s) and %s on no order still count (%d days left): run the stop again', $account, $left['n'],
-                    \CW\Profit\ProfitViews::gbp((int) $left['f']), \CW\Profit\ProfitViews::gbp($other), $did['left']));
+            // THE QUICK STOP (GpFees::stop; the final review of 7332729, H2, H4): the first day emptied (its version kept with the reason; it waits for
+            // every snapshot that read the old one), then every counted row and charge on no order of the account gone over directly, then checked
+            $r = $fees->stop(Caller::system('gp_fees'), $account, (string) $opts['reason']);
+            if ($r['busy']) {
+                $cli->log("{$account}: switched off, but a spread of its invoices holds the spreads' lock: nothing gone over yet; run the stop again");
+                return Cli::BUSY;
+            }
+            if (!$r['ok']) {
+                $cli->error(sprintf('%s: switched off, but %d card fees (%s) and %s on no order still count (a day\'s guard held elsewhere): run the stop again', $account,
+                    $r['rows'], ProfitViews::gbp($r['fee']), ProfitViews::gbp($r['other'])));
                 return Cli::PROBLEM;
             }
-            $cli->log("{$account}: stopped and checked: no card fee of it counts ({$did['days']} days gone over, {$did['written']} rows switched off)");
+            $cli->log("{$account}: stopped and checked: no card fee of it counts ({$r['days']} days gone over, {$r['written']} rows switched off)");
             return Cli::OK;
         }
         $kind = isset($opts['backfill']) ? 'backfill' : (isset($opts['nightly']) ? 'nightly' : 'job');

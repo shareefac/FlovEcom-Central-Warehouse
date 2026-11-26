@@ -45,6 +45,7 @@ use CW\Settings;
  *     gp_not_run           no good run of bin/gp_fees.php for an hour (or none since it was switched on an hour ago)
  *     gp_invoice_overdue   a month's invoice not entered profit.gp_invoice_late_days (12) days after the month's end
  *     gp_double_count      an expense of a Global Payments supplier that may be an invoice entered on Profit > Card fees
+ *     gp_invoice_outside   a live invoice whose month is outside the account's days now: it counts nowhere and waits (H5)
  *   "Claude reads uploads", only while it is switched on (CW-1182, docs/decisions.md AI17; DocumentReader::health):
  *     ai_waiting         a document waiting more than 10 minutes to be read (the reader, bin/ai_read.php, is not running or is stuck)
  *     ai_reader_failed   the reader's last run failed (an error, or it never ended), until a run ends well

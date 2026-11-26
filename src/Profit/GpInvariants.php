@@ -16,8 +16,8 @@ use CW\Db;
  *       its gp_other the invoices' charges on no order dated that day (every penny once; the rebuild check says the same day by day).
  *  GP3. an invoice spread (done, live, its month not queued again) is on its orders and on no order to the penny: its actual rows of its last
  *       spread plus its charge on no order are its net charge.
- *  GP4. nothing waits long: no month queued, no invoice due, no run running for STALE_HOURS; no estimate at another rate than its account's
- *       for STALE_HOURS (the job works them out again every 10 minutes).
+ *  GP4. nothing waits long: no month queued, no invoice due (since it was saved; a queued month by its queue), no run running for STALE_HOURS;
+ *       no estimate at another rate than its account's for STALE_HOURS (the job works them out again every 10 minutes).
  *  GP5. no paid card order of an account switched on, in its counted days of the last RECHECK_DAYS days, is without a counted row for
  *       STALE_HOURS after it was stored (the snapshot counts it; the nightly goes over the days again).
  */
@@ -67,8 +67,10 @@ final class GpInvariants
             $v[] = "GP4 {$r['account']} {$r['month']}: queued to be spread again since {$r['q']} (bin/gp_fees.php takes it every 10 minutes)";
         }
         $cfg = GpFees::readConfig($db);
-        foreach ($db->all("SELECT id, account, month FROM gp_invoice WHERE deleted_at IS NULL AND spread_state = 'due' AND updated_at < {$stale} ORDER BY id LIMIT "
-            . self::MAX_PER_CHECK) as $r) {
+        // an invoice due since it was saved (a month queued is judged by its queue rows above: the job keeps them until the spread that covers them
+        // is done; the final review of 7332729, F8)
+        foreach ($db->all("SELECT i.id, i.account, i.month FROM gp_invoice i WHERE i.deleted_at IS NULL AND i.spread_state = 'due' AND i.updated_at < {$stale} "
+            . 'AND NOT EXISTS (SELECT 1 FROM gp_due q WHERE q.account = i.account AND q.month = i.month) ORDER BY i.id LIMIT ' . self::MAX_PER_CHECK) as $r) {
             if (($cfg[(string) $r['account']]['on'] ?? false) === true) { // an account switched off keeps its invoices due, counting nothing
                 $v[] = "GP4 card fee invoice {$r['id']} ({$r['account']} {$r['month']}): still waiting to be spread " . self::STALE_HOURS . ' hours after it was saved';
             }
