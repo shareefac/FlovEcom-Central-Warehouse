@@ -14,7 +14,8 @@ declare(strict_types=1);
  *             a mixed order keeps its cost). The whole file is refused when one line is not a known item's code (named by its line number).
  *   --apply   write; without it a dry run that prints what would move
  *   --fail-deferred  (CW-1153, the Codex review of bd9104d, H5: a go-live kit) exit 1 when an order was left because a newer snapshot of it
- *             waits for the money job (the kit applies the queue and runs this again until none is left)
+ *             waits for the money job, or (the final review, H9) a line because the cost job has not reached its paid time (the kit applies the
+ *             queue, runs the cost job and runs this again until none is left)
  *
  * Exit codes: 0 done · 1 (--fail-deferred) orders left · 2 usage · 3 cannot run · 4 not run: another re-cost holds the job's lock: nothing
  * done (PR135).
@@ -57,10 +58,14 @@ exit(Cli::main('recost_sales', ['from:', 'to:', 'source:', 'channel:', 'items:',
         $cli->log(sprintf('%d orders, %d lines %s', $r['orders'], $r['lines'], $apply ? 're-costed' : 'would be re-costed (dry run: add --apply)'));
         if ($r['deferred'] > 0) {
             $cli->log("{$r['deferred']} orders left: a newer snapshot of each waits for the money job (bin/apply_order_snapshots.php); run this again after it");
-            if (array_key_exists('fail-deferred', $opts)) {
-                $cli->error("deferred={$r['deferred']}");
-                return Cli::PROBLEM;
-            }
+        }
+        if ($r['pending'] > 0) {
+            // CW-1153 (the final review, H9): never passed over silently
+            $cli->log("{$r['pending']} lines left: the cost job has not reached their paid time (bin/refresh_item_cost.php); run this again after it");
+        }
+        if (($r['deferred'] > 0 || $r['pending'] > 0) && array_key_exists('fail-deferred', $opts)) {
+            $cli->error("deferred={$r['deferred']} pending={$r['pending']}");
+            return Cli::PROBLEM;
         }
         return Cli::OK;
     }, false, true));

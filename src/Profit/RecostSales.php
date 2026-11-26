@@ -39,8 +39,10 @@ final class RecostSales
 
     /**
      * @param list<string> $sources
-     * @return array{orders: int, lines: int, moves: array<string, int>, deferred: int} deferred: orders left because a newer snapshot waits for
-     *         the money job (run again after it)
+     * @return array{orders: int, lines: int, moves: array<string, int>, deferred: int, pending: int} deferred: orders left because a newer
+     *         snapshot waits for the money job (run again after it); pending (CW-1153, the final review, H9): lines of these sources left because
+     *         the cost job has not reached their paid time (a correction can move a fixed line's paid time past it): counted, never passed over
+     *         silently (run the cost job, then this again)
      */
     public function run(string $from, string $to, array $sources, ?string $channelCode, bool $apply, ?array $skuIds = null): array
     {
@@ -70,7 +72,7 @@ final class RecostSales
         $settings = new ProfitSettings($this->db);
         $costs = new ItemCosts($this->db, $settings);
         $service = new OrderSnapshots($this->db, $this->clock, $settings);
-        $out = ['orders' => 0, 'lines' => 0, 'moves' => [], 'deferred' => 0];
+        $out = ['orders' => 0, 'lines' => 0, 'moves' => [], 'deferred' => 0, 'pending' => 0];
         foreach ($orders as $o) {
             $ch = (int) $o['channel_id'];
             $ref = (string) $o['order_ref'];
@@ -78,6 +80,9 @@ final class RecostSales
             // What would move, read now (the dry run's figures); written under the order's locks from what is stored THEN (a line an import
             // fixed meanwhile is no longer of these sources and is left alone: the Codex review of 92efa82, a11/b11).
             $p = $plan($this->db);
+            if ($p !== null && $p['override'] === [] && $p['pending'] > 0) {
+                $out['pending'] += $p['pending'];
+            }
             if ($p === null || $p['override'] === []) {
                 continue;
             }
@@ -99,6 +104,7 @@ final class RecostSales
                 }
                 $p = $done;
             }
+            $out['pending'] += $p['pending'];
             foreach ($p['moves'] as $k => $n) {
                 $out['moves'][$k] = ($out['moves'][$k] ?? 0) + $n;
             }
@@ -113,7 +119,7 @@ final class RecostSales
      * One order's lines of these sources and the cost each would get now (null: not paid, or none of these sources).
      *
      * @param list<string> $sources
-     * @return array{override: array<string, array<string, mixed>>, moves: array<string, int>}|null
+     * @return array{override: array<string, array<string, mixed>>, moves: array<string, int>, pending: int}|null
      */
     private static function plan(Db $db, ItemCosts $costs, int $ch, string $ref, array $sources, string $from, string $to, ?array $skuIds = null): ?array
     {
@@ -142,12 +148,14 @@ final class RecostSales
         $at = $costs->at($skus, (string) $paid);
         $override = [];
         $moves = [];
+        $pending = 0;
         foreach ($lines as $l) {
             $relinked = $linked($l);
             $sku = $l['sku_id'] !== null ? (int) $l['sku_id'] : ($relinked ? (int) $l['now_sku'] : null);
             $c = $sku === null ? ['e4' => null, 'source' => 'none'] : ($at[$sku] ?? ['e4' => null, 'source' => 'none']);
             if ($c['source'] === ItemCosts::PENDING) {
-                continue; // the cost job has not reached its paid time: left as it is
+                $pending++; // the cost job has not reached its paid time: left as it is, and counted (H9)
+                continue;
             }
             $source = $c['e4'] === null ? 'none' : $c['source'];
             if (!$relinked && $l['costed_by'] === 'recost' && (string) $l['cost_source'] === $source
@@ -159,6 +167,6 @@ final class RecostSales
             $k = $l['cost_source'] . ' > ' . $override[(string) $l['line_id']]['source'];
             $moves[$k] = ($moves[$k] ?? 0) + 1;
         }
-        return ['override' => $override, 'moves' => $moves];
+        return ['override' => $override, 'moves' => $moves, 'pending' => $pending];
     }
 }
