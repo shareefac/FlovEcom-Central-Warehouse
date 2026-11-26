@@ -23,7 +23,7 @@ use CW\CwException;
  * A row is a "surcharge" when its description is EXACTLY "Extra Payment" (the named label's, wherever that label was paid); any other "Extra ..."
  * text is a row CW does not know (the whole basket refused); else a "price" when it names a delivery (a courier or a service word): Parcel2Go::store
  * then accepts it only as the label's own service in the label's own basket (the final review, H3). The headings Details, Parcels, Net, VAT are
- * printed once, before the rows. Each row's VAT is 0 (international: zero-rated) or its net at 20% (whole pence, within a penny:
+ * printed before the rows (again at the top of each page of a long basket: each such line exactly these four). Each row's VAT is 0 (international: zero-rated) or its net at 20% (whole pence, within a penny:
  * P2G may work VAT out on the price with VAT); the rows add up to the printed Net and VAT and Net + VAT = Invoice Total, to the penny. A
  * PrePay top-up's invoice is never a delivery cost: refused. Kept: the number, the transaction id, the date, the rows (P2G number, kind,
  * service, parcels, net, VAT rate, VAT, total) and the totals; never the text (names and addresses are on it).
@@ -45,7 +45,7 @@ final class P2gInvoice
         'row_twice' => 'a label priced twice on it',
         'vat_rate' => 'a row\'s VAT is neither 0 nor 20% of its net',
         'below_zero' => 'a row below 0 (a credit CW does not read yet)',
-        'no_heading' => 'its table\'s headings are not Details, Parcels, Net, VAT (once, before its rows)',
+        'no_heading' => 'its table\'s headings are not Details, Parcels, Net, VAT before its rows',
         'service_differs' => 'a price row\'s service is not the label\'s own service on Parcel2Go\'s list or export',
         'other_basket' => 'a price row\'s label was paid in another basket',
         'parcels_differ' => 'it prints fewer parcels for a label than CW holds for it',
@@ -139,7 +139,7 @@ final class P2gInvoice
                 throw $no('row_shape', $n);
             }
             $desc = trim($m[2]);
-            if ($headings !== 1) {
+            if ($headings === 0) {
                 throw $no('no_heading', $n);
             }
             $kind = match (true) {
@@ -166,7 +166,7 @@ final class P2gInvoice
         if (count($dates) !== 1) {
             throw $no('no_date');
         }
-        if ($headings !== 1) {
+        if ($headings === 0) {
             throw $no('no_heading');
         }
         if ($rows === []) {

@@ -151,4 +151,15 @@ final class P2gInvoiceTest extends TestCase
         self::assertSame('no_heading', self::refusal(str_replace('Parcels    Net', 'Items    Net', $text)), 'not the table CW knows');
         self::assertSame('no_heading', self::refusal((string) preg_replace('/^ Details .*$/m', '', $text)));
     }
+
+    public function testALongBasketOverTwoPagesReadsWithItsHeadingsOnEachPage(): void
+    {
+        // the fix round's own check (a basket of many labels spills onto a second page, whose table repeats its headings): read whole
+        $text = P2gFixtures::invoiceText(1, '26/11/2026', [[150000011, 'Evri Europe Standard Parcelshop', 1, 100, 0], [150000012, 'Evri Europe Standard Parcelshop', 1, 200, 0]]);
+        preg_match('/^ Details .*$/m', $text, $h);
+        $pages = (string) preg_replace('/^( P2G150000012 .*)$/m', "\fParcel2Go.com Ltd                Page 2 of 2\n Invoice No.   TX-1\n{$h[0]}\n$1", $text, 1);
+        self::assertNotSame($text, $pages);
+        $inv = P2gInvoice::read($pages);
+        self::assertSame([300, [100, 200]], [$inv['net'], array_column($inv['rows'], 'net')]);
+    }
 }
