@@ -46,6 +46,10 @@ abstract class IntegrationTestCase extends TestCase
         if (property_exists(\CW\Profit\GpInvoices::class, 'testClock')) {
             \CW\Profit\GpInvoices::$testClock = static fn (): \DateTimeImmutable => new \DateTimeImmutable('2026-12-05 12:00:00', \CW\Clock::utc());
         }
+        // Parcel2Go (0085, PGL2): both accounts off, the waits as seeded (a schema before 0085 has none of these rows: nothing changes).
+        self::$db->exec("UPDATE app_setting SET value_json = CASE setting_key WHEN 'delivery.p2g_tracking_wait_days' THEN CAST('3' AS JSON) "
+            . "WHEN 'delivery.p2g_price_wait_hours' THEN CAST('6' AS JSON) ELSE CAST('\"\"' AS JSON) END WHERE setting_key IN ('delivery.p2g_from_vapeandgo', "
+            . "'delivery.p2g_from_vapebig', 'delivery.p2g_tracking_wait_days', 'delivery.p2g_price_wait_hours')");
         // "Claude reads the upload" (0082, AI7) starts back at its seeded state after a test that set it: off, no key, the month's limit and
         // the prices as seeded (a schema before 0082 has none of these rows: nothing changes).
         self::$db->exec("UPDATE app_setting SET value_json = CASE setting_key WHEN 'ai.read_uploads' THEN CAST('false' AS JSON) "
