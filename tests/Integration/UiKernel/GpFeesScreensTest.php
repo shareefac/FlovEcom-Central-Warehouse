@@ -163,7 +163,7 @@ final class GpFeesScreensTest extends KernelUiTestCase
     {
         $job = $this->signIn($this->uiUser('expenses'));
         $inv = ['account' => 'vpg_online', 'month' => '2026-11', 'merchant_no' => '55829291', 'invoice_date' => '2026-11-30', 'sales' => '50.00', 'net' => '1.00',
-            'vat' => '0', 'total' => '1.00', 'note' => ''];
+            'vat' => '0', 'total' => '1.00', 'note' => '', 'current_ok' => '1'];
         $id = (new \CW\Profit\GpInvoices(self::$db))->add(Caller::system('test'), $inv)['id'];
         $mine = $job->get("/ui/profit/card-fees/{$id}")->form("/ui/profit/card-fees/{$id}/change");
         (new \CW\Profit\GpInvoices(self::$db))->change(Caller::system('test'), $id, 1, ['net' => '2.00', 'total' => '2.00'] + $inv, 'a colleague corrected it');
