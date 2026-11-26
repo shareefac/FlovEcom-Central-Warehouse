@@ -833,6 +833,19 @@ final class OrderSnapshots
                 $newLines[$key] = $x['prev']; // a scoped re-cost (H4): a line it does not name stays exactly as stored
                 continue;
             }
+            if ($keepOthers && $x['prev'] !== null && isset($override[$key]) && !isset($override[$key]['sku']) && $paid !== null) {
+                // ... and a line it names gets its COST only (the final review of 2d13f32, H10): its stored units, sale and restock state stay
+                // (a unit back in stock since is the returns path's to count, which moves the sale too); its owner as the periods say.
+                $prev = $x['prev'];
+                $e4 = $override[$key]['source'] === 'none' ? null : $override[$key]['e4'];
+                $newLines[$key] = array_merge($prev, [
+                    'unit_cost_e4' => $e4, 'cost_source' => $override[$key]['source'], 'costed_by' => $override[$key]['by'], 'cost_at' => $now,
+                    'cost' => ProfitMath::lineCost((int) $prev['cancelled'] === 0, (int) $prev['units'], $e4, (int) $prev['restocked'] === 1),
+                    'updated_at' => $now,
+                    'item_owner' => ($o = \CW\Items\ItemOwners::ownerAt($owners, $prev['sku_id'] === null ? null : (int) $prev['sku_id'], (string) $paid)) === $channelId ? $o : null,
+                ]);
+                continue;
+            }
             $l = $x['l'];
             $id = (string) $l['line_id'];
             $m = ProfitMath::line($l, $x['upi'], $x['restocked'], $vatBp);
