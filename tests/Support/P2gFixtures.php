@@ -47,13 +47,13 @@ final class P2gFixtures
     }
 
     /** One line of the API's recent list, with the personal fields Parcel2Go sends (made up) that CW must never keep. @return array<string, mixed> */
-    public static function apiLine(int $olid, ?int $tx, ?string $paid, int $parcels = 1, string $source = 'OrderProcess'): array
+    public static function apiLine(int $olid, ?int $tx, ?string $paid, int $parcels = 1, string $source = 'OrderProcess', string $service = 'Evri Europe Standard Parcelshop'): array
     {
         $ps = [];
         for ($i = 1; $i <= $parcels; $i++) {
             $ps[] = ['Id' => $olid * 10 + $i, 'Contents' => 'Test contents ' . self::PERSON, 'PrintInStoreBarcode' => null, 'Links' => []];
         }
-        return ['Courier' => 'Evri', 'Service' => 'Evri Europe Standard Parcelshop', 'Source' => $source, 'ServiceSlug' => 'evri-europe-standard-parcelshop',
+        return ['Courier' => 'Evri', 'Service' => $service, 'Source' => $source, 'ServiceSlug' => 'p2g-slug-' . strtolower(substr(md5($service), 0, 6)),
             'OrderLineId' => $olid, 'TransactionId' => $tx, 'PaidDate' => $paid, 'Parcels' => $ps, 'ValueOfContents' => 41.25,
             'DeliveryAddress' => ['ContactName' => self::PERSON, 'Email' => 'test.person@example.com', 'Phone' => '07700 900123', 'Property' => '1', 'Street' => 'Test Street',
                 'Town' => 'Testtown', 'Postcode' => 'TT1 1TT', 'CountryIsoCode' => 'DEU', 'Country' => 'Germany'],

@@ -139,4 +139,16 @@ final class P2gInvoiceTest extends TestCase
         self::assertSame(['TX-95792472', 2311, [293, 1132, 886], ['surcharge', 'price', 'price']], [$inv['invoice_no'], $inv['net'], array_column($inv['rows'], 'net'),
             array_column($inv['rows'], 'kind')]);
     }
+
+    public function testOnlyExactlyExtraPaymentIsASurchargeAndTheHeadingsMustBeThere(): void
+    {
+        // H3 / F2 (the lead's decision 4): any other "Extra ..." text is an unknown row (the whole basket refused); the table's headings are the expected ones
+        foreach (['Extra Payment - Evri', 'Extra Payment Parcel Overweight', 'extra payment', 'Extra Charge'] as $desc) {
+            self::assertSame('unknown_row', self::refusal(P2gFixtures::invoiceText(1, '26/11/2026', [[150000009, $desc, 1, 100, 0]])), $desc);
+        }
+        self::assertSame('surcharge', P2gInvoice::read(P2gFixtures::invoiceText(1, '26/11/2026', [[150000009, 'Extra Payment', 1, 100, 0]]))['rows'][0]['kind']);
+        $text = P2gFixtures::invoiceText(1, '26/11/2026', [[150000009, 'Evri Europe Standard Parcelshop', 1, 100, 0]]);
+        self::assertSame('no_heading', self::refusal(str_replace('Parcels    Net', 'Items    Net', $text)), 'not the table CW knows');
+        self::assertSame('no_heading', self::refusal((string) preg_replace('/^ Details .*$/m', '', $text)));
+    }
 }
