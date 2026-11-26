@@ -30,7 +30,7 @@ final class RollbackReleaseTest extends IntegrationTestCase
      * (CW-1182, docs/decisions.md AI14) went live on top of 86c21af (CW-1180), whose last is 0081. PayPal's fees (CW-1172) go live on top of
      * 19980e0 (CW-1182, live 25 Nov 22:13), whose migrations stop at 0079 and add 0081 and 0082 (BEFORE_ALSO): its own 0080 sorts before them.
      */
-    public const BEFORE_LAST = '0082_ai_reader.sql'; // CW-1153 (docs/decisions.md VB): the release before is 40648f7 (PayPal fees, live 26 Nov), last 0082
+    public const BEFORE_LAST = '0083_own_items.sql'; // CW-1174 (docs/decisions.md GPF13): the release before is CW-1153's (a shop's own items), last 0083
     /**
      * The migration files the rollback release takes from this release (README of build/A, "Undo"; CW-1155: RR20; the delivery bills: DL22).
      * CW-1180 (don't restock = written off at once, docs/decisions.md NR1-NR9): the release before was 04dbab6 (CW-1176), whose last is 0079;
@@ -41,10 +41,11 @@ final class RollbackReleaseTest extends IntegrationTestCase
      * and add 0081 and 0082 (BEFORE_ALSO); the plain rollback source is 19980e0's code with 0080 added, byte for byte (no undo release is built:
      * CW is fixed forward). 0080 sorts before 0081 and 0082: the migrator applies what is pending whatever its order (Migrator::pending).
      */
-    /** CW-1153 (a shop's own items, docs/decisions.md VB): the release before is 40648f7 (0080, 0081 and 0082 all live); the plain rollback source
-     * (kit vbmark_cw1153, branch vbkit-rollback) is 40648f7's code with 0083 added, byte for byte. */
-    public const ROLLBACK_FILES = ['0083_own_items.sql'];
-    /** The release before's migrations after BEFORE_LAST (live releases that went first with later numbers): none for CW-1153. */
+    /** CW-1153 (a shop's own items, docs/decisions.md VB): the release before was 40648f7 (0080, 0081 and 0082 all live); its plain rollback source
+     * (kit vbmark_cw1153, branch vbkit-rollback) was 40648f7's code with 0083 added, byte for byte. CW-1174 (Global Payments' card fees,
+     * docs/decisions.md GPF13): the release before is CW-1153's (0083 live); the plain rollback source is its code with 0084 added, byte for byte. */
+    public const ROLLBACK_FILES = ['0084_gp_fees.sql'];
+    /** The release before's migrations after BEFORE_LAST (live releases that went first with later numbers): none for CW-1174. */
     public const BEFORE_ALSO = [];
 
     private ?string $dir = null;

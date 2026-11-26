@@ -31,6 +31,13 @@ abstract class IntegrationTestCase extends TestCase
         // CW-1180 (0081, NR1): a cancelled paid unit the store marked "don't restock" starts back at the seeded rule, written off at once; the
         // tests of the way before (VERIFY, D37) set "verify" themselves (notRestockable()).
         self::notRestockable('write_off');
+        // Global Payments' card fees (0084, GPF2) start back at their seeded settings: no account switched on, no merchant number, the rates and
+        // shops as seeded (a schema before 0084 has none of these rows: nothing changes).
+        self::$db->exec("UPDATE app_setting SET value_json = CASE setting_key WHEN 'profit.gp_shops_vpg_online' THEN CAST('\"vapeandgo,vapebig\"' AS JSON) "
+            . "WHEN 'profit.gp_rate_vpg_online' THEN CAST('\"1.01\"' AS JSON) WHEN 'profit.gp_until_ef_online' THEN CAST('\"2026-12-24\"' AS JSON) "
+            . "WHEN 'profit.gp_shops_ef_online' THEN CAST('\"electrofag\"' AS JSON) WHEN 'profit.gp_rate_ef_online' THEN CAST('\"2.28\"' AS JSON) "
+            . "WHEN 'profit.gp_expense_suppliers' THEN CAST('\"Global Payments,GlobalPay,Global Pay\"' AS JSON) "
+            . "WHEN 'profit.gp_takings_gap_pct' THEN CAST('\"10\"' AS JSON) ELSE CAST('\"\"' AS JSON) END WHERE setting_key LIKE 'profit.gp\\_%'");
         // "Claude reads the upload" (0082, AI7) starts back at its seeded state after a test that set it: off, no key, the month's limit and
         // the prices as seeded (a schema before 0082 has none of these rows: nothing changes).
         self::$db->exec("UPDATE app_setting SET value_json = CASE setting_key WHEN 'ai.read_uploads' THEN CAST('false' AS JSON) "
