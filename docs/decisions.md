@@ -22554,3 +22554,16 @@ money service, never moving a cost (an order waiting for a cost is the cost job'
 warehouse; a past day by its periods), low or slow stock, or the units tile; the stock value page shows them apart at their buying price.
 **VB15.** Another shop's purchasing report never holds them; a receipt never sets their selling mode on another shop. **VB16.** Our reorder
 list never suggests them ("own item").
+
+The Codex review of bd9104d (round 1; the lead's decisions) changed: **VB7** a credit note is ALWAYS its bill's owner (its goods lines are
+that bill's lines), also after the mark ended or began; the kit's bill step takes the bill's final credit notes along and checks the exact
+pinned goods lines under the bill's row; a bill's owner is read from the periods at its own posting time under its items' rows. **VB10** the
+refund split weighs each counting line (not removed, not cancelled) by its sale inc VAT never below 0; ours is the whole less the own share.
+**VB11** one calculation (ProfitViews::split) gives each order's ours / own (goods, refund share, cost, profit, re-send cost by whose goods
+were re-sent, profit with re-sends) to Profit by order and to the order's page, which shows the shop's own goods in a table of their own;
+the shop's own items with no price are listed apart on No buying price, and the shop's own profit is "not known" while ANY of its units has no
+price (ours keeps its 0.5% rule). **VB12** a scoped re-cost keeps every line it does not name exactly as stored. **VB13** the refresh writes
+only the owners, the own figures and their day difference (OrderSnapshots::reown: no snapshot replayed, no cost read), the refund's own share
+included; it never skips an order waiting for a cost. **VB14** a past day's own stock is valued at the price in force then. **VB16** the
+stored lists of what to buy leave out an item that is a shop's own now. Marks, snapshots, bills and purchase orders read the periods under
+the items' rows (FOR SHARE; a mark takes its time under the row FOR UPDATE).
