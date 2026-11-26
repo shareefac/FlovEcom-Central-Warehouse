@@ -26,6 +26,7 @@ use CW\Db;
  *  DB10. an allocation's label is a label of its bill's own carrier account (a parcel of another account never takes its money).
  *  DB11. a flat label holds one live price at most across the rows of its day (the day book puts every label on one row).
  *  DB12. no pooled bill is still "loading" 10 minutes after its upload (its write did not end; the next bill write or the nightly sweeps it).
+ * Parcel2Go (per_charge, 0085): DB7 and DB8 hold for its bills too, and P2gInvariants' DB13-DB18.
  * Their cost (the Codex check r1, LOW 2): DB1, DB2 and DB3 read every line (DPD: about 10,000 a month, 120,000 a year: a second or two a
  * night); a carrier with a line per parcel at ten times that would want them by the bills uploaded since the last run.
  */
@@ -78,7 +79,7 @@ final class DeliveryInvariants
             $v[] = "DB6 bill {$r['id']} ({$r['status']}): named as replaced by {$r['replaced_by']} bills" . ((int) ($r['other'] ?? 0) > 0 ? ', some of another bill or uploaded before it' : '');
         }
         foreach ($db->all("SELECT i.id, i.invoice_no, i.net_pence, i.line_count, COALESCE(SUM(r.net_pence), 0) AS total, COUNT(r.row_no) AS n FROM carrier_invoice i "
-            . "LEFT JOIN carrier_bill_row r ON r.invoice_id = i.id WHERE i.status = 'live' AND i.carrier IN (SELECT code FROM carrier WHERE family = 'pooled') "
+            . "LEFT JOIN carrier_bill_row r ON r.invoice_id = i.id WHERE i.status = 'live' AND i.carrier IN (SELECT code FROM carrier WHERE family IN ('pooled', 'per_charge')) "
             . 'GROUP BY i.id, i.invoice_no, i.net_pence, i.line_count HAVING total <> i.net_pence OR n <> i.line_count ORDER BY i.id LIMIT ' . self::MAX_PER_CHECK) as $r) {
             $v[] = "DB7 bill {$r['id']} ({$r['invoice_no']}): its {$r['n']} rows add up to {$r['total']}p, it says {$r['line_count']} rows and {$r['net_pence']}p net";
         }
@@ -103,6 +104,10 @@ final class DeliveryInvariants
         foreach ($db->all("SELECT a.label_id, COUNT(*) AS n FROM carrier_allocation a JOIN carrier_invoice i ON i.id = a.invoice_id AND i.status = 'live' "
             . "WHERE a.ended_at IS NULL AND a.kind = 'label' AND a.how = 'flat' GROUP BY a.label_id HAVING n > 1 ORDER BY a.label_id LIMIT " . self::MAX_PER_CHECK) as $r) {
             $v[] = "DB11 label {$r['label_id']}: {$r['n']} live day prices";
+        }
+        // Parcel2Go (0085, docs/decisions.md PGL10); a schema before 0085 has none of these tables
+        if ($db->value("SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'p2g_charge'") !== null) {
+            array_push($v, ...P2gInvariants::check($db, self::MAX_PER_CHECK));
         }
         return $v;
     }

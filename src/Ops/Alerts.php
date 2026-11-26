@@ -46,6 +46,11 @@ use CW\Settings;
  *     gp_invoice_overdue   a month's invoice not entered profit.gp_invoice_late_days (12) days after the month's end
  *     gp_double_count      an expense of a Global Payments supplier that may be an invoice entered on Profit > Card fees
  *     gp_invoice_outside   a live invoice whose month is outside the account's days now: it counts nowhere and waits (H5)
+ *   per Parcel2Go account switched on (CW-1160, docs/decisions.md PGL9; Parcel2Go::health):
+ *     p2g_not_read         no good run of bin/p2g_pull.php for an hour (or none since it was switched on an hour ago)
+ *     p2g_failed           its newest run failed (Parcel2Go not read, its key refused)
+ *     p2g_gap              a full recent list of only new labels (some may be missing) and no export read since
+ *     p2g_waiting          paid labels without a price for longer than delivery.p2g_price_wait_hours
  *   "Claude reads uploads", only while it is switched on (CW-1182, docs/decisions.md AI17; DocumentReader::health):
  *     ai_waiting         a document waiting more than 10 minutes to be read (the reader, bin/ai_read.php, is not running or is stuck)
  *     ai_reader_failed   the reader's last run failed (an error, or it never ended), until a run ends well
@@ -109,6 +114,11 @@ final class Alerts
         // Global Payments' card fees (0084, docs/decisions.md GPF15): per account switched on, the job not run for an hour, a month's invoice not
         // entered 12 days after its end, an expense that may be an entered invoice
         foreach (\CW\Profit\GpFees::health($this->db, Clock::now()) as $p) {
+            $out[] = $p;
+        }
+        // Parcel2Go (0085, docs/decisions.md PGL9): per account switched on, not read well for an hour, its last read failed, labels may be missing,
+        // paid labels without a price for longer than delivery.p2g_price_wait_hours
+        foreach (\CW\Profit\Parcel2Go::health($this->db, Clock::now()) as $p) {
             $out[] = $p;
         }
         // Claude reads the upload (AI17): a document waiting too long, the reader's last run failed; quiet while reading is switched off

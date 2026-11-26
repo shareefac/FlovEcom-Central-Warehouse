@@ -114,3 +114,10 @@ MAILTO=""
 # the installer's 6-minute drain); timeout 300 is the hard stop; a run that finds the lock held exits 4 (busy), the nightly waits 50 s first.
 3-59/10 * * * *  root  cd /opt/cw-prod && timeout 300 php bin/gp_fees.php --db=cw_prod >> /var/log/cw/gp_fees.log 2>&1
 35 5 * * *  root  cd /opt/cw-prod && timeout 300 php bin/gp_fees.php --db=cw_prod --nightly >> /var/log/cw/gp_fees.log 2>&1
+
+# Parcel2Go's labels (CW-1160, docs/decisions.md PGL9): per account, a key pasted on the key page taken first (root alone reads the key files),
+# then nothing while the account is switched off (as installed: the go-live kit's switch step turns each on); else its recent labels, their
+# tracking numbers, their baskets' invoices and the money placed again. Its own deadline is 240 s; timeout 300 is the hard stop; one run at a
+# time (a run that finds the Parcel2Go lock held for 30 s exits 0, the next run goes on).
+2-59/10 * * * *  root  cd /opt/cw-prod && timeout 300 php bin/p2g_pull.php --db=cw_prod --account=p2g_vapeandgo >> /var/log/cw/p2g_pull.log 2>&1
+7-59/10 * * * *  root  cd /opt/cw-prod && timeout 300 php bin/p2g_pull.php --db=cw_prod --account=p2g_vapebig >> /var/log/cw/p2g_pull.log 2>&1
