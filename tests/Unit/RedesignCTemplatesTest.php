@@ -189,8 +189,8 @@ final class RedesignCTemplatesTest extends TestCase
         self::assertSame(['company', 'warehouses', 'sites', 'apis', 'people', 'approvals', 'reasons', 'expense_types', 'own_items' /* 0083, VB4 */, 'settings', 'series', 'integrity', 'audit'],
             array_keys(\CW\Ui\Controller\ReferenceController::SETTINGS_SECTIONS), 'the artboard\'s order, APIs after Stores (0063, AK9), Expense types after Reasons (0079, EX10)');
         self::assertStringContainsString('<a class="set-nav-item" aria-current="page">', $nav, 'the section shown is not a link');
-        self::assertSame(['Company', 'Warehouses', 'Stores', 'APIs', 'Users and roles', 'Approval rules', 'Reasons', 'Expense types', 'Rules and numbers', 'Numbering',
-            'System checks', 'Audit log'], array_values(array_diff_key(Words::RD_SETTINGS, ['sections' => 1])));
+        self::assertSame(['Company', 'Warehouses', 'Stores', 'APIs', 'Users and roles', 'Approval rules', 'Reasons', 'Expense types', 'Own items' /* 0083, VB4 */,
+            'Rules and numbers', 'Numbering', 'System checks', 'Audit log'], array_values(array_diff_key(Words::RD_SETTINGS, ['sections' => 1])));
     }
 
     /** RD-C15: Home's buttons, tiles, "Waiting for you" rows as links, the Stores and Today cards; no Find box. RD-H1-RD-H5: the checklist in tabs. */
