@@ -41,6 +41,7 @@ use CW\Tests\Support\TestDb;
 final class OwnItemsReviewR1Test extends InvoicesTestCase
 {
     private const DAY = '2026-11-19';
+    private string $realFrom = '';
     private const PAID = '2026-11-19T10:00:00Z';
     private Caller $vbs;
 
@@ -48,12 +49,15 @@ final class OwnItemsReviewR1Test extends InvoicesTestCase
     {
         parent::setUp();
         $this->vbs = $this->site('vapebig', 'live');
+        // Vape Big's first real profit day moved for these tests, put back exactly as it was after each (the K1-K4 history checks of later
+        // classes read it: 0079 seeds "2026-12-01")
+        $this->realFrom = (string) self::$db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'profit.real_from_vapebig'");
         self::$db->exec("UPDATE app_setting SET value_json = JSON_QUOTE('2026-11-01') WHERE setting_key = 'profit.real_from_vapebig'");
     }
 
     protected function tearDown(): void
     {
-        self::$db->exec("UPDATE app_setting SET value_json = JSON_QUOTE('') WHERE setting_key = 'profit.real_from_vapebig'");
+        self::$db->exec("UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key = 'profit.real_from_vapebig'", [$this->realFrom]);
         parent::tearDown();
     }
 

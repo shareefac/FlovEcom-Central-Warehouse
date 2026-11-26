@@ -82,17 +82,20 @@ final class ReportRefresh
     /**
      * Keeps the valuation total for Home's stock value tile (0057; docs/decisions.md DG5): the valuation report's own figures (on hand above zero
      * in our warehouses at each item's average cost, as just refreshed), in report_refresh. On a schema before 0057 (no such column) it does
-     * nothing.
+     * nothing; nor on one before 0083 (CW-1153: the valuation leaves a shop's own items out by item_owner, which is not there yet: a migration
+     * test runs this code on an older schema; production runs it only after its migrations).
      */
     private function storeValue(): void
     {
-        $f = (new ReportViews($this->db))->valueFigures();
         try {
+            $f = (new ReportViews($this->db))->valueFigures();
             $this->db->exec('UPDATE report_refresh SET stock_value = ?, items_with_stock = ?, value_at = ? WHERE id = 1',
                 [$f['value'], $f['items'], Clock::db(($this->clock)())]);
         } catch (\PDOException $e) {
-            if ((int) ($e->errorInfo[1] ?? 0) !== 1054) {
-                throw $e; // only "unknown column" (before 0057) is expected
+            $code = (int) ($e->errorInfo[1] ?? 0);
+            $before0083 = $code === 1146 && str_contains($e->getMessage(), '.item_owner\'');
+            if ($code !== 1054 && !$before0083) {
+                throw $e; // only "unknown column" (before 0057) and "no table item_owner" (before 0083) are expected
             }
         }
     }
