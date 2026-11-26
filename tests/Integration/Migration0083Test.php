@@ -32,7 +32,7 @@ final class Migration0083Test extends IntegrationTestCase
     {
         $sql = (string) file_get_contents(dirname(__DIR__, 2) . '/migrations/' . self::FILE);
         self::assertDoesNotMatchRegularExpression('/\bDELETE\s+FROM\b|\bUPDATE\s+\w+\s+SET\b|\bDROP\b/i', $sql, 'nothing is deleted, changed or dropped');
-        self::assertSame(5, substr_count($sql, 'ALGORITHM = INSTANT'), 'every ALTER is instant (a copy fails instead of running)');
+        self::assertSame(5, substr_count($sql, "ALGORITHM = INSTANT'"), 'every ALTER is instant (a copy fails instead of running)');
         $files = array_map('basename', glob(dirname(__DIR__, 2) . '/migrations/*.sql') ?: []);
         sort($files, SORT_STRING);
         $at = array_search(self::FILE, $files, true);

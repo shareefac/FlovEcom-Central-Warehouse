@@ -78,7 +78,8 @@ final class OwnItemsController
             'canEdit' => $canEdit && $shop !== null,
             'lookOnly' => $canEdit ? null : Words::OWN_ITEMS['look_only'],
             'typed' => $typed ?? ['code' => '', 'reason' => ''],
-            'error' => $error === null ? null : Words::error($error->errorCode, $error->getMessage()),
+            // the service's own plain words (its codes are its own: a code of the same name elsewhere says something else)
+            'error' => $error?->getMessage(),
         ], $status, ['title' => Words::PAGE_TITLE['own_items'], 'notice' => $notice]);
     }
 }
