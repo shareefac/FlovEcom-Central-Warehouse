@@ -86,10 +86,11 @@ final class BuyingPatternsScreensTest extends KernelUiTestCase
         $new = $web->get('/ui/purchasing/suppliers/new');
         self::assertSame(200, $new->status, $new->describe());
         $xp = self::xp($new);
-        // The 27 fields in three sections of two columns, the country a picker, the bar at the bottom with ONE Save.
+        // The 28 fields in three sections of two columns (CW-1152: the tick "Can book goods in without the invoice" in Terms), the country a picker,
+        // the bar at the bottom with ONE Save.
         self::assertSame([Words::SUPPLIER_FORM['sec_details'], Words::SUPPLIER_FORM['sec_terms'], Words::SUPPLIER_FORM['sec_dd']],
             self::texts($new, '//form[@action="/ui/purchasing/suppliers"]/fieldset[contains(@class, "doc-grid")]/legend'));
-        self::assertSame(27, $xp->query('//form[@action="/ui/purchasing/suppliers"]//*[@name and (self::input or self::select or self::textarea) and not(@type="hidden")]')->length);
+        self::assertSame(28, $xp->query('//form[@action="/ui/purchasing/suppliers"]//*[@name and (self::input or self::select or self::textarea) and not(@type="hidden")]')->length);
         self::assertSame(count(Words::COUNTRY), $xp->query('//select[@name="country"]/option')->length, 'every country once');
         self::assertSame(['GB'], array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'), iterator_to_array($xp->query('//select[@name="country"]/option[@selected]'))));
         self::assertSame(Words::COUNTRY['GB'], trim((string) $xp->evaluate('string(//select[@name="country"]/option[1])')), 'the United Kingdom first');
