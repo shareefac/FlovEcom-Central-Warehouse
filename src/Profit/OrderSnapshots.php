@@ -456,7 +456,7 @@ final class OrderSnapshots
     }
 
     /** A lock another writer holds (the order's guards, a row): left for the next run, never a refusal. */
-    private static function isBusy(\Throwable $e): bool
+    public static function isBusy(\Throwable $e): bool
     {
         return ($e instanceof CwException && $e->errorCode === 'busy') || in_array(Db::driverCode($e), [1205, 1213], true);
     }
@@ -568,13 +568,14 @@ final class OrderSnapshots
                     $body = json_decode((string) $json, true, 64, JSON_THROW_ON_ERROR);
                     // A batch tool works its costs out here, under the order's locks, from what is stored now (the Codex review of 92efa82, a11/b11).
                     $o = $override instanceof \Closure ? $override($db, $body) : $override;
-                    if ($o === null) {
-                        return false;
+                    if ($o !== null) {
+                        $this->apply($db, $channelId, $ref, $body, Clock::db(($this->clock)()), $o, $keepOthers);
                     }
-                    $this->apply($db, $channelId, $ref, $body, Clock::db(($this->clock)()), $o, $keepOthers);
                     // The commit boundary of a batch tool's costs (the Codex check of 2b718e7): the order's intake lock taken without a wait
                     // (the API storing a snapshot of it right now: left for later) and the queue read again under it, so a correction the API
                     // stored while the tool worked is seen, and one it stores from now waits for this commit only (never for the work).
+                    // CW-1153 (the last fix round, H3): ALSO when the tool has nothing left to write: a correction stored while it worked the order
+                    // out is said (`deferred`), so a re-cost never reports done while a correction that keeps the old fixed cost waits.
                     if ($override instanceof \Closure) {
                         if ($intake === null) {
                             $name = self::intakeLockName($channelId, $ref);
@@ -587,7 +588,7 @@ final class OrderSnapshots
                             throw new CwException('deferred', 'a newer snapshot of this order waits for the money job', 409);
                         }
                     }
-                    return true;
+                    return $o !== null;
                 });
             });
         } catch (CwException $e) {

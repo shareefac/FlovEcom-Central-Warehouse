@@ -469,46 +469,43 @@ final class ItemOwners
     }
 
     /**
-     * CW-1153 (the last Codex check of a46cc3d, H4): every way a sale of ANOTHER shop than $shopId could read these items' price history, counted
-     * before the go-live kit changes it (the owner's start prices): a change of the history must reach Vape Big's own sales only. A plain read:
-     * the caller holds the items' rows FOR UPDATE (a reservation, a link and a sale's owner read them FOR SHARE first, so none passes unseen).
-     *  lines         its sale lines of these items whose order was paid at or after $fromAt (the marks' start)
-     *  unpriced      its sale lines of these items with no cost fixed yet, whenever paid (the cost job would read the changed history)
-     *  queued        its orders waiting in the money job's queue whose snapshot names one of these items: a line whose listing is linked to one,
-     *                or a unit reserved of one (a shipped unit keeps its item after an unlink)
-     *  reservations  its units reserved of these items (held, allocated or shipped) whose line has no cost fixed yet
-     *  links         its listings linked to one of these items (O1)
+     * CW-1153 (the last Codex check of a46cc3d, H4; the last fix round, H1 H2 H6 H8: STRICT and set-based): every row of ANOTHER shop than
+     * $shopId that EVER named one of these items, counted before the go-live kit changes their price history (the owner's start prices): that
+     * history must reach Vape Big's own sales only, so any such row refuses the mark. A plain read in two statements (no loop per order: the
+     * caller holds the items' rows FOR UPDATE and a deadline); a reservation, a link and a sale's owner read those rows FOR SHARE first.
+     *  lines     its sale lines of these items, in any state (removed, unpaid, waiting for a cost)
+     *  listings  its listings linked to one of them now (any status) or ever (listing_map_history: a worker that read a link before an unlink
+     *            carries a listing that was linked once)
+     *  units     its reserved units of these items, in any state (a released or expired unit keeps its item: the snapshot applier still reads it)
+     *  queued    its orders waiting in the money job's queue (refused ones too) whose snapshot names one of them by ITS OWN lines: the reserved
+     *            unit of a line (unit id = line id) or the listing of a line's variant, linked now or ever (the applier's ways to an item)
+     * $fromAt is the marks' start (kept for the caller's message; the rule is any time).
      *
      * @param list<int> $skuIds
-     * @return array{lines: int, unpriced: int, queued: int, reservations: int, links: int}
+     * @return array{lines: int, listings: int, units: int, queued: int}
      */
     public static function otherShopUse(Db $db, array $skuIds, int $shopId, string $fromAt): array
     {
         $ids = array_values(array_unique(array_map('intval', $skuIds)));
-        $out = ['lines' => 0, 'unpriced' => 0, 'queued' => 0, 'reservations' => 0, 'links' => 0];
+        $out = ['lines' => 0, 'listings' => 0, 'units' => 0, 'queued' => 0];
         if ($ids === []) {
             return $out;
         }
-        $from = strlen($fromAt) === 19 ? $fromAt . '.000000' : $fromAt;
         $in = self::marks($ids);
-        $out['lines'] = (int) $db->value('SELECT COUNT(*) FROM sale_line l JOIN sale_order o ON o.channel_id = l.channel_id AND o.order_ref = l.order_ref '
-            . "WHERE l.channel_id <> ? AND l.sku_id IN ({$in}) AND l.removed_at IS NULL AND o.paid_at >= ?", [$shopId, ...$ids, $from]);
-        $out['unpriced'] = (int) $db->value("SELECT COUNT(*) FROM sale_line WHERE channel_id <> ? AND sku_id IN ({$in}) AND removed_at IS NULL AND cost_source IS NULL",
-            [$shopId, ...$ids]);
-        $out['reservations'] = (int) $db->value('SELECT COUNT(*) FROM reservation_unit u WHERE u.channel_id <> ? AND u.sku_id IN (' . $in . ") AND u.state IN ('held', 'allocated', 'shipped') "
-            . 'AND NOT EXISTS (SELECT 1 FROM sale_line l WHERE l.channel_id = u.channel_id AND l.line_id = u.unit_id AND l.cost_source IS NOT NULL AND l.removed_at IS NULL)',
-            [$shopId, ...$ids]);
-        $out['links'] = (int) $db->value("SELECT COUNT(*) FROM channel_listing WHERE channel_id <> ? AND sku_id IN ({$in}) AND status IN ('mapped', 'quarantined')", [$shopId, ...$ids]);
-        $wanted = array_fill_keys($ids, true);
-        foreach ($db->all("SELECT q.channel_id, q.order_ref, JSON_EXTRACT(q.body, '$.lines[*].variant_id') AS variants FROM order_snapshot_queue q WHERE q.channel_id <> ?",
-            [$shopId]) as $q) {
-            $variants = array_values(array_unique(array_map('strval', (array) (json_decode((string) ($q['variants'] ?? 'null'), true) ?? []))));
-            $named = $variants !== [] && array_filter(array_map('intval', $db->column('SELECT sku_id FROM channel_listing WHERE channel_id = ? AND sku_id IS NOT NULL '
-                . 'AND external_variant_id IN (' . self::marks($variants) . ')', [(int) $q['channel_id'], ...$variants])), static fn (int $s): bool => isset($wanted[$s])) !== [];
-            $named = $named || $db->value('SELECT 1 FROM reservation r JOIN reservation_unit u ON u.reservation_id = r.id WHERE r.channel_id = ? AND r.order_ref = ? '
-                . "AND u.sku_id IN ({$in}) LIMIT 1", [(int) $q['channel_id'], (string) $q['order_ref'], ...$ids]) !== null;
-            $out['queued'] += $named ? 1 : 0;
-        }
+        $r = $db->one("SELECT (SELECT COUNT(*) FROM sale_line WHERE channel_id <> ? AND sku_id IN ({$in})) AS lines_n, "
+            . "(SELECT COUNT(*) FROM channel_listing WHERE channel_id <> ? AND sku_id IN ({$in})) "
+            . "+ (SELECT COUNT(*) FROM listing_map_history h JOIN channel_listing c ON c.id = h.listing_id WHERE c.channel_id <> ? AND h.sku_id IN ({$in})) AS listings_n, "
+            . "(SELECT COUNT(*) FROM reservation_unit WHERE channel_id <> ? AND sku_id IN ({$in})) AS units_n",
+            [$shopId, ...$ids, $shopId, ...$ids, $shopId, ...$ids, $shopId, ...$ids]) ?? [];
+        $out['lines'] = (int) ($r['lines_n'] ?? 0);
+        $out['listings'] = (int) ($r['listings_n'] ?? 0);
+        $out['units'] = (int) ($r['units_n'] ?? 0);
+        $out['queued'] = (int) $db->value('SELECT COUNT(DISTINCT q.channel_id, q.order_ref) FROM order_snapshot_queue q '
+            . "JOIN JSON_TABLE(q.body, '$.lines[*]' COLUMNS (line_id VARCHAR(64) PATH '$.line_id', variant_id VARCHAR(64) PATH '$.variant_id')) j "
+            . 'WHERE q.channel_id <> ? AND (EXISTS (SELECT 1 FROM reservation_unit u WHERE u.channel_id = q.channel_id AND u.unit_id = j.line_id COLLATE utf8mb4_0900_ai_ci '
+            . "AND u.sku_id IN ({$in})) OR EXISTS (SELECT 1 FROM channel_listing c WHERE c.channel_id = q.channel_id AND c.external_variant_id = j.variant_id COLLATE utf8mb4_0900_ai_ci "
+            . "AND (c.sku_id IN ({$in}) OR EXISTS (SELECT 1 FROM listing_map_history h WHERE h.listing_id = c.id AND h.sku_id IN ({$in})))))",
+            [$shopId, ...$ids, ...$ids, ...$ids]);
         return $out;
     }
 

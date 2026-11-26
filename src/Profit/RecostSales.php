@@ -41,7 +41,7 @@ final class RecostSales
      * @param list<string> $sources
      * @return array{orders: int, lines: int, moves: array<string, int>, deferred: int, pending: int} deferred: orders left because a newer
      *         snapshot waits for the money job (run again after it; with --apply also an order with nothing left to write, read under its guard:
-     *         the last Codex check of a46cc3d, H5); pending (CW-1153, the final review, H9): lines of these sources left because
+     *         the last Codex check of a46cc3d, H5; and an order whose guard or rows another money writer holds: the last fix round, H9); pending (CW-1153, the final review, H9): lines of these sources left because
      *         the cost job has not reached their paid time (a correction can move a fixed line's paid time past it): counted, never passed over
      *         silently (run the cost job, then this again)
      */
@@ -97,11 +97,21 @@ final class RecostSales
                 $locked = null;
                 // With $skuIds every line it does not name keeps its stored row exactly (the Codex review of bd9104d, H4: never the replay's cost
                 // of an unlisted line whose paid time the cost job has reached since).
-                $wrote = $service->recompute($ch, $ref, static function (Db $db) use ($plan, &$done, &$locked): ?array {
-                    $locked = $plan($db);
-                    $done = $locked === null || $locked['override'] === [] ? null : $locked;
-                    return $done === null ? null : $locked['override'];
-                }, $skuIds !== null);
+                try {
+                    $wrote = $service->recompute($ch, $ref, static function (Db $db) use ($plan, &$done, &$locked): ?array {
+                        $locked = $plan($db);
+                        $done = $locked === null || $locked['override'] === [] ? null : $locked;
+                        return $done === null ? null : $locked['override'];
+                    }, $skuIds !== null);
+                } catch (\Throwable $e) {
+                    // CW-1153 (the last fix round, H9): another money writer holds the order's guard or its rows: this order is left for later
+                    // (`deferred`, rolled back whole) and the batch goes on; anything else is an error of the run
+                    if (!OrderSnapshots::isBusy($e)) {
+                        throw $e;
+                    }
+                    $out['deferred']++;
+                    continue;
+                }
                 // Counted only when recompute() says it committed: a change rolled back at its commit (a snapshot of the order stored meanwhile)
                 // is left for later, `deferred`, whatever the function worked out (the second final review of 3c31d94, a-M6, b-M7, c-M4, PR136).
                 if (!$wrote || $done === null) {
