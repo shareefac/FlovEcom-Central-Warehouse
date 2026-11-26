@@ -11995,6 +11995,7 @@ final class Words
         'p2g_key_waiting' => 'A key was pasted: CW takes it within ten minutes.',
         'p2g_key_set' => 'A key was set %s (pasted by %s).',
         'p2g_key_none' => 'No key yet.',
+        'p2g_key_not_taken' => 'The last key pasted was not taken: Parcel2Go did not accept it, or it was changed after it was pasted. Paste it again. A key set before still works.',
         'p2g_client_id' => 'Client ID',
         'p2g_client_secret' => 'Secret',
         'p2g_key_save' => 'Save the key',

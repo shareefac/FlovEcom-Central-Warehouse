@@ -22880,3 +22880,13 @@ later; `--refresh-invoice=<TX>` reads a basket again (the old bill live until th
 and the job sets it only after a token call with it works (the audit before the file). pdftotext runs in its own process group under a memory
 cap, killed whole at its timeout. bin/p2g_pull.php reads its options strictly (2) and a control mode that finds the Parcel2Go lock held exits
 4 (the quick stop waits up to 300 s first): never a quiet success.
+**PGL14. The small round** (Fable's review of 45f71c1 + 5e6cc57, G1-G10; the lead's decisions, 26 Nov). A list read with an account's key that
+names a label CW knows as ANOTHER account's is refused whole (p2g_key_refused, nothing stored). The service text is held against an invoice
+row only when it came from Parcel2Go's API list (p2g_line.service_from); a label known only from the export is judged by its basket and its
+parcels. DB15 is a LOOK (P2gInvariants::looks, said by bin/invariants.php, which stays exit 0), not a failing check; p2g_needs_look stays.
+A paste Parcel2Go could not be asked about (out of reach) waits for the next run; a refused one is said on the key page. One bill failing
+in the replan no longer stops the others (the run fails after them); the replan's place is written as it goes (0 when through). An API
+refusal is tried again by its next try (24 h), never by updated_at. pdftotext also runs under `timeout --foreground -s KILL`. A label before
+the shop's start is placed again too (its order may be another shop's). The kit takes the window pins from the command line at the switch
+and after (a pins-only change needs no new apply), proves the export is the key's account before the switch, prints the export's service
+and parcels against the invoice in the probe, and lets an upgrade go over quick-stopped accounts with their live bills kept.

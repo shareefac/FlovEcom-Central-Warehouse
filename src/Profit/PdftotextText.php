@@ -11,7 +11,8 @@ use CW\CwException;
  * docs/decisions.md PGL7 (D5). Run as `nobody` when CW runs as root (runuser): a PDF from the internet is never read by a root process. The
  * converter never holds the job (the final review, M15 / F12): it runs in its own process group (setsid) under a memory cap (prlimit
  * MAX_MEMORY), its input written and its output read without blocking (stream_select), and at the timeout or past MAX_TEXT bytes of text the
- * WHOLE group is killed (runuser and pdftotext, or anything they started). The go-live kit's prepare step installs poppler-utils on production.
+ * WHOLE group is killed (runuser and pdftotext, or anything they started), and pdftotext runs under `timeout --foreground -s KILL` as well
+ * (G9). The go-live kit's prepare step installs poppler-utils on production.
  */
 final class PdftotextText implements P2gPdfText
 {
@@ -19,6 +20,7 @@ final class PdftotextText implements P2gPdfText
     public const RUNUSER = '/usr/sbin/runuser';
     public const SETSID = '/usr/bin/setsid';
     public const PRLIMIT = '/usr/bin/prlimit';
+    public const TIMEOUT = '/usr/bin/timeout';
     public const TIMEOUT_SEC = 10;
     public const MAX_TEXT = 1_000_000;
     /** The converter's address-space cap (bytes). */
@@ -39,12 +41,14 @@ final class PdftotextText implements P2gPdfText
         if (!is_file($this->bin) || !is_executable($this->bin)) {
             throw new CwException('p2g_pdf_text', 'this server has no PDF reader for Parcel2Go\'s invoices (poppler-utils): tell the CW team', 503);
         }
-        foreach ([self::SETSID, self::PRLIMIT] as $tool) {
+        foreach ([self::SETSID, self::PRLIMIT, self::TIMEOUT] as $tool) {
             if (!is_executable($tool)) {
                 throw new CwException('p2g_pdf_text', 'the PDF reader\'s guard (' . basename($tool) . ') is missing on this server: tell the CW team', 503);
             }
         }
-        $cmd = [$this->bin, '-layout', '-enc', 'UTF-8', '-q', '-', '-'];
+        // the converter's own clock as well (G9: should runuser ever give it a session of its own, the group kill would miss it): killed 2 s
+        // after this one's timeout by its direct parent; --foreground keeps it in the group below
+        $cmd = [self::TIMEOUT, '--foreground', '-s', 'KILL', (string) ($this->timeoutSec + 2), $this->bin, '-layout', '-enc', 'UTF-8', '-q', '-', '-'];
         if (function_exists('posix_geteuid') && posix_geteuid() === 0) {
             if (!is_executable(self::RUNUSER)) {
                 throw new CwException('p2g_pdf_text', 'the PDF reader is never run as root and runuser is missing: tell the CW team', 503);

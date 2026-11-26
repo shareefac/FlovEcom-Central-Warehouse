@@ -97,8 +97,15 @@ exit(Cli::main('p2g_pull', ['account:', 'import:', 'switch-on', 'switch-off', 'u
             $prove = static function (P2gKey $k): void {
                 (new P2gApi($k, new CurlP2gHttp(), null, microtime(true) + 60))->proveToken();
             };
-            if (P2gKeyDrop::take($cli->db, P2gKeyDrop::dir($config), $keyDir, P2gKeyDrop::secretPath($config), $account, $prove)) {
-                $say("{$account}: the key pasted on the key page was taken (Parcel2Go gave a token for it)");
+            try {
+                if (P2gKeyDrop::take($cli->db, P2gKeyDrop::dir($config), $keyDir, P2gKeyDrop::secretPath($config), $account, $prove)) {
+                    $say("{$account}: the key pasted on the key page was taken (Parcel2Go gave a token for it)");
+                }
+            } catch (CwException $e) {
+                if ($e->errorCode !== 'p2g_key_later') {
+                    throw $e;
+                }
+                $say("{$account}: " . Parcel2Go::why($e)); // the paste waits; the run goes on with the key there is
             }
             if (!Parcel2Go::account($cli->db, $account)['on']) {
                 $say("{$account}: switched off: nothing read");

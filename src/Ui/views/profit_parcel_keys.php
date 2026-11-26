@@ -18,7 +18,7 @@ $D = \CW\Ui\Words::DELIVERY;
   <input type="hidden" name="account" value="<?= $e((string) $a['key']) ?>">
   <fieldset>
     <legend><?= $e((string) $a['name']) ?></legend>
-    <p class="muted"><?php if ($a['state']['waiting']): ?><?= $word('DELIVERY', 'p2g_key_waiting') ?><?php elseif ($a['state']['set_at'] !== null): ?><?= $say('DELIVERY', 'p2g_key_set', \CW\Ui\Html::when((string) $a['state']['set_at']), (string) ($a['state']['set_by'] ?? '')) ?><?php else: ?><?= $word('DELIVERY', 'p2g_key_none') ?><?php endif; ?></p>
+    <p class="muted"><?php if ($a['state']['waiting']): ?><?= $word('DELIVERY', 'p2g_key_waiting') ?><?php elseif ($a['state']['not_taken']): ?><?= $word('DELIVERY', 'p2g_key_not_taken') ?><?php elseif ($a['state']['set_at'] !== null): ?><?= $say('DELIVERY', 'p2g_key_set', \CW\Ui\Html::when((string) $a['state']['set_at']), (string) ($a['state']['set_by'] ?? '')) ?><?php else: ?><?= $word('DELIVERY', 'p2g_key_none') ?><?php endif; ?></p>
     <div class="field"><label for="p2g-id-<?= $e((string) $a['key']) ?>"><?= $word('DELIVERY', 'p2g_client_id') ?></label><input id="p2g-id-<?= $e((string) $a['key']) ?>" type="text" name="client_id" value="" autocomplete="off" spellcheck="false" required></div>
     <div class="field"><label for="p2g-secret-<?= $e((string) $a['key']) ?>"><?= $word('DELIVERY', 'p2g_client_secret') ?></label><input id="p2g-secret-<?= $e((string) $a['key']) ?>" type="password" name="client_secret" value="" autocomplete="new-password" required></div>
     <p class="actions"><button type="submit" class="btn"><?= $word('DELIVERY', 'p2g_key_save') ?></button></p>

@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS p2g_run (
   gap_seen        TINYINT(1)        NOT NULL DEFAULT 0 COMMENT '1: every line of a full recent list was new: lines may have been missed (the export fills them); written WITH the labels',
   gap_from        DATE              NULL COMMENT 'the gap: from the newest paid day known before the list ...',
   gap_to          DATE              NULL COMMENT '... to the oldest paid day of the new list: an export covering these days clears it',
-  replan_after    BIGINT UNSIGNED   NULL COMMENT 'the last bill this run placed again: the next run goes on after it (NULL: from the start)',
+  replan_after    BIGINT UNSIGNED   NULL COMMENT 'the replan''s place, written as it goes: the last bill placed again (the next run goes on after it); 0: it went through to the end; NULL: no replan in this run',
   error           VARCHAR(255)      NULL COMMENT 'why it failed, in CW''s own words (never Parcel2Go''s text, never the key)',
   actor           VARCHAR(64)       NOT NULL,
   started_at      DATETIME(6)       NOT NULL,
@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS p2g_line (
   kind            ENUM('parcel','topup','other') NOT NULL COMMENT 'topup: a PrePay top-up, never a delivery cost (PGL7)',
   p2g_source      VARCHAR(16)       NULL COMMENT 'Parcel2Go''s Source word from a fixed list (OrderProcess, Return ...), else other',
   service_slug    VARCHAR(64)       NULL,
+  service_from    ENUM('api','report','invoice') NULL COMMENT 'where service_slug came from: only the API list''s service is held against an invoice row (Parcel2Go::store)',
   courier_slug    VARCHAR(40)       NULL,
   country_iso3    CHAR(3)           NULL,
   parcels         TINYINT UNSIGNED  NOT NULL DEFAULT 1,
@@ -116,7 +117,7 @@ CREATE TABLE IF NOT EXISTS p2g_line (
   CONSTRAINT fk_p2g_line_account FOREIGN KEY (account_id) REFERENCES carrier_account (id),
   CONSTRAINT fk_p2g_line_invoice FOREIGN KEY (invoice_id) REFERENCES carrier_invoice (id),
   CONSTRAINT ck_p2g_line_shapes CHECK (order_line_id > 0 AND (p2g_source IS NULL OR REGEXP_LIKE(p2g_source, '^[A-Za-z]{2,16}$', 'c'))
-    AND (service_slug IS NULL OR REGEXP_LIKE(service_slug, '^[a-z0-9][a-z0-9-]{0,63}$', 'c'))
+    AND (service_slug IS NULL OR REGEXP_LIKE(service_slug, '^[a-z0-9][a-z0-9-]{0,63}$', 'c')) AND ((service_slug IS NULL) = (service_from IS NULL))
     AND (courier_slug IS NULL OR REGEXP_LIKE(courier_slug, '^[a-z0-9][a-z0-9-]{0,39}$', 'c'))
     AND (country_iso3 IS NULL OR REGEXP_LIKE(country_iso3, '^[A-Z]{3}$', 'c'))
     AND parcels BETWEEN 1 AND 50 AND (paid_at IS NULL) = (paid_day IS NULL)

@@ -229,9 +229,15 @@ final class P2gKeyDrop
         } catch (CwException) {
             $refuse('it is not a Parcel2Go key');
         }
-        // the new key replaces the old only once Parcel2Go gives a token for it
+        // the new key replaces the old only once Parcel2Go gives a token for it; Parcel2Go out of reach (or the run's time up) is no answer: the
+        // paste waits for the next run, never burnt (G6)
         try {
             $prove($key);
+        } catch (CwException $e) {
+            if (in_array($e->errorCode, ['p2g_unreachable', 'p2g_deadline'], true)) {
+                throw new CwException('p2g_key_later', "the Parcel2Go key pasted for {$account} could not be proved now (Parcel2Go out of reach): the next run tries again", 503);
+            }
+            $refuse('Parcel2Go gave no token for it');
         } catch (\Throwable) {
             $refuse('Parcel2Go gave no token for it');
         }
@@ -260,9 +266,10 @@ final class P2gKeyDrop
     }
 
     /**
-     * What the key page shows of an account (never the key): the newest key set (when, from whose paste), a drop waiting to be taken.
+     * What the key page shows of an account (never the key): the newest key set (when, from whose paste), a drop waiting to be taken, and
+     * whether the newest paste was refused after the last key set (G6: said, "paste it again").
      *
-     * @return array{set_at: ?string, set_by: ?string, waiting: bool, refused_at: ?string}
+     * @return array{set_at: ?string, set_by: ?string, waiting: bool, refused_at: ?string, not_taken: bool}
      */
     public static function state(Db $db, string $dropDir, string $account): array
     {
@@ -270,7 +277,10 @@ final class P2gKeyDrop
         $by = $set === null ? null : $db->one("SELECT a.created_at, u.display_name FROM audit_log a LEFT JOIN staff_user u ON u.id = a.staff_user_id WHERE a.action = 'p2g.key_drop' "
             . 'AND a.entity_id = ? AND a.created_at <= ? ORDER BY a.id DESC LIMIT 1', [$account, $set['created_at']]);
         $ref = $db->value("SELECT created_at FROM audit_log WHERE action = 'p2g.key_refused' AND entity_id = ? ORDER BY id DESC LIMIT 1", [$account]);
+        $waiting = is_file(self::file($dropDir, $account));
+        $setId = (int) ($db->value("SELECT MAX(id) FROM audit_log WHERE action = 'p2g.key_set' AND entity_id = ?", [$account]) ?? 0);
+        $refId = (int) ($db->value("SELECT MAX(id) FROM audit_log WHERE action = 'p2g.key_refused' AND entity_id = ?", [$account]) ?? 0);
         return ['set_at' => $set === null ? null : (string) $set['created_at'], 'set_by' => $by === null ? null : (string) ($by['display_name'] ?? ''),
-            'waiting' => is_file(self::file($dropDir, $account)), 'refused_at' => $ref === null ? null : (string) $ref];
+            'waiting' => $waiting, 'refused_at' => $ref === null ? null : (string) $ref, 'not_taken' => !$waiting && $refId > $setId];
     }
 }

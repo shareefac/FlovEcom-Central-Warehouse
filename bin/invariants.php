@@ -46,6 +46,10 @@ exit(Cli::main(
         } catch (\Throwable $e) {
             $cli->error('could not record the run for the Safety checks page: ' . $e->getMessage());
         }
+        // lines to LOOK at, never a failure (Parcel2Go's DB15: a parcel with two carriers' real costs, both kept; CW-1160 G5)
+        foreach (\CW\Profit\P2gInvariants::looks($cli->db) as $look) {
+            $cli->log("look: {$look}");
+        }
         if ($violations === []) {
             $cli->log("ok: invariants hold ({$stats})");
             return Cli::OK;
