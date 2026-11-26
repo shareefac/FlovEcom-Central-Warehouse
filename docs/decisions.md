@@ -22807,3 +22807,18 @@ newest 200 labels (price without VAT, where it went); the known limit said (a re
 list leaves Parcel2Go's bills out (several a day). An order's page shows its Parcel2Go cost per parcel (the allocations, as Royal Mail's).
 **PGL12. Undo.** The release before (15e32fa) with 0085 added byte for byte (RollbackReleaseTest); the kit's undo: switch off, then every
 Parcel2Go bill of the account undone (--undo-all: its days moved back, its labels due again), under the Parcel2Go lock.
+**PGL13. The final review's fix round** (Codex astra + Fable, 26 Nov; the lead's decisions). The reader: a surcharge is EXACTLY "Extra Payment"
+(any other "Extra ..." refused), the headings Details / Parcels / Net / VAT printed once before the rows. A bill refuses a row naming a top-up
+(any kind), a price row of a label known in another basket (`other_basket`) or of another service than the label's on the list or export
+(`service_differs`: the Service NAME as the invoice prints it; unknown: only the basket is checked), a price row printing fewer parcels than
+CW holds (`parcels_differ`); more: the label gets its parcels and its other bills are placed again. An unpaid label paid by its basket or the
+export gets its paid day and its state in one write. PGL4's main-shop outcomes (no tracking after the wait, two parcels, another shop, a cost
+there, no parcel) of a label paid on or before the main shop's start are ALL before CW start. A parcel with this account's money that DPD or
+Royal Mail later costs too keeps both real costs (their matchers unchanged) and is said: the health alert p2g_needs_look names the orders and
+DB15 the parcel (a look, not a lost penny). The gap is written with the labels (its days) and cleared only by an export read after it whose
+days cover it; the replan is resumable within the run's deadline. 404/408/409/425 are a later try; a label the API refused is due again a day
+later; `--refresh-invoice=<TX>` reads a basket again (the old bill live until the new one is stored). The key page SEALS the paste to root
+(libsodium sealed box; the pair made by the kit's apply), its audit row (account, the sealed bytes' sha256, the nonce's) authorises it once,
+and the job sets it only after a token call with it works (the audit before the file). pdftotext runs in its own process group under a memory
+cap, killed whole at its timeout. bin/p2g_pull.php reads its options strictly (2) and a control mode that finds the Parcel2Go lock held exits
+4 (the quick stop waits up to 300 s first): never a quiet success.
