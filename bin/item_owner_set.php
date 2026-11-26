@@ -7,9 +7,11 @@ declare(strict_types=1);
  * read strictly) as the setting's shop's own (Settings > Own items) from --from (a UTC moment in the past: the one explicit exception to
  * "from now"), with --reason, ALL IN ONE TRANSACTION: every item or none. An item already that shop's own is left as it is (a run again
  * changes nothing). With --bill=<number> also marks that final supplier invoice as the shop's own bill (ItemOwners::markBill: every goods line's
- * item that shop's own at its posting time, else refused). Without --apply: everything is worked out and ROLLED BACK.
+ * item that shop's own at its posting time, else refused; its credit notes made final go with it). With --bill-lines=<n> (the go-live kit; the
+ * Codex review of bd9104d, M16) the bill must have exactly n goods lines, each an item of --items, checked under the bill's row (else refused,
+ * bill_not_pinned). Without --apply: everything is worked out and ROLLED BACK.
  *
- *   php bin/item_owner_set.php --items=<file> --from='YYYY-MM-DD HH:MM:SS' --reason='...' [--bill=SINV-000627] [--apply]
+ *   php bin/item_owner_set.php --items=<file> --from='YYYY-MM-DD HH:MM:SS' --reason='...' [--bill=SINV-000627 [--bill-lines=8]] [--apply]
  *
  * Exit codes: 0 done · 2 usage or refused (nothing written) · 3 cannot run · 4 busy.
  */
@@ -26,8 +28,8 @@ final class ItemOwnerSetDryRun extends \RuntimeException
 {
 }
 
-exit(Cli::main('item_owner_set', ['items:', 'from:', 'reason:', 'bill:', 'apply'],
-    "usage: php bin/item_owner_set.php --items=<file> --from='YYYY-MM-DD HH:MM:SS' --reason='...' [--bill=<number>] [--apply]",
+exit(Cli::main('item_owner_set', ['items:', 'from:', 'reason:', 'bill:', 'bill-lines:', 'apply'],
+    "usage: php bin/item_owner_set.php --items=<file> --from='YYYY-MM-DD HH:MM:SS' --reason='...' [--bill=<number> [--bill-lines=<n>]] [--apply]",
     static function (Cli $cli, array $opts): int {
         if (!$cli->tryLock()) {
             $cli->error('busy: another run of this job holds its lock: nothing done');
@@ -41,6 +43,13 @@ exit(Cli::main('item_owner_set', ['items:', 'from:', 'reason:', 'bill:', 'apply'
         if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/D', (string) $opts['from']) !== 1) {
             throw new InvalidArgumentException("--from is a UTC moment like '2026-11-16 09:00:00'");
         }
+        $billLines = null;
+        if (array_key_exists('bill-lines', $opts)) {
+            if (!is_string($opts['bill'] ?? null) || !is_string($opts['bill-lines']) || preg_match('/^[1-9]\d{0,3}$/D', $opts['bill-lines']) !== 1) {
+                throw new InvalidArgumentException('--bill-lines=<n> goes with --bill and is a count of goods lines');
+            }
+            $billLines = (int) $opts['bill-lines'];
+        }
         $db = $cli->db;
         $skus = ItemCodes::fromFile($db, (string) $opts['items']);
         $apply = array_key_exists('apply', $opts);
@@ -50,7 +59,7 @@ exit(Cli::main('item_owner_set', ['items:', 'from:', 'reason:', 'bill:', 'apply'
         $out = ['added' => 0, 'already' => 0];
         $bill = null;
         try {
-            $db->transaction(function () use ($db, $owners, $caller, $skus, $opts, $shop, $apply, &$out, &$bill): void {
+            $db->transaction(function () use ($db, $owners, $caller, $skus, $opts, $shop, $apply, $billLines, &$out, &$bill): void {
                 $codes = [];
                 foreach (array_chunk($skus, 1000) as $chunk) {
                     foreach ($db->all('SELECT id, code FROM sku WHERE id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')', $chunk) as $r) {
@@ -67,7 +76,7 @@ exit(Cli::main('item_owner_set', ['items:', 'from:', 'reason:', 'bill:', 'apply'
                     $out['added']++;
                 }
                 if (is_string($opts['bill'] ?? null)) {
-                    $bill = $owners->markBill($caller, (string) $opts['bill'], true);
+                    $bill = $owners->markBill($caller, (string) $opts['bill'], true, $billLines === null ? null : $skus, $billLines);
                 }
                 if (!$apply) {
                     throw new ItemOwnerSetDryRun('dry run');
@@ -75,7 +84,7 @@ exit(Cli::main('item_owner_set', ['items:', 'from:', 'reason:', 'bill:', 'apply'
             });
         } catch (ItemOwnerSetDryRun) {
             $cli->log(sprintf('DRY RUN (everything rolled back): %d items would be marked as %s\'s own from %s, %d are already', $out['added'], $shop['name'],
-                $opts['from'], $out['already']) . ($bill === null ? '' : "; bill {$bill['number']} ({$bill['lines']} items) would be the shop's own bill"));
+                $opts['from'], $out['already']) . ($bill === null ? '' : "; bill {$bill['number']} ({$bill['lines']} goods lines) would be the shop's own bill, with {$bill['credits']} credit notes"));
             $cli->log('ok');
             return Cli::OK;
         } catch (CwException $e) {
@@ -84,7 +93,8 @@ exit(Cli::main('item_owner_set', ['items:', 'from:', 'reason:', 'bill:', 'apply'
         }
         ItemOwners::refreshReorder($db, $skus);
         $cli->log(sprintf('APPLIED: %d items marked as %s\'s own from %s, %d were already', $out['added'], $shop['name'], $opts['from'], $out['already'])
-            . ($bill === null ? '' : "; bill {$bill['number']} is the shop's own bill (" . ($bill['changed'] ? 'marked now' : 'it was already') . ')'));
+            . ($bill === null ? '' : "; bill {$bill['number']} ({$bill['lines']} goods lines) is the shop's own bill (" . ($bill['changed'] ? 'marked now' : 'it was already')
+                . "; {$bill['credits']} credit notes with it)"));
         $cli->log('ok');
         return Cli::OK;
     }, true, true));

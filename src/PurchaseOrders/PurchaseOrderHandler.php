@@ -87,7 +87,14 @@ final class PurchaseOrderHandler implements DocumentHandler
         if (count($lines) > self::MAX_LINES) {
             throw new CwException('too_many_lines', 'a purchase order has at most ' . self::MAX_LINES . ' lines', 422);
         }
-        // CW-1153 (docs/decisions.md VB8): a shop's own items (its own stock, bought with its own money) are never on our purchase order.
+        // CW-1153 (docs/decisions.md VB8): a shop's own items (its own stock, bought with its own money) are never on our purchase order. Read
+        // under the items' rows FOR SHARE, in id order, held to this transaction's end (the Codex review of bd9104d, M12): a mark being written
+        // (ItemOwners, the row FOR UPDATE) is waited for, and none can start before the approval commits.
+        $skuIds = array_values(array_unique(array_map('intval', array_filter(array_column($lines, 'sku_id'), static fn ($v): bool => $v !== null))));
+        sort($skuIds);
+        foreach (array_chunk($skuIds, 500) as $chunk) {
+            $db->all('SELECT id FROM sku WHERE id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ') ORDER BY id FOR SHARE', $chunk);
+        }
         $own = self::ownItemLines($db, $doc->id);
         if ($own !== []) {
             throw new CwException('own_item_on_order', self::ownItemWords($own[0]['code'], $own[0]['shop']), 422, ['codes' => array_column($own, 'code')]);

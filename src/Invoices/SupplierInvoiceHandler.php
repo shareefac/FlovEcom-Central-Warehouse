@@ -93,15 +93,36 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
     }
 
     /**
-     * CW-1153 (docs/decisions.md VB7): whose bill this is, from its goods lines when it is made final: a shop's own (every goods line is that
-     * shop's own item now: its channel id) or ours (none is: null). A bill that mixes them is refused (422 own_items_mixed), never split by
-     * a guess. A credit note with no goods line is the bill's it credits; one that credits a bill must be that bill's owner's (422
-     * own_items_credit_mismatch). With $lock the items' rows are read FOR SHARE first (in id order), the rows a mark is added or ended
-     * under (ItemOwners), so the mark cannot change between this answer and the posting's commit.
+     * CW-1153 (docs/decisions.md VB7): whose bill this is, from its goods lines: a shop's own (every goods line's item was that shop's own at
+     * $at: its channel id) or ours (none was: null), by the periods (ItemOwners, never today's list). A bill that mixes them is refused (422
+     * own_items_mixed), never split by a guess. A CREDIT NOTE is always the owner of the bill it credits (the Codex review of bd9104d, M10): its
+     * goods lines are lines of that bill (problems(): credit_line_required / credit_line_mismatch, checked before this), so a credit of a line
+     * of the shop's own bill stays the shop's after the mark ended, and a credit of our bill stays ours after the item was marked.
+     *
+     * With $lock the items' rows are read FOR SHARE first (in id order), the rows a mark is added or ended under (ItemOwners, its time read
+     * under them): post() asks at the bill's own posting time (the Codex review of bd9104d, M9: Documents::postNow records posted_at before
+     * the handler runs; a mark committed meanwhile has its period's time from under those rows, so the periods read under them answer for
+     * exactly that posting time). validate() asks at now, an early answer only.
      *
      * @param list<array<string, mixed>> $lines the document's lines
      */
-    public static function ownerOf(Db $db, Document $doc, array $lines, bool $lock): ?int
+    public static function ownerOf(Db $db, Document $doc, array $lines, bool $lock, ?string $at = null): ?int
+    {
+        $credited = $db->value('SELECT credits_document_id FROM supplier_invoice WHERE document_id = ?', [$doc->id]);
+        if ($credited !== null) {
+            $theirs = $db->value('SELECT item_owner FROM supplier_invoice WHERE document_id = ?', [(int) $credited]);
+            return $theirs === null ? null : (int) $theirs;
+        }
+        return self::ownerAt($db, $lines, $at ?? Clock::db(Clock::now()), $lock);
+    }
+
+    /**
+     * Whose goods lines these are at $at (a UTC time as stored), by the periods; null: ours; refused 422 own_items_mixed when they mix a shop's
+     * own items with ours (or two shops'). The items' rows FOR SHARE first unless $lock is false (M9).
+     *
+     * @param list<array<string, mixed>> $lines lines with sku_id
+     */
+    public static function ownerAt(Db $db, array $lines, string $at, bool $lock = true): ?int
     {
         $skus = [];
         foreach ($lines as $l) {
@@ -116,33 +137,17 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
                 $db->all('SELECT id FROM sku WHERE id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ') ORDER BY id FOR SHARE', $chunk);
             }
         }
-        $open = \CW\Items\ItemOwners::open($db, $skus);
+        $periods = \CW\Items\ItemOwners::periods($db, $skus);
         $owners = [];
         foreach ($skus as $s) {
-            $owners[$open[$s] ?? 0] = true;
+            $owners[\CW\Items\ItemOwners::ownerAt($periods, $s, $at) ?? 0] = true;
         }
-        $name = static fn (int $ch): string => (string) $db->value('SELECT name FROM channel WHERE id = ?', [$ch]);
         if (count($owners) > 1) {
-            $shop = $name((int) max(array_keys($owners)));
+            $shop = (string) $db->value('SELECT name FROM channel WHERE id = ?', [(int) max(array_keys($owners))]);
             throw new CwException('own_items_mixed', "this bill has {$shop}'s own items and our items on it: a bill is either {$shop}'s own bill or ours. "
                 . 'Make two bills, one for each.', 422);
         }
-        $owner = $owners === [] ? null : (array_key_first($owners) === 0 ? null : (int) array_key_first($owners));
-        $credited = $db->value('SELECT credits_document_id FROM supplier_invoice WHERE document_id = ?', [$doc->id]);
-        if ($credited !== null) {
-            $theirs = $db->value('SELECT item_owner FROM supplier_invoice WHERE document_id = ?', [(int) $credited]);
-            $theirs = $theirs === null ? null : (int) $theirs;
-            if ($skus === []) {
-                return $theirs;
-            }
-            if ($theirs !== $owner) {
-                $shop = $name((int) ($theirs ?? $owner));
-                throw new CwException('own_items_credit_mismatch', $theirs !== null
-                    ? "the bill this credits is {$shop}'s own bill: its credit note has only {$shop}'s own items on it"
-                    : "the bill this credits is ours: a credit note with {$shop}'s own items on it goes against {$shop}'s own bill", 422);
-            }
-        }
-        return $owner;
+        return $owners === [] || array_key_first($owners) === 0 ? null : (int) array_key_first($owners);
     }
 
     public function approvalUnits(Db $db, Document $doc, array $lines): int
@@ -212,7 +217,7 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
         $copy = ($h['origin'] ?? 'cw') === 'erpnext';
         // CW-1153 (VB7): whose bill it is, decided under the items' rows (before the stock: I21). A copy of an ERPNext invoice is none's: it
         // never feeds a cost, a value or the stock (EC6), and ERPNext's own invoices came before any mark.
-        $owner = $copy ? null : self::ownerOf($db, $doc, $lines, true);
+        $owner = $copy ? null : self::ownerOf($db, $doc, $lines, true, $doc->postedAt); // at the posting time postNow recorded (M9)
         if (($h['item_owner'] === null ? null : (int) $h['item_owner']) !== $owner) {
             $db->exec('UPDATE supplier_invoice SET item_owner = ? WHERE document_id = ?', [$owner, $doc->id]);
         }

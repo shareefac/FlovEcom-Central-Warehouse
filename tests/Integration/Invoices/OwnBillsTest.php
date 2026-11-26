@@ -82,7 +82,7 @@ final class OwnBillsTest extends InvoicesTestCase
         self::assertSame('draft', (string) self::$db->value('SELECT status FROM document WHERE id = ?', [$r['document']->id]));
     }
 
-    public function testACreditNoteMustBeItsBillsOwners(): void
+    public function testACreditNoteIsItsBillsOwners(): void
     {
         ['desk' => $desk, 'buyer' => $buyer, 'supplier' => $s] = $this->people('Credit Supplies');
         $x = $this->orderedAndDelivered($desk, $buyer, (int) $s['id'], 2, 6, '12.0000', 2);
@@ -91,7 +91,10 @@ final class OwnBillsTest extends InvoicesTestCase
         $cn = $this->invoices->createDraft($desk, 'credit_note', (int) $s['id'], ['invoice_number' => 'CN-OWN-1', 'invoice_date' => gmdate('Y-m-d', time() - 86400),
             'credits_id' => $inv->id]);
         $cn = $this->invoices->addCredit($desk, $cn->id, $cn->version, 1, 6);
-        $this->refusedCode('own_items_credit_mismatch', fn () => $this->postWithTotals($desk, $cn, '12.00', '2.40'));
+        // the Codex review of bd9104d, M10: a credit of a line of OUR bill is ours, also after its item was marked (never refused: the goods it
+        // credits were bought by us)
+        $cn = $this->postWithTotals($desk, $cn, '12.00', '2.40');
+        self::assertNull(self::$db->value('SELECT item_owner FROM supplier_invoice WHERE document_id = ?', [$cn->id]));
         // a credit note of a shop's own bill is that shop's own
         $y = $this->orderedAndDelivered($desk, $buyer, (int) $s['id'], 2, 6, '12.0000', 2);
         $this->mark($y['sku']);

@@ -13,7 +13,8 @@ use CW\Db;
  *  O3 each paid sale line's mark (sale_line.item_owner) is what the periods say at its order's paid time (set where they say, empty elsewhere);
  *  O4 an item's periods never overlap;
  *  O5 each order's own figures (sale_order.own_*) are the sums of its own lines;
- *  O6 a bill marked as a shop's own (supplier_invoice.item_owner) has only that shop's own items on its goods lines, at its posting time.
+ *  O6 a bill marked as a shop's own (supplier_invoice.item_owner) has only that shop's own items on its goods lines, at its posting time; a credit
+ *     note made final is its credited bill's owner (the Codex review of bd9104d, M10), whatever the periods say at its own posting time.
  * Each check lists at most MAX rows; reads only.
  */
 final class ItemOwnerInvariants
@@ -63,10 +64,15 @@ final class ItemOwnerInvariants
         }
         foreach ($db->all('SELECT d.number, sl.line_no FROM supplier_invoice si JOIN document d ON d.id = si.document_id JOIN sinv_line sl ON sl.document_id = si.document_id '
             . 'JOIN document_line dl ON dl.document_id = sl.document_id AND dl.line_no = sl.line_no '
-            . "WHERE si.item_owner IS NOT NULL AND sl.kind = 'goods' AND dl.sku_id IS NOT NULL AND NOT EXISTS "
+            . "WHERE si.item_owner IS NOT NULL AND si.kind = 'invoice' AND sl.kind = 'goods' AND dl.sku_id IS NOT NULL AND NOT EXISTS "
             . ' (SELECT 1 FROM item_owner p WHERE p.sku_id = dl.sku_id AND p.channel_id = si.item_owner '
             . "AND COALESCE(d.posted_at, d.created_at) >= p.from_at AND (p.to_at IS NULL OR COALESCE(d.posted_at, d.created_at) < p.to_at)) LIMIT {$m}") as $r) {
             $v[] = "O6: {$r['number']} is marked a shop's own bill but its line {$r['line_no']} is not that shop's own item";
+        }
+        foreach ($db->all("SELECT d.number, b.number AS bill FROM supplier_invoice si JOIN document d ON d.id = si.document_id AND d.status = 'posted' "
+            . 'JOIN supplier_invoice bi ON bi.document_id = si.credits_document_id JOIN document b ON b.id = bi.document_id '
+            . "WHERE si.kind = 'credit_note' AND NOT (si.item_owner <=> bi.item_owner) LIMIT {$m}") as $r) {
+            $v[] = "O6: credit note {$r['number']} is not its bill {$r['bill']}'s owner";
         }
         return $v;
     }

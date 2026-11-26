@@ -265,20 +265,39 @@ final class ItemOwners
      * choice); otherwise refused (409 bill_not_own: none or another of its items is, or two shops'). Under the bill's row and its items' rows.
      * Its write-once posting check (V2) does not cover this column. Audit item_owner.bill. $apply false: what it would do, nothing written.
      *
-     * @return array{document_id: int, number: string, channel_id: int, lines: int, changed: bool}
+     * The Codex review of bd9104d: (M16) with $allowedSkus / $expectLines (the kit: the 81 items, the 8 reviewed goods lines) the bill's goods
+     * lines are checked under its row first: exactly $expectLines goods lines, each an item of $allowedSkus, else 409 bill_not_pinned, nothing
+     * written; (M10) its credit notes already final go with it (a credit note is always its bill's owner: SupplierInvoiceHandler::ownerOf),
+     * each audited.
+     *
+     * @param list<int>|null $allowedSkus
+     * @return array{document_id: int, number: string, channel_id: int, lines: int, changed: bool, credits: int}
      */
-    public function markBill(Caller $caller, string $number, bool $apply): array
+    public function markBill(Caller $caller, string $number, bool $apply, ?array $allowedSkus = null, ?int $expectLines = null): array
     {
-        return $this->db->transaction(function (Db $db) use ($caller, $number, $apply): array {
+        return $this->db->transaction(function (Db $db) use ($caller, $number, $apply, $allowedSkus, $expectLines): array {
             ConfigHistory::authorise($db, $caller);
             $d = $db->one("SELECT d.id, d.number, d.posted_at, d.status, si.item_owner FROM document d JOIN supplier_invoice si ON si.document_id = d.id "
-                . "WHERE d.number = ? AND d.doc_type = 'SINV' FOR UPDATE", [$number])
+                . "WHERE d.number = ? AND d.doc_type = 'SINV' AND si.kind = 'invoice' FOR UPDATE", [$number])
                 ?? throw new CwException('unknown_bill', 'there is no supplier invoice ' . mb_substr($number, 0, 32), 404);
             if ($d['status'] !== 'posted' || $d['posted_at'] === null) {
                 throw new CwException('bill_not_final', "{$d['number']} is not final: its owner is decided when it is made final", 409);
             }
-            $skus = array_map('intval', $db->column("SELECT DISTINCT dl.sku_id FROM sinv_line sl JOIN document_line dl ON dl.document_id = sl.document_id AND dl.line_no = sl.line_no "
-                . "WHERE sl.document_id = ? AND sl.kind = 'goods' AND dl.sku_id IS NOT NULL ORDER BY dl.sku_id", [(int) $d['id']]));
+            $goods = array_map(static fn ($v): ?int => $v === null ? null : (int) $v, $db->column("SELECT dl.sku_id FROM sinv_line sl JOIN document_line dl "
+                . "ON dl.document_id = sl.document_id AND dl.line_no = sl.line_no WHERE sl.document_id = ? AND sl.kind = 'goods' ORDER BY sl.line_no", [(int) $d['id']]));
+            if ($expectLines !== null && count($goods) !== $expectLines) {
+                throw new CwException('bill_not_pinned', "{$d['number']} has " . count($goods) . " goods lines, not the {$expectLines} checked: nothing marked", 409);
+            }
+            if ($allowedSkus !== null) {
+                $allowed = array_fill_keys(array_map('intval', $allowedSkus), true);
+                foreach ($goods as $g) {
+                    if ($g === null || !isset($allowed[$g])) {
+                        throw new CwException('bill_not_pinned', "a goods line of {$d['number']} is not one of the items listed: nothing marked", 409);
+                    }
+                }
+            }
+            $skus = array_values(array_unique(array_filter($goods, static fn (?int $g): bool => $g !== null)));
+            sort($skus);
             foreach (array_chunk($skus, 500) as $chunk) {
                 $db->all('SELECT id FROM sku WHERE id IN (' . self::marks($chunk) . ') ORDER BY id FOR SHARE', $chunk);
             }
@@ -292,11 +311,23 @@ final class ItemOwners
             }
             $ch = (int) array_key_first($owners);
             $changed = $d['item_owner'] === null || (int) $d['item_owner'] !== $ch;
+            // its credit notes made final (a draft takes its bill's owner when it is made final)
+            $credits = $db->all("SELECT si.document_id, si.item_owner, d.number FROM supplier_invoice si JOIN document d ON d.id = si.document_id "
+                . "WHERE si.credits_document_id = ? AND si.kind = 'credit_note' AND d.status = 'posted' ORDER BY si.document_id FOR UPDATE", [(int) $d['id']]);
+            $credits = array_values(array_filter($credits, static fn (array $c): bool => $c['item_owner'] === null || (int) $c['item_owner'] !== $ch));
             if ($apply && $changed) {
                 $db->exec('UPDATE supplier_invoice SET item_owner = ? WHERE document_id = ?', [$ch, (int) $d['id']]);
-                Audit::write($db, $caller, 'item_owner.bill', 'document', (string) $d['id'], null, ['number' => $d['number'], 'channel' => $ch, 'lines' => count($skus)]);
+                Audit::write($db, $caller, 'item_owner.bill', 'document', (string) $d['id'], null, ['number' => $d['number'], 'channel' => $ch, 'lines' => count($goods)]);
             }
-            return ['document_id' => (int) $d['id'], 'number' => (string) $d['number'], 'channel_id' => $ch, 'lines' => count($skus), 'changed' => $changed];
+            if ($apply) {
+                foreach ($credits as $c) {
+                    $db->exec('UPDATE supplier_invoice SET item_owner = ? WHERE document_id = ?', [$ch, (int) $c['document_id']]);
+                    Audit::write($db, $caller, 'item_owner.bill', 'document', (string) $c['document_id'], null, ['number' => $c['number'], 'channel' => $ch,
+                        'credits' => $d['number']]);
+                }
+            }
+            return ['document_id' => (int) $d['id'], 'number' => (string) $d['number'], 'channel_id' => $ch, 'lines' => count($goods), 'changed' => $changed,
+                'credits' => count($credits)];
         });
     }
 
