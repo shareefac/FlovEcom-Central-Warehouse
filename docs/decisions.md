@@ -22788,3 +22788,25 @@ its number and totals to be posted).
 credit note never), blank until one does; a search finds it by that number. One read per page of the register.
 **NI6. Cost.** Unchanged: the delivery's stock is booked at its line's price; a later posted supplier invoice's price replaces it for the
 units still on hand, as for every delivery.
+
+**The Codex astra review of 5bc45a6 (4 High, 3 Medium, 2 Low) and the lead's decisions (26 Nov 2026 ~21:35 UK), each shown failing first
+(runs/noinv_logs/r2_red.log) and then green.** **NI7. Booked once without the invoice** (H1, H3): a ticked supplier's delivery with no
+invoice number needs its delivery note or carbon-book page number (`delivery_ref_required`: "Type the delivery note or page number: without
+the invoice it is how CW books a delivery once."), in the booked-once form (ReceiptMath::invoiceKey: case and spaces aside); posting is refused
+(`delivery_ref_taken`, naming it) while another live receipt of the supplier (draft, waiting, posted; not cancelled or reversed) has the same
+reference; a NUMBERED delivery of a ticked supplier is refused when a numberless live one has it. Read in the posting's transaction: of two
+receipts with one reference, the one whose reference was saved later always sees the other (a draft counts as live), so at most one is booked.
+A supplier invoice number that a posted invoice billed on another posted receipt booked without it (that receipt's key is not the number) is
+refused on a fresh receipt (`invoice_billed_elsewhere`; the invoice's row, document and lines read FOR SHARE under the posting's locks); an
+explicit later delivery on one invoice (invoice_part > 1) and a receipt made from that invoice stay as they were. **NI8. An invoice that would
+bring the same goods in again** (H2): a draft invoice (CW's own) with goods lines no delivery names (count on arrival, book as received) whose
+products were taken in by posted deliveries of the supplier still waiting for their invoice is not made final (`receipts_to_come`, naming up
+to five) unless the desk bills them (Book its invoice / Add a delivery) or confirms "This is a separate delivery" with a reason (3-500
+characters: supplier_invoice.separate_delivery, 0086; SupplierInvoices::setSeparateDelivery, audit invoice.separate with the deliveries it was
+confirmed against; kept in the posting anchor when set). **NI9. The receipt of an invoice keeps it** (H4): a receipt made from a supplier
+invoice (goods_receipt_invoice), its first one too, posts only with that invoice's supplier and supplier invoice number
+(`invoice_link_changed`; the rest of an invoice keeps its own check). **NI10. The rest** (M5-M7, L8, L9): the duty register prints and finds
+the number of the invoice that billed THAT delivery line (grn_document_id and grn_line_no), the numbers joined in PHP (never cut short); a copy
+of a type a delivery never takes (copied from an invoice) stays `invoice_file_required` (the note is for no copy at all); a number or delivery
+reference of only spaces (a non-breaking one too) is kept as none on entry, and read as none everywhere by the booked-once key; a booked-in
+delivery with no file says "No file attached." in its Files section.

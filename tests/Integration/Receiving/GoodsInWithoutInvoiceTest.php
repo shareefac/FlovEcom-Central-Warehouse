@@ -236,6 +236,7 @@ final class GoodsInWithoutInvoiceTest extends InvoicesTestCase
         $other = $this->bareDraft($desk, $sid, $sku, 2, ['delivery_note' => 'PAGE 0043']);
         $this->bench($bench, $other->id);
         self::assertSame('posted', $this->post($desk, $other->id)->status);
+        $this->grns->cancel($desk, $numbered->id, $this->docs->get($numbered->id)->version, 'the same delivery keyed twice');
         $this->docs->reverse($desk, $first->id, 'entered_in_error', null);
         self::assertSame('posted', $this->post($desk, $again->id)->status, 'the reversed delivery no longer holds its page');
         self::assertSame([], ReceivingInvariants::check(self::$db));
@@ -321,7 +322,9 @@ final class GoodsInWithoutInvoiceTest extends InvoicesTestCase
         $this->bench($this->staffUser('goods_in'), $d->id);
         self::assertSame(['number'], $this->grns->plan($d->id)['header']['invoice_to_come']);
         $old = $this->bareDraft($desk, $sid, $sku, 1, ['invoice_number' => 'X']);
-        self::$db->exec("UPDATE document SET external_ref = ? WHERE id = ?", ["\u{00A0}", $old->id]); // a value from before (the column itself)
+        // a value from before (the columns themselves, as a release before M7 kept it: its key was already empty)
+        self::$db->exec('UPDATE document SET external_ref = ? WHERE id = ?', ["\u{00A0}", $old->id]);
+        self::$db->exec('UPDATE goods_receipt SET invoice_key = NULL WHERE document_id = ?', [$old->id]);
         self::assertSame(['number', 'copy'], $this->grns->plan($old->id)['header']['invoice_to_come'], 'an old value of only spaces reads as no number');
     }
 

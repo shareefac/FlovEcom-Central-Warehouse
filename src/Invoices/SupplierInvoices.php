@@ -817,6 +817,34 @@ final class SupplierInvoices
     }
 
     /**
+     * CW-1152 (docs/decisions.md NI8): the desk's confirmation that a draft invoice's goods are a SEPARATE delivery from the supplier's deliveries
+     * still waiting for their invoice with the same products (SupplierInvoiceHandler: receipts_to_come), with its reason (3-500 characters;
+     * '' or null takes it off). Anyone allowed to post invoices (Documents::updateDraft: version + 1); audit invoice.separate with the
+     * deliveries it was confirmed against.
+     */
+    public function setSeparateDelivery(Caller $caller, int $id, int $version, ?string $reason): Document
+    {
+        $reason = $reason === null ? '' : trim($reason);
+        if ($reason !== '' && (!mb_check_encoding($reason, 'UTF-8') || mb_strlen($reason) < 3 || mb_strlen($reason) > 500)) {
+            throw new CwException('bad_reason', 'say in 3 to 500 characters why it is a separate delivery', 422, ['field' => 'separate_reason']);
+        }
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $reason): Document {
+            [$kind, $cur] = $this->current($id);
+            self::mayPost($db, $caller, 'SINV');
+            if ($kind !== 'invoice') {
+                throw new CwException('not_an_invoice', 'only an invoice brings goods in', 409);
+            }
+            $doc = $this->docs->updateDraft($caller, $id, $version, []);
+            $skus = array_map('intval', $db->column("SELECT dl.sku_id FROM sinv_line sl JOIN document_line dl ON dl.document_id = sl.document_id AND dl.line_no = sl.line_no "
+                . "WHERE sl.document_id = ? AND sl.kind = 'goods' AND sl.grn_document_id IS NULL AND dl.sku_id IS NOT NULL", [$id]));
+            $db->exec('UPDATE supplier_invoice SET separate_delivery = ?, updated_at = ? WHERE document_id = ?', [$reason === '' ? null : $reason, $this->nowDb(), $id]);
+            Audit::write($db, $caller, 'invoice.separate', 'document', (string) $id, null, ['reason' => $reason === '' ? null : $reason, 'version' => $doc->version,
+                'waiting' => \CW\Receiving\GoodsReceipts::waitingForInvoice($db, (int) $cur['supplier_id'], array_values(array_unique($skus)), 20)]);
+            return $doc;
+        });
+    }
+
+    /**
      * Sets (or, with null, takes off) the time a draft invoice is made final by the job (bin/submit_invoices.php, every minute), as the
      * person who sets it (their posting: their roles are checked again then). The time is in the future (422 bad_submit_at); there is no
      * fixed time, each invoice gets its own. Until then the draft is changed, re-timed or stopped as any draft; a failed attempt is kept

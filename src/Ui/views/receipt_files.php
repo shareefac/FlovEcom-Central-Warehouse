@@ -1,7 +1,7 @@
 <section class="card receipt-files" aria-labelledby="files-h">
   <h2 id="files-h"><?= $word('RECEIPT', 'files') ?></h2>
 <?php if ($files === []): ?>
-  <p class="hint"><?= $word('RECEIPT', 'files_none') ?></p>
+  <p class="hint"><?= $word('RECEIPT', $doc->status === 'draft' ? 'files_none' : 'files_none_posted') ?></p>
 <?php else: ?>
   <ul class="plain files">
 <?php foreach ($files as $f): ?>

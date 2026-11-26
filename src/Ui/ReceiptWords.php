@@ -37,6 +37,14 @@ final class ReceiptWords
             $m === 'The receipt has no lines yet.' => $w('no_lines'),
             str_starts_with($m, 'Type the supplier\'s invoice number:') => $w('invoice_number_required'),
             str_starts_with($m, 'Attach the supplier\'s invoice (a PDF, or a photo of a paper invoice)') => $w('invoice_file_required'),
+            // CW-1152 (NI7, NI9)
+            $m === 'Type the delivery note or page number: without the invoice it is how CW books a delivery once.' => $w('delivery_ref_required'),
+            preg_match('/^The delivery note or page number (.+?) is also on (.+?): without the invoice a delivery is booked once by it\./s', $m, $x) === 1
+                => $w('delivery_ref_taken', $x[1], self::receiptLabel($x[2])),
+            preg_match('/^This supplier invoice \((.+?)\) is booked already for (\S+), which was booked in without it/', $m, $x) === 1
+                => $w('invoice_billed_elsewhere', $x[1], $x[2]),
+            preg_match('/^This receipt is the delivery of (.+?): its supplier and supplier invoice number are that invoice\'s \((.*?)\)\./s', $m, $x) === 1
+                => $w('invoice_link_changed', $x[1], $x[2]),
             // CW-1152 (NI3): a supplier ticked "Can book goods in without the invoice"
             preg_match('/^Invoice still to come: (no supplier invoice number or copy yet|no supplier invoice number yet|the supplier\'s invoice is not attached yet)\. '
                 . 'Supplier (\S+) books goods in without the invoice/', $m, $x) === 1 => $w(match ($x[1]) {

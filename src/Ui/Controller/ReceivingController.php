@@ -1816,6 +1816,8 @@ final class ReceivingController
             $fix = match ($code) {
                 'invoice_number_required' => [['text' => Words::GI['fix_invoice_number'], 'for' => 'gi-invoice', 'href' => null]],
                 'invoice_file_required' => [['text' => Words::GI['fix_invoice_file'], 'for' => null, 'href' => '#gi-file']],
+                // CW-1152 (NI7): without the invoice number, the delivery note or page number
+                'delivery_ref_required' => [['text' => Words::GI['fix_delivery_ref'], 'for' => 'gi-delivery-note', 'href' => null]],
                 'bench_check_required' => [['text' => Words::GI['fix_paperwork'], 'for' => 'gi-paperwork', 'href' => null], ...($unchecked === [] ? [] : [$lines()])],
                 'paperwork_not_credible' => [['text' => Words::GI['fix_paperwork_no'], 'for' => 'gi-paperwork', 'href' => null]],
                 'line_not_checked' => $unchecked === [] ? [] : [$lines()],

@@ -464,6 +464,24 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
                 }
             }
         }
+        // CW-1152 (docs/decisions.md NI8; the lead, H2): goods no delivery names would come in (count on arrival, book as received) while
+        // deliveries of this supplier with the same products wait for their invoice (booked in without it): the same goods twice. Refused
+        // unless the desk bills those deliveries (Book its invoice, or Add a delivery) or confirmed a separate delivery with a reason.
+        if (!$credit && $doc->status === 'draft' && ($h['origin'] ?? 'cw') === 'cw' && trim((string) ($h['separate_delivery'] ?? '')) === '') {
+            $open = [];
+            foreach ($lines as $l) {
+                $e = $ext[(int) $l['line_no']] ?? null;
+                if ($e !== null && $e['kind'] === 'goods' && $e['grn_document_id'] === null && $l['sku_id'] !== null) {
+                    $open[(int) $l['sku_id']] = (int) $l['sku_id'];
+                }
+            }
+            $waiting = \CW\Receiving\GoodsReceipts::waitingForInvoice($db, $supplier, array_values($open));
+            if ($waiting !== []) {
+                $add('receipts_to_come', 'Deliveries of this supplier with the same products were booked in without their invoice: ' . implode(', ', $waiting)
+                    . '. If this invoice is for them, start it from the delivery ("Book its invoice") or add them to it; if it is another delivery, tick '
+                    . '"This is a separate delivery" and say why.');
+            }
+        }
         return $p;
     }
 
@@ -719,6 +737,9 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
         }
         if (($h['origin'] ?? 'cw') !== 'cw') {
             $head['origin'] = (string) $h['origin']; // CW-917 (0060): only for a copy, so every record of CW's own keeps its content (V2)
+        }
+        if (($h['separate_delivery'] ?? null) !== null) {
+            $head['separate_delivery'] = (string) $h['separate_delivery']; // CW-1152 (0086, NI8): only when confirmed, so earlier records keep their content (V2)
         }
         $lines = [];
         foreach ($db->all('SELECT * FROM sinv_line WHERE document_id = ? ORDER BY line_no', [$documentId]) as $r) {

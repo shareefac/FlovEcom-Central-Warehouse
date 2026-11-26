@@ -121,8 +121,10 @@ final class ReceiptPlan
         }
         // CW-1152 (NI3): a supplier ticked "Can book goods in without the invoice": the missing number and copy are a note ("Invoice still to
         // come"), never a refusal; every other check stays (a typed number booked once, the copy on another delivery, its type, the bench, the stamps).
+        // M7 (the round of 5bc45a6): a number is what the booked-once key keeps of it: only spaces (a non-breaking one too) is no number.
+        $numberKey = ReceiptMath::invoiceKey((string) ($doc['external_ref'] ?? ''));
         $toCome = [];
-        if (trim((string) ($doc['external_ref'] ?? '')) === '') {
+        if ($numberKey === '') {
             if ($withoutInvoice) {
                 $toCome[] = 'number';
             } else {
@@ -130,13 +132,18 @@ final class ReceiptPlan
             }
         }
         $hasInvoice = false;
+        $badCopy = false;
         foreach ($files as $f) {
-            if ($f['role'] === 'supplier_invoice' && in_array($f['mime'], self::INVOICE_MIMES, true)) {
-                $hasInvoice = true;
+            if ($f['role'] === 'supplier_invoice') {
+                if (in_array($f['mime'], self::INVOICE_MIMES, true)) {
+                    $hasInvoice = true;
+                } else {
+                    $badCopy = true; // M6: e.g. a text file copied from an invoice; never "to come"
+                }
             }
         }
         if (!$hasInvoice) {
-            if ($withoutInvoice) {
+            if ($withoutInvoice && !$badCopy) {
                 $toCome[] = 'copy';
             } else {
                 $add('invoice_file_required', 'Attach the supplier\'s invoice (a PDF, or a photo of a paper invoice) before posting.');
@@ -148,6 +155,40 @@ final class ReceiptPlan
                 ['copy'] => 'the supplier\'s invoice is not attached yet',
                 default => 'no supplier invoice number or copy yet',
             } . '. Supplier ' . ($supplier['code'] ?? '?') . ' books goods in without the invoice: book its invoice when it comes.';
+        }
+        // H1 (docs/decisions.md NI7; the lead, 26 Nov): a ticked supplier's delivery without the invoice number needs its delivery note or page
+        // number, booked once per supplier: no other live receipt of the supplier has it (with or without a number); a numbered one is refused
+        // when a numberless live receipt has it. Read in the posting's transaction: of two receipts with one reference, the one whose reference
+        // was saved later always sees the other (a draft counts), so at most one is posted.
+        if ($withoutInvoice) {
+            $ref = ReceiptMath::invoiceKey((string) ($gr['delivery_note'] ?? ''));
+            if ($numberKey === '' && $ref === '') {
+                $add('delivery_ref_required', 'Type the delivery note or page number: without the invoice it is how CW books a delivery once.');
+            } elseif ($ref !== '') {
+                $other = self::deliveryRefElsewhere($db, $documentId, (int) $gr['supplier_id'], $ref, $numberKey === '');
+                if ($other !== null) {
+                    $add('delivery_ref_taken', 'The delivery note or page number ' . trim((string) $gr['delivery_note']) . " is also on {$other}: without the invoice a delivery is "
+                        . 'booked once by it. Correct the number, or cancel one of the two receipts.');
+                }
+            }
+        }
+        // H3 (NI7): a number a posted supplier invoice billed on a delivery booked without it is received: not booked again on another receipt
+        // (an explicit later delivery on one invoice, invoice_part > 1, stays as it is). The invoice rows read FOR SHARE under the posting's locks.
+        if ($numberKey !== '' && (int) ($gr['invoice_part'] ?? 1) === 1) {
+            $billed = self::billedElsewhere($db, $documentId, (int) $gr['supplier_id'], $numberKey, $lockCards);
+            if ($billed !== null) {
+                $add('invoice_billed_elsewhere', "This supplier invoice ({$billed['invoice']}) is booked already for {$billed['receipt']}, which was booked in without it: a "
+                    . "supplier's invoice is received once. Correct the number, or cancel this receipt.");
+            }
+        }
+        // H4 (NI9): a receipt made from a supplier invoice (its first one too) keeps that invoice's supplier and supplier invoice number (the rest
+        // of an invoice has its own check, rest_invoice_changed).
+        $link = $db->one('SELECT gi.sinv_document_id, si.supplier_id, d.external_ref, d.number FROM goods_receipt_invoice gi JOIN supplier_invoice si '
+            . 'ON si.document_id = gi.sinv_document_id JOIN document d ON d.id = gi.sinv_document_id WHERE gi.grn_document_id = ?', [$documentId]);
+        if ($link !== null && \CW\Arrivals\ArrivalRest::restOf($db, $documentId) === null
+            && ((int) $link['supplier_id'] !== (int) $gr['supplier_id'] || ReceiptMath::invoiceKey((string) ($link['external_ref'] ?? '')) !== $numberKey)) {
+            $add('invoice_link_changed', 'This receipt is the delivery of ' . ($link['number'] ?? 'its invoice') . ': its supplier and supplier invoice number are that '
+                . 'invoice\'s (' . (string) ($link['external_ref'] ?? '') . '). Put them back, or cancel it and receive the delivery as its own.');
         }
         // The same invoice copy on another live receipt of this supplier (its number typed differently): one invoice, booked once (I171).
         foreach (self::invoiceCopyElsewhere($db, $documentId, (int) $gr['supplier_id']) as $other) {
@@ -506,6 +547,53 @@ final class ReceiptPlan
             $out[] = ['label' => $r['number'] ?? (str_replace('_', ' ', (string) $r['status']) . ' receipt #' . $r['id']), 'name' => (string) $r['original_name']];
         }
         return $out;
+    }
+
+    /**
+     * CW-1152 (NI7): another live receipt (draft, waiting, posted) of this supplier with the same delivery note or page number (the booked-once
+     * form of it: ReceiptMath::invoiceKey), any of them ($anyOther: this one has no invoice number) or only one with no invoice number. Its
+     * label, or null.
+     */
+    public static function deliveryRefElsewhere(Db $db, int $documentId, int $supplierId, string $ref, bool $anyOther): ?string
+    {
+        foreach ($db->all("SELECT d.id, d.number, d.status, d.external_ref, g.delivery_note FROM goods_receipt g JOIN document d ON d.id = g.document_id "
+            . "AND d.doc_type = 'GRN' AND d.reverses_id IS NULL AND d.status IN ('draft', 'awaiting_approval', 'posted') "
+            . 'WHERE g.supplier_id = ? AND g.document_id <> ? AND g.delivery_note IS NOT NULL ORDER BY d.id', [$supplierId, $documentId]) as $r) {
+            if (ReceiptMath::invoiceKey((string) $r['delivery_note']) === $ref && ($anyOther || ReceiptMath::invoiceKey((string) ($r['external_ref'] ?? '')) === '')) {
+                return $r['number'] ?? (str_replace('_', ' ', (string) $r['status']) . ' receipt #' . $r['id']);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * CW-1152 (NI7, H3): the posted supplier invoice of this supplier with this number that bills another posted receipt booked without it
+     * (that receipt's own key is not this number) and that this receipt was not made from: [invoice, receipt] labels, or null. $lock: the
+     * invoice's row, document and lines read FOR SHARE (a posting of it holds them until it ends).
+     *
+     * @return array{invoice: string, receipt: string}|null
+     */
+    public static function billedElsewhere(Db $db, int $documentId, int $supplierId, string $key, bool $lock): ?array
+    {
+        $share = $lock ? ' FOR SHARE' : '';
+        $inv = $db->value("SELECT document_id FROM supplier_invoice WHERE supplier_id = ? AND kind = 'invoice' AND invoice_key = ?" . $share, [$supplierId, $key]);
+        if ($inv === null) {
+            return null;
+        }
+        $d = $db->one('SELECT number, status, external_ref FROM document WHERE id = ?' . $share, [(int) $inv]);
+        if ($d === null || $d['status'] !== 'posted'
+            || $db->value('SELECT 1 FROM goods_receipt_invoice WHERE grn_document_id = ? AND sinv_document_id = ?', [$documentId, (int) $inv]) !== null) {
+            return null;
+        }
+        $grns = array_values(array_unique(array_map('intval', $db->column('SELECT grn_document_id FROM sinv_line WHERE document_id = ? AND grn_document_id IS NOT NULL '
+            . 'AND grn_document_id <> ? ORDER BY line_no' . $share, [(int) $inv, $documentId]))));
+        foreach ($grns as $g) {
+            $r = $db->one("SELECT d.number, d.status, g.invoice_key FROM document d JOIN goods_receipt g ON g.document_id = d.id WHERE d.id = ? AND d.status = 'posted'", [$g]);
+            if ($r !== null && ($r['invoice_key'] === null || (string) $r['invoice_key'] !== $key)) {
+                return ['invoice' => (string) ($d['number'] ?? $d['external_ref']), 'receipt' => (string) $r['number']];
+            }
+        }
+        return null;
     }
 
     /**

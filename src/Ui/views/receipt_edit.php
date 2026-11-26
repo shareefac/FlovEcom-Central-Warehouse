@@ -137,7 +137,7 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 <?php endif; ?>
     </div>
 <?php endif; ?>
-    <label class="doc-field"><?= $word('GI', 'delivery_note') ?> <input type="text" name="delivery_note" maxlength="64" autocomplete="off" value="<?= $e($typed['delivery_note'] ?? ($gr['delivery_note'] ?? '')) ?>"></label>
+    <label class="doc-field"><?= $word('GI', 'delivery_note') ?> <input type="text" id="gi-delivery-note" name="delivery_note" maxlength="64" autocomplete="off" value="<?= $e($typed['delivery_note'] ?? ($gr['delivery_note'] ?? '')) ?>"></label>
     <label class="doc-field"><?= $word('GI', 'invoice') ?> <input type="text" id="gi-invoice" name="invoice_number" maxlength="64" autocomplete="off" placeholder="<?= $word('GI', 'invoice_hint') ?>" value="<?= $e($typed['invoice_number'] ?? $doc->externalRef) ?>"><?php if ($invoicePart > 1): ?> <span class="hint"><?= $say('RECEIPT', 'split_part', $invoicePart) ?></span><?php endif; ?></label>
     <label class="doc-field"><?= $word('GI', 'paperwork') ?>
       <select name="paperwork_ok" id="gi-paperwork">

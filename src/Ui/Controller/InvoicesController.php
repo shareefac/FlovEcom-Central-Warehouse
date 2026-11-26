@@ -42,7 +42,8 @@ final class InvoicesController
     public const FROM_ERPNEXT = '/ui/purchasing/invoices/from-erpnext';
     /** POST actions of one record (both kinds). */
     public const ACTIONS = ['details', 'lines', 'add-delivery', 'add-order', 'add-item', 'add-charge', 'add-credit', 'post', 'cancel', 'reverse', 'withdraw', 'files',
-        'receiving', 'schedule']; // pack J: how its goods come in, when it becomes final
+        'receiving', 'schedule', // pack J: how its goods come in, when it becomes final
+        'separate']; // CW-1152 (NI8): "This is a separate delivery" (deliveries of the same products wait for their invoice)
 
     /** Adds every route (Kernel::router). */
     public static function routes(Router $r): void
@@ -509,6 +510,23 @@ final class InvoicesController
             $si->setReceiving($ctx->caller(), $id, $version, $mode, $stamps);
             return ['notice' => 'receiving_saved', 'query' => $carry];
         }, ['typed' => $carry]);
+    }
+
+    /**
+     * CW-1152 (docs/decisions.md NI8): POST {id}/separate: the tick "This is a separate delivery" with its reason, for a draft invoice whose goods
+     * would come in while deliveries of the same products wait for their invoice. Not ticked: refused (422), nothing saved.
+     */
+    public function separate(Context $ctx, string $kind): HtmlResponse
+    {
+        $ticked = $ctx->req->field('separate') === '1';
+        $reason = (string) ($ctx->req->field('separate_reason') ?? '');
+        return $this->act($ctx, $kind, static function (SupplierInvoices $si, int $id, int $version) use ($ctx, $ticked, $reason): array {
+            if (!$ticked) {
+                throw new CwException('separate_not_ticked', Words::INVOICE_ERROR['separate_not_ticked'], 422, ['field' => 'separate']);
+            }
+            $si->setSeparateDelivery($ctx->caller(), $id, $version, $reason === '' ? 'x' : $reason); // an empty reason is refused, never "taken off" here
+            return ['notice' => 'separate_saved'];
+        });
     }
 
     /**
