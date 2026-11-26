@@ -22578,3 +22578,14 @@ whatever its figures. **VB12** a scoped re-cost changes a named line's cost only
 path moves those) and counts a line it leaves because the cost job has not reached its paid time (`pending`, --fail-deferred). **VB14** a past
 day's own stock takes the price in force before the exclusive cut-off. **VB16** every reorder line, the All view and Buy for N days too,
 says a shop's own item now and suggests nothing for it. A final own bill says "Whose bill" on its own page.
+
+The last Codex check of a46cc3d (astra; the lead's decision: the kit stops nothing, correctness from the tools' own transactions and locks)
+changed: **VB4** the go-live kit's marking, its bills and the owner's start prices are ONE transaction (the kit's one run), which first locks
+the listed items' rows and counts, under those rows, every way another shop's sale could read their price history (ItemOwners::otherShopUse:
+a sale line paid since the start, a line with no cost fixed yet, an order waiting in the money job's queue that names one of them by its
+listing or by a reserved unit, a reserved unit with no cost fixed yet, a link): any refuses the whole run; the marking itself is
+ItemOwners::markItems, which bin/item_owner_set.php uses too. **VB11** "lowest margin first" lists, counts, orders and pages by the margin
+each row shows (ours when the order holds the shop's own goods): an order of ours with an unpriced own line is in by our margin, an order of
+only the shop's own goods is out. **VB12** a re-cost with --apply reads every order of its choice under the order's guard even when nothing is
+left to write: a newer snapshot waiting in the queue is said (`deferred`), and the lines left for the cost job are those of the plan worked
+out under the guard.
