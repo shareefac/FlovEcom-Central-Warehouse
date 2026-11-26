@@ -22589,3 +22589,13 @@ each row shows (ours when the order holds the shop's own goods): an order of our
 only the shop's own goods is out. **VB12** a re-cost with --apply reads every order of its choice under the order's guard even when nothing is
 left to write: a newer snapshot waiting in the queue is said (`deferred`), and the lines left for the cost job are those of the plan worked
 out under the guard.
+
+The last fix round (the Codex astra check of b2f42a4; the lead's decisions) changed: **VB4** the go-live kit's refusal is strict and
+set-based (ItemOwners::otherShopUse, two statements under the items' rows): ANY row of another shop that ever named one of the listed items
+refuses the mark - a sale line in any state, a listing linked to one now (any status) or ever (listing_map_history), a reserved unit in any
+state (a released or expired unit keeps its item), a snapshot waiting in the queue (refused ones too) that names one by its own lines (the
+unit of a line, or the listing of a line's variant, linked now or ever). The window of a snapshot worker that read a link before an unlink is
+covered by the link guards (a link decision and a sale's owner read the item's row FOR SHARE) and by this rule: that listing's link history
+names the item. The kit's one run holds the items' rows at most 3 s (Db::waitsUntil; past it, rolled back whole). **VB12** a batch tool's
+work on an order that has nothing left to write still takes the order's intake lock and reads the queue at its end (a correction stored
+meanwhile = deferred), and a re-cost counts an order whose guard or rows another money writer holds as deferred and goes on to the next.
