@@ -182,8 +182,8 @@ CREATE TABLE IF NOT EXISTS p2g_import (
 -- The settings (Settings > Profit, each change kept): the accounts' first days (empty: switched off; set only by the go-live kit's switch step,
 -- bin/p2g_pull.php --switch-on), the wait for a tracking number, the price wait the health alert allows.
 INSERT INTO app_setting (setting_key, value_type, value_json, provisional, decision, description) VALUES
- ('delivery.p2g_from_vapeandgo','string','""',0,'PGL2','Parcel2Go (Vape and Go''s account): the first day its labels count (empty: switched off). Set by bin/p2g_pull.php --switch-on only'),
- ('delivery.p2g_from_vapebig','string','""',0,'PGL2','Parcel2Go (Vape Big''s account): the first day its labels count (empty: switched off). Set by bin/p2g_pull.php --switch-on only'),
+ ('delivery.p2g_from_vapeandgo','string','""',0,'PGL2','Parcel2Go (Vape and Go''s account): the first day its labels count (empty: switched off). Set by the go-live kit''s switch step; emptied, it stops the account'),
+ ('delivery.p2g_from_vapebig','string','""',0,'PGL2','Parcel2Go (Vape Big''s account): the first day its labels count (empty: switched off). Set by the go-live kit''s switch step; emptied, it stops the account'),
  ('delivery.p2g_tracking_wait_days','int','3',0,'PGL4','Parcel2Go: a priced label whose tracking number is not known yet waits this many days (in no profit), then goes on its account''s main shop "not on an order" until the number comes'),
  ('delivery.p2g_price_wait_hours','int','6',0,'PGL9','Parcel2Go: the health alert says a paid label still without its price after this many hours')
  ON DUPLICATE KEY UPDATE setting_key = setting_key;

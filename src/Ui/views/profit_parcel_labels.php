@@ -29,7 +29,7 @@ $howWord = static fn (string $h): string => \CW\Profit\Parcel2Go::HOWS[$h] ?? $h
     <tr>
       <th scope="row"><?= $e((string) $a['name']) ?></th>
       <td data-label="<?= $word('DELIVERY', 'status') ?>"><?php if ($a['on']): ?><?= $say('DELIVERY', 'p2g_on_from', $day((string) $a['from'])) ?><?php else: ?><?= $word('DELIVERY', 'p2g_off') ?><?php endif; ?></td>
-      <td data-label="<?= $word('DELIVERY', 'p2g_read_at') ?>"><?= $a['read_at'] === null ? '-' : $when((string) $a['read_at']) ?></td>
+      <td data-label="<?= $word('DELIVERY', 'p2g_read_at') ?>"><?php if ($a['read_at'] === null): ?>-<?php else: ?><?= $when((string) $a['read_at']) ?><?php endif; ?></td>
       <td class="num" data-label="<?= $word('DELIVERY', 'p2g_labels') ?>"><?= $n((int) $a['lines']) ?></td>
       <td data-label="<?= $word('DELIVERY', 'p2g_money') ?>"><?php if ($a['money'] === []): ?>-<?php endif; ?><?php foreach ($a['money'] as $m): ?><span class="p2g-money"><?= $e($gbp((int) $m['pence'])) ?> <?= $e($howWord((string) $m['how'])) ?><?php if ($m['shop'] !== null && $m['dest'] !== 'order'): ?> (<?= $e((string) $m['shop']) ?>)<?php endif; ?>, <?= $n((int) $m['lines']) ?> <?= $word('DELIVERY', 'p2g_labels_short') ?></span><br><?php endforeach; ?></td>
     </tr>
@@ -59,10 +59,10 @@ $howWord = static fn (string $h): string => \CW\Profit\Parcel2Go::HOWS[$h] ?? $h
     <tr>
       <th scope="row">P2G<?= $e((string) $l['order_line_id']) ?></th>
       <td data-label="<?= $word('DELIVERY', 'p2g_account') ?>"><?= $e((string) $l['account']) ?></td>
-      <td data-label="<?= $word('DELIVERY', 'p2g_paid') ?>"><?= $l['paid_day'] === null ? '-' : $day((string) $l['paid_day']) ?></td>
+      <td data-label="<?= $word('DELIVERY', 'p2g_paid') ?>"><?php if ($l['paid_day'] === null): ?>-<?php else: ?><?= $day((string) $l['paid_day']) ?><?php endif; ?></td>
       <td data-label="<?= $word('DELIVERY', 'p2g_service') ?>"><?= $e((string) ($l['service_slug'] ?? '-')) ?><?php if ($l['country_iso3'] !== null): ?> <span class="muted"><?= $e((string) $l['country_iso3']) ?></span><?php endif; ?></td>
       <td data-label="<?= $word('DELIVERY', 'p2g_tracking') ?>"><?= $e((string) ($l['tracking'] ?? '-')) ?></td>
-      <td class="num" data-label="<?= $word('DELIVERY', 'p2g_net') ?>"><?= in_array($l['price_state'], ['priced'], true) || (int) $l['net'] !== 0 ? $e($gbp((int) $l['net'])) : '-' ?></td>
+      <td class="num" data-label="<?= $word('DELIVERY', 'p2g_net') ?>"><?php if ($l['price_state'] === 'priced' || (int) $l['net'] !== 0): ?><?= $e($gbp((int) $l['net'])) ?><?php else: ?>-<?php endif; ?></td>
       <td data-label="<?= $word('DELIVERY', 'p2g_where') ?>"><?php if ($l['where'] === []): ?><?= $e($stateWord((string) $l['price_state'])) ?><?php if ($l['refuse_code'] !== null && $l['price_state'] === 'refused'): ?> <span class="muted"><?= $e(\CW\Profit\P2gInvoice::REFUSALS[(string) $l['refuse_code']] ?? (string) $l['refuse_code']) ?></span><?php endif; ?><?php endif; ?><?php foreach ($l['where'] as $w): ?><?php if ($w['dest'] === 'order'): ?><a href="<?= $u('/ui/profit/orders/view', ['store' => (string) $w['channel_id'], 'ref' => (string) $w['order_ref']]) ?>"><?= $e((string) $w['shop']) ?> <?= $e((string) $w['order_ref']) ?></a><?php else: ?><?= $e($howWord((string) $w['how'])) ?><?php if ($w['shop'] !== null): ?> (<?= $e((string) $w['shop']) ?>)<?php endif; ?><?php endif; ?><br><?php endforeach; ?></td>
     </tr>
 <?php endforeach; ?>
