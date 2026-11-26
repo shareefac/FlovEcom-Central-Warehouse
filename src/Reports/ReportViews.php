@@ -272,22 +272,54 @@ final class ReportViews
 
     /**
      * CW-1153 (VB14): the shops' own stock, shown apart from ours: per shop, its items with stock (on hand above zero, every warehouse), their
-     * units and their value at each item's buying price now (item_cost: 0 is free, a price; an item with none is counted in `unpriced`).
+     * units and their value at each item's buying price now (item_cost: 0 is free, a price; an item with none is counted in `unpriced`); as of
+     * a past moment (at()): the price in force then (M17).
      *
      * @return list<array{shop: string, items: int, units: int, value: string, unpriced: int}>
      */
     public function ownValue(): array
     {
         [$bal, , $src] = $this->sources();
-        $at = $this->end === null ? 'p.to_at IS NULL'
-            : 'p.from_at < ' . $this->db->pdo()->quote($this->end) . ' AND (p.to_at IS NULL OR p.to_at >= ' . $this->db->pdo()->quote($this->end) . ')';
-        $srcBal = $this->end === null ? [] : [$this->end];
-        return array_map(static fn (array $r): array => ['shop' => (string) $r['shop'], 'items' => (int) $r['items'], 'units' => (int) $r['units'],
-            'value' => number_format(((int) $r['value_e4']) / 10000, 2, '.', ''), 'unpriced' => (int) $r['unpriced']],
-            $this->db->all("SELECT c.name AS shop, COUNT(DISTINCT b.sku_id) AS items, SUM(b.on_hand) AS units, COALESCE(SUM(b.on_hand * ic.unit_cost_e4), 0) AS value_e4, "
-                . "COUNT(DISTINCT IF(ic.unit_cost_e4 IS NULL, b.sku_id, NULL)) AS unpriced FROM {$bal} b JOIN item_owner p ON p.sku_id = b.sku_id AND {$at} "
-                . 'JOIN channel c ON c.id = p.channel_id LEFT JOIN item_cost ic ON ic.sku_id = b.sku_id WHERE b.on_hand > 0 GROUP BY c.id, c.name ORDER BY c.name',
-                array_slice($src, 0, count($srcBal))));
+        if ($this->end === null) {
+            return array_map(static fn (array $r): array => ['shop' => (string) $r['shop'], 'items' => (int) $r['items'], 'units' => (int) $r['units'],
+                'value' => number_format(((int) $r['value_e4']) / 10000, 2, '.', ''), 'unpriced' => (int) $r['unpriced']],
+                $this->db->all("SELECT c.name AS shop, COUNT(DISTINCT b.sku_id) AS items, SUM(b.on_hand) AS units, COALESCE(SUM(b.on_hand * ic.unit_cost_e4), 0) AS value_e4, "
+                    . "COUNT(DISTINCT IF(ic.unit_cost_e4 IS NULL, b.sku_id, NULL)) AS unpriced FROM {$bal} b JOIN item_owner p ON p.sku_id = b.sku_id AND p.to_at IS NULL "
+                    . 'JOIN channel c ON c.id = p.channel_id LEFT JOIN item_cost ic ON ic.sku_id = b.sku_id WHERE b.on_hand > 0 GROUP BY c.id, c.name ORDER BY c.name'));
+        }
+        // As of a past moment (the Codex review of bd9104d, M17): the units each shop held of its own items then (their periods then), each at
+        // the buying price IN FORCE then (ItemCosts::at, the cost history: 0 is free, a known price), never today's; a moment the cost job has
+        // not reached yet: today's price.
+        $q = $this->db->pdo()->quote($this->end);
+        $rows = $this->db->all("SELECT c.id AS ch, c.name AS shop, b.sku_id, SUM(b.on_hand) AS units FROM {$bal} b JOIN item_owner p ON p.sku_id = b.sku_id "
+            . "AND p.from_at < {$q} AND (p.to_at IS NULL OR p.to_at >= {$q}) JOIN channel c ON c.id = p.channel_id WHERE b.on_hand > 0 "
+            . 'GROUP BY c.id, c.name, b.sku_id ORDER BY c.name, b.sku_id', array_slice($src, 0, 1));
+        if ($rows === []) {
+            return [];
+        }
+        $skus = array_values(array_unique(array_map(static fn (array $r): int => (int) $r['sku_id'], $rows)));
+        $then = (new \CW\Profit\ItemCosts($this->db, new \CW\Profit\ProfitSettings($this->db)))->at($skus, (string) $this->end);
+        $now = [];
+        foreach (array_chunk($skus, 500) as $chunk) {
+            foreach ($this->db->all('SELECT sku_id, unit_cost_e4 FROM item_cost WHERE sku_id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')', $chunk) as $r) {
+                $now[(int) $r['sku_id']] = $r['unit_cost_e4'] === null ? null : (int) $r['unit_cost_e4'];
+            }
+        }
+        $out = [];
+        foreach ($rows as $r) {
+            $sku = (int) $r['sku_id'];
+            $c = $then[$sku] ?? ['e4' => null, 'source' => 'none'];
+            $e4 = $c['source'] === \CW\Profit\ItemCosts::PENDING ? ($now[$sku] ?? null) : $c['e4'];
+            $o = &$out[(int) $r['ch']];
+            $o ??= ['shop' => (string) $r['shop'], 'items' => 0, 'units' => 0, 'value_e4' => 0, 'unpriced' => 0];
+            $o['items']++;
+            $o['units'] += (int) $r['units'];
+            $o['value_e4'] += $e4 === null ? 0 : (int) $r['units'] * $e4;
+            $o['unpriced'] += $e4 === null ? 1 : 0;
+            unset($o);
+        }
+        return array_values(array_map(static fn (array $o): array => ['shop' => $o['shop'], 'items' => $o['items'], 'units' => $o['units'],
+            'value' => number_format($o['value_e4'] / 10000, 2, '.', ''), 'unpriced' => $o['unpriced']], $out));
     }
 
     /**

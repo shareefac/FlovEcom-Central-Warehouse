@@ -208,6 +208,12 @@ final class ReorderLines
         } elseif ($storedNeed && ($f['show'] ?? 'need') === 'need') {
             $where[] = 'rl.need = 1'; // the usual list's "to buy"; bought for N days, buyForSql() keeps those with packs for N
         }
+        // CW-1153 (VB16; the Codex review of bd9104d, M18): a shop's own item NOW is never on a list of what to buy (to buy, below the safety
+        // stock, bought for N days), whatever its stored line still says (its refresh after the mark can fail or wait for the nightly run): read
+        // from the open marks (item_owner's unique open_sku) at every read. The list of all lines keeps it, flagged.
+        if ($below || ($f['show'] ?? 'need') === 'need' || !$storedNeed) {
+            $where[] = 'NOT EXISTS (SELECT 1 FROM item_owner op WHERE op.open_sku = rl.sku_id)';
+        }
         if ($f['urgent'] ?? false) {
             $where[] = 'rl.urgent = 1';
         }
