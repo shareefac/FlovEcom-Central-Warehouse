@@ -189,9 +189,11 @@ final class OwnItemsReviewR1Test extends InvoicesTestCase
         $this->listing($this->vbs, '40104', $n);
         self::markOwn($h);
         self::markOwn($n);
-        $this->store('9509', [self::sl('8591', '40101', 599), self::sl('8592', '40104', 599)]);
+        // 200 priced units and ONE with no price: inside ours' 0.5% rule, yet the shop's own profit is not known (the lead: any missing cost)
+        $lines = array_map(static fn (int $i): array => self::sl((string) (86000 + $i), '40101', 599), range(0, 199));
+        $this->store('9509', [...$lines, self::sl('8592', '40104', 599)]);
         $real = (new ExpenseViews(self::$db))->realProfit(self::DAY, self::DAY, (int) $this->vbs->channelId, false);
-        self::assertTrue($real[0]['own']['incomplete'], 'one own unit has no price: the own profit is not known');
+        self::assertTrue($real[0]['own']['incomplete'], 'one own unit of 201 has no price: the own profit is not known');
         self::assertSame([$n], array_column((new ProfitViews(self::$db))->noCost(self::DAY, self::DAY, null, true), 'sku_id'));
     }
 
