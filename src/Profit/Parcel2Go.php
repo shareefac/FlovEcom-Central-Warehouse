@@ -198,10 +198,12 @@ final class Parcel2Go
                     continue;
                 }
                 $k = $known[$id];
-                // fill only what is empty; a line not paid when first seen becomes due once it is (its state worked out now)
-                $paidAt = $k['paid_at'] ?? $l['paid_at'];
+                // fill only what is empty; a line not paid when first seen becomes due once it is (its state worked out now); a label first seen
+                // as an Extra Payment of a basket (source invoice, not needed, no price: its day the invoice's) takes its own paid day and state
+                $stub = self::stub($k);
+                $paidAt = $stub && $l['paid_at'] !== null ? $l['paid_at'] : ($k['paid_at'] ?? $l['paid_at']);
                 $day = $paidAt === null ? null : ReportRefresh::ukDay((string) $paidAt);
-                $state = $k['price_state'] === 'unpaid' && $paidAt !== null ? self::stateFor($acct, (string) $k['kind'], $day) : (string) $k['price_state'];
+                $state = ($k['price_state'] === 'unpaid' && $paidAt !== null) || $stub ? self::stateFor($acct, (string) $k['kind'], $day) : (string) $k['price_state'];
                 $db->exec('UPDATE p2g_line SET transaction_id = COALESCE(transaction_id, ?), p2g_source = COALESCE(p2g_source, ?), service_slug = COALESCE(service_slug, ?), '
                     . 'courier_slug = COALESCE(courier_slug, ?), country_iso3 = COALESCE(country_iso3, ?), doc_hash = COALESCE(doc_hash, ?), paid_at = ?, paid_day = ?, '
                     . 'price_state = ?, parcels = GREATEST(parcels, ?), updated_at = ? WHERE account_id = ? AND order_line_id = ?',
@@ -211,6 +213,12 @@ final class Parcel2Go
             }
             return $sum;
         });
+    }
+
+    /** A label CW first saw as an Extra Payment of another basket (its own price never asked for, its day the invoice's). @param array<string, mixed> $l */
+    private static function stub(array $l): bool
+    {
+        return $l['source'] === 'invoice' && $l['price_state'] === 'not_needed' && $l['invoice_id'] === null && $l['kind'] === 'parcel';
     }
 
     /** A new line's price state: a top-up never (PGL7), not paid yet, before the account's first day, else due. */
@@ -808,6 +816,11 @@ final class Parcel2Go
                     } else {
                         $db->exec('UPDATE p2g_line SET service_slug = COALESCE(service_slug, ?), country_iso3 = COALESCE(country_iso3, ?), updated_at = ? WHERE account_id = ? '
                             . 'AND order_line_id = ?', [$l['service_slug'], $l['country'], $now, $acct['id'], $id]);
+                        if (self::stub($k)) {
+                            // first seen as an Extra Payment of another basket: its own day (the export's Created) and its own price due
+                            $db->exec('UPDATE p2g_line SET paid_at = ?, paid_day = ?, price_state = ?, updated_at = ? WHERE account_id = ? AND order_line_id = ?',
+                                [$l['paid_at'], $day, self::stateFor($acct, 'parcel', $day), $now, $acct['id'], $id]);
+                        }
                     }
                     $filled += self::fillTracking($db, $acct['id'], $id, $l['tracking'], 'report');
                 }
