@@ -80,4 +80,4 @@ exit(Cli::main('gp_fees', ['nightly', 'backfill', 'status', 'account:', 'from:',
                 $d['dues'], $d['days'], $d['orders'], $d['written'], $d['spread'], $d['left']));
         }
         return Cli::OK;
-    }));
+    }, false, true)); // the job's lock is taken here (a backfill by hand finding it held: BUSY), never by Cli::main; options read strictly
