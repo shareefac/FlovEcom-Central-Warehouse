@@ -94,7 +94,7 @@ final class OwnStockReadersTest extends StockTestCase
     public function testOurReorderListNeverSuggestsThem(): void
     {
         foreach ([$this->h, $this->o] as $sku) {
-            self::$db->exec('INSERT INTO item_reorder (sku_id, min_stock) VALUES (?, 500) AS n ON DUPLICATE KEY UPDATE min_stock = n.min_stock', [$sku]);
+            self::$db->exec("INSERT INTO item_reorder (sku_id, min_stock, updated_actor) VALUES (?, 500, 'system:test') AS n ON DUPLICATE KEY UPDATE min_stock = n.min_stock", [$sku]);
         }
         $lines = array_column((new ReorderList(self::$db, new PurchaseOrders(self::$db, new Documents(self::$db, []))))
             ->lines(ReorderList::filters(['show' => 'all', 'stock' => 'cw']), [$this->h, $this->o]), null, 'sku_id');

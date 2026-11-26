@@ -31,8 +31,8 @@ final class OwnGoodsScreensTest extends KernelUiTestCase
                 [$sku, 'start:' . $sku, $e4]);
         }
         self::$db->exec("INSERT INTO profit_job (job, mark_at) VALUES ('item_cost', '2099-01-01') AS n ON DUPLICATE KEY UPDATE mark_at = n.mark_at");
-        $this->listing($vb, 'H', $h);
-        $this->listing($vb, 'O', $o);
+        $this->listing($vb, '40101', $h);
+        $this->listing($vb, '40103', $o);
         (new ItemOwners(self::$db))->add(Caller::system('own_items_kit'), (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$h]), 'Vape Big\'s own goods',
             '2026-11-01 00:00:00');
         $now = gmdate('Y-m-d\TH:i:s\Z', time() - 60);
@@ -40,7 +40,7 @@ final class OwnGoodsScreensTest extends KernelUiTestCase
             'cancelled' => false, 'refund_inc' => 0, 'free' => false];
         (new OrderSnapshots(self::$db))->store((int) $vb->channelId, '9100', ['v' => 1, 'version' => 1, 'order_no' => '9100', 'status' => 'completed',
             'placed_at' => $now, 'paid_at' => $now, 'gateway' => 'paypal', 'currency' => 'GBP', 'parent_ref' => null,
-            'lines' => [$line('8901', 'H', 599), $line('8902', 'O', 1200)],
+            'lines' => [$line('8901', '40101', 599), $line('8902', '40103', 1200)],
             'delivery' => ['method_id' => '1', 'method' => 'Tracked 48', 'charged_inc' => 0, 'refund_inc' => 0], 'order_refund_inc' => 0, 'grand_inc' => 1799,
             'parcels' => []], 'api');
         $web = $this->signIn($this->uiUser('finance'));
