@@ -115,21 +115,21 @@ final class OwnGoodsMoneyTest extends StockTestCase
     {
         [$h, $e, $o] = $this->items();
         // A: one Hayati at £5.99 inc (4.99 ex), cost 3.75: all Vape Big's own
-        $this->store('A', [self::sl('a1', 'H', 599)]);
-        self::assertSame(['own_units' => 1, 'own_sale_ex' => 499, 'own_refund_ex' => 0, 'own_cost' => 375, 'own_no_cost' => 0], self::ownOf('A'));
+        $this->store('9001', [self::sl('8101', 'H', 599)]);
+        self::assertSame(['own_units' => 1, 'own_sale_ex' => 499, 'own_refund_ex' => 0, 'own_cost' => 375, 'own_no_cost' => 0], self::ownOf('9001'));
         $f = (new ProfitViews(self::$db))->totals(self::DAY, self::DAY, (int) $this->vb->channelId);
         self::assertSame([0, 0, 0, 0], [$f['units'], $f['goods'], $f['cost'], $f['profit']], 'ours: nothing');
         self::assertSame([1, 499, 375, 124], [$f['own']['units'], $f['own']['goods'], $f['own']['cost'], $f['own']['profit']], 'the shop\'s own line: +1.24');
         self::assertSame(1, $f['orders'], 'the order still counts');
         // ... refunded in full at order level: wholly the shop's own (ours stays 0)
-        $this->store('A', [self::sl('a1', 'H', 599)], ['version' => 1001, 'order_refund_inc' => 599]);
-        self::assertSame(['own_units' => 1, 'own_sale_ex' => 499, 'own_refund_ex' => 499, 'own_cost' => 375, 'own_no_cost' => 0], self::ownOf('A'));
+        $this->store('9001', [self::sl('8101', 'H', 599)], ['version' => 1001, 'order_refund_inc' => 599]);
+        self::assertSame(['own_units' => 1, 'own_sale_ex' => 499, 'own_refund_ex' => 499, 'own_cost' => 375, 'own_no_cost' => 0], self::ownOf('9001'));
         // B: mixed: Hayati 5.99, ours 12.00, Elux 3.00 (free stock: price 0, a price), £3.00 refunded at order level
-        $this->store('B', [self::sl('b1', 'H', 599), self::sl('b2', 'O', 1200), self::sl('b3', 'E', 300)], ['order_refund_inc' => 300]);
+        $this->store('9002', [self::sl('8201', 'H', 599), self::sl('8202', 'O', 1200), self::sl('8203', 'E', 300)], ['order_refund_inc' => 300]);
         // lines ex: 499 + 1000 + 250 = 1749; refund ex = 1749 x 300 / 2099 = 250; own share = 250 x (599 + 300) / 2099 = 107; ours 143
-        self::assertSame(['own_units' => 2, 'own_sale_ex' => 749, 'own_refund_ex' => 107, 'own_cost' => 375, 'own_no_cost' => 0], self::ownOf('B'));
-        self::assertSame(250, (int) self::$db->value("SELECT order_refund_ex FROM sale_order WHERE order_ref = 'B'"));
-        self::assertSame('cw_cost', (string) self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = 'b3'"), 'free is a price');
+        self::assertSame(['own_units' => 2, 'own_sale_ex' => 749, 'own_refund_ex' => 107, 'own_cost' => 375, 'own_no_cost' => 0], self::ownOf('9002'));
+        self::assertSame(250, (int) self::$db->value("SELECT order_refund_ex FROM sale_order WHERE order_ref = '9002'"));
+        self::assertSame('cw_cost', (string) self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = '8203'"), 'free is a price');
         $d = $this->day();
         self::assertSame(['orders' => 2, 'units' => 4, 'sale_ex' => 2248, 'order_refund_ex' => 749, 'cost' => 950, 'units_no_cost' => 0, 'delivery_ex' => 666,
             'own_units' => 3, 'own_sale_ex' => 1248, 'own_refund_ex' => 606, 'own_cost' => 750, 'own_no_cost' => 0], $d, 'whole figures + the own part beside');
@@ -153,8 +153,8 @@ final class OwnGoodsMoneyTest extends StockTestCase
         $n = $this->item('legacy', 0, 'Hayati 4000 no price yet');
         $this->listing($this->vb, 'N', $n);
         self::mark($n);
-        $this->store('A', [self::sl('a1', 'H', 599), self::sl('a2', 'N', 599)]); // own only, one with no price
-        $this->store('B', [self::sl('b1', 'H', 599), self::sl('b2', 'O', 1200)]);
+        $this->store('9001', [self::sl('8101', 'H', 599), self::sl('8102', 'N', 599)]); // own only, one with no price
+        $this->store('9002', [self::sl('8201', 'H', 599), self::sl('8202', 'O', 1200)]);
         $v = new ProfitViews(self::$db);
         $f = $v->totals(self::DAY, self::DAY, null);
         self::assertSame([1, 1000, 200, 0], [$f['units'], $f['goods'], $f['cost'], $f['no_cost']], 'all shops: ours');
@@ -168,10 +168,10 @@ final class OwnGoodsMoneyTest extends StockTestCase
         self::assertSame([], $v->noCost(self::DAY, self::DAY, null), 'the no-price list is ours');
         self::assertSame([$n], array_column($v->noCost(self::DAY, self::DAY, null, true), 'sku_id'), 'the shop\'s own list apart');
         $orders = array_column($v->orders(self::DAY, self::DAY, null, '', false)['rows'], null, 'ref');
-        self::assertSame([0, 0, null], [$orders['A']['units'], $orders['A']['sale'], $orders['A']['shop_own']['profit']], 'own only: nothing of ours, own profit not known');
-        self::assertSame([1, 1000, 200], [$orders['B']['units'], $orders['B']['sale'], $orders['B']['cost']]);
-        self::assertSame([499, 375], [$orders['B']['shop_own']['goods'], $orders['B']['shop_own']['cost']]);
-        self::assertSame(['B'], array_column($v->orders(self::DAY, self::DAY, null, '', true)['rows'], 'ref'), 'an own-only order has no margin of ours');
+        self::assertSame([0, 0, null], [$orders['9001']['units'], $orders['9001']['sale'], $orders['9001']['shop_own']['profit']], 'own only: nothing of ours, own profit not known');
+        self::assertSame([1, 1000, 200], [$orders['9002']['units'], $orders['9002']['sale'], $orders['9002']['cost']]);
+        self::assertSame([499, 375], [$orders['9002']['shop_own']['goods'], $orders['9002']['shop_own']['cost']]);
+        self::assertSame(['9002'], array_column($v->orders(self::DAY, self::DAY, null, '', true)['rows'], 'ref'), 'an own-only order has no margin of ours');
         $real = (new ExpenseViews(self::$db))->realProfit(self::DAY, self::DAY, (int) $this->vb->channelId, false);
         self::assertSame([1000, 200], [$real[0]['goods'], $real[0]['cost']]);
         self::assertSame([1497, 750], [$real[0]['own']['goods'], $real[0]['own']['cost']]);
@@ -183,20 +183,20 @@ final class OwnGoodsMoneyTest extends StockTestCase
         $o = $this->item('legacy', 0, 'Our coil');
         self::price($o, 20000);
         $this->listing($this->vb, 'O', $o);
-        $this->store('P', [self::sl('p1', 'O', 1200)]);
+        $this->store('9003', [self::sl('8301', 'O', 1200)]);
         // marked a week later (a person: from now): the sale paid on the 19th stays ours, after any later snapshot
         (new ItemOwners(self::$db))->add(Caller::system('own_items_kit'), (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$o]), 'from now');
-        $this->store('P', [self::sl('p1', 'O', 1200)], ['version' => 1001, 'status' => 'shipped']);
-        self::assertNull(self::$db->value("SELECT item_owner FROM sale_line WHERE line_id = 'p1'"));
+        $this->store('9003', [self::sl('8301', 'O', 1200)], ['version' => 1001, 'status' => 'shipped']);
+        self::assertNull(self::$db->value("SELECT item_owner FROM sale_line WHERE line_id = '8301'"));
         self::assertSame(1, (new ProfitViews(self::$db))->totals(self::DAY, self::DAY, null)['units']);
         // a line whose cost the cost job has not reached yet: waiting, counted on the owner's side
         $h = $this->item('legacy', 0, 'Hayati 4000 Cola');
         $this->listing($this->vb, 'H', $h);
         self::mark($h);
         self::price($h, 37500, '2026-11-16 00:00:00', '2026-11-19 09:00:00');
-        $this->store('Q', [self::sl('q1', 'H', 599), self::sl('q2', 'O', 1200)]);
-        self::assertNull(self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = 'q1'"));
-        self::assertSame((int) $this->vb->channelId, (int) self::$db->value("SELECT item_owner FROM sale_line WHERE line_id = 'q1'"), 'the owner before the cost');
+        $this->store('9004', [self::sl('8401', 'H', 599), self::sl('8402', 'O', 1200)]);
+        self::assertNull(self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = '8401'"));
+        self::assertSame((int) $this->vb->channelId, (int) self::$db->value("SELECT item_owner FROM sale_line WHERE line_id = '8401'"), 'the owner before the cost');
         $f = (new ProfitViews(self::$db))->totals(self::DAY, self::DAY, null);
         self::assertSame([1, 1], [$f['pending'], $f['own']['pending']]);
     }
@@ -209,9 +209,9 @@ final class OwnGoodsMoneyTest extends StockTestCase
         $this->listing($this->vb, 'O', $o);
         self::price($o, null); // neither has a price when sold
         self::price($h, null);
-        $this->store('M', [self::sl('m1', 'H', 599), self::sl('m2', 'O', 1200)]);
-        $this->store('S', [self::sl('s1', 'H', 599)]);
-        $before = self::$db->all("SELECT line_id, cost_source, unit_cost_e4, cost, costed_by, cost_at, sale_ex FROM sale_line WHERE line_id IN ('m2') ORDER BY line_id");
+        $this->store('9005', [self::sl('8501', 'H', 599), self::sl('8502', 'O', 1200)]);
+        $this->store('9006', [self::sl('8601', 'H', 599)]);
+        $before = self::$db->all("SELECT line_id, cost_source, unit_cost_e4, cost, costed_by, cost_at, sale_ex FROM sale_line WHERE line_id IN ('8502') ORDER BY line_id");
         $sale = (int) self::$db->value('SELECT SUM(sale_ex) FROM sale_line');
         // the kit: the items marked from the count (before these sales), the owner's price, the re-cost of THOSE items only, the refresh
         self::mark($h);
@@ -219,14 +219,14 @@ final class OwnGoodsMoneyTest extends StockTestCase
         $r = (new RecostSales(self::$db))->run('2026-11-01', self::DAY, ['none', 'cw_cost'], 'vapebig', true, ItemCodes::fromText(self::$db,
             (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$h])));
         self::assertSame(2, $r['lines']);
-        self::assertSame($before, self::$db->all("SELECT line_id, cost_source, unit_cost_e4, cost, costed_by, cost_at, sale_ex FROM sale_line WHERE line_id IN ('m2') ORDER BY line_id"),
+        self::assertSame($before, self::$db->all("SELECT line_id, cost_source, unit_cost_e4, cost, costed_by, cost_at, sale_ex FROM sale_line WHERE line_id IN ('8502') ORDER BY line_id"),
             'the other line of the mixed order: untouched');
         self::assertSame($sale, (int) self::$db->value('SELECT SUM(sale_ex) FROM sale_line'), 'sales never move');
         self::assertSame(750, (int) self::$db->value('SELECT SUM(cost) FROM sale_line'), 'the cost moved by exactly the marked items\' re-cost');
         self::assertSame(2, (int) self::$db->value('SELECT COUNT(*) FROM sale_line WHERE item_owner IS NOT NULL'), 'the re-cost marked its lines too');
         // an order of the marked item whose cost was already fixed (so the re-cost does not read it): the refresh marks it, no cost moves
-        $this->store('T', [self::sl('t1', 'H', 599)], ['paid_at' => '2026-11-15T10:00:00Z', 'placed_at' => '2026-11-15T09:59:00Z']);
-        $this->store('U', [self::sl('u1', 'H', 599)]);
+        $this->store('9007', [self::sl('8701', 'H', 599)], ['paid_at' => '2026-11-15T10:00:00Z', 'placed_at' => '2026-11-15T09:59:00Z']);
+        $this->store('9008', [self::sl('8801', 'H', 599)]);
         self::$db->exec("UPDATE item_owner SET from_at = '2026-11-14 00:00:00' WHERE sku_id = ?", [$h]); // as if marked earlier: T's line is now behind
         $costs = self::$db->all('SELECT line_id, cost_source, unit_cost_e4, cost, costed_by, cost_at FROM sale_line ORDER BY line_id');
         $dry = (new ItemOwnerRefresh(self::$db))->run([$h], '2026-11-01', self::DAY, null, false);
@@ -234,7 +234,7 @@ final class OwnGoodsMoneyTest extends StockTestCase
         $done = (new ItemOwnerRefresh(self::$db))->run([$h], '2026-11-01', self::DAY, null, true);
         self::assertSame(1, $done['refreshed']);
         self::assertSame($costs, self::$db->all('SELECT line_id, cost_source, unit_cost_e4, cost, costed_by, cost_at FROM sale_line ORDER BY line_id'), 'no cost changed');
-        self::assertSame((int) $this->vb->channelId, (int) self::$db->value("SELECT item_owner FROM sale_line WHERE line_id = 't1'"));
+        self::assertSame((int) $this->vb->channelId, (int) self::$db->value("SELECT item_owner FROM sale_line WHERE line_id = '8701'"));
         self::assertSame(0, (new ItemOwnerRefresh(self::$db))->run([$h], '2026-11-01', self::DAY, null, true)['refreshed'], 'a run again: nothing more');
         self::assertSame([], ItemOwnerInvariants::check(self::$db));
         foreach (['2026-11-15', self::DAY] as $day) {

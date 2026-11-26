@@ -38,9 +38,9 @@ final class OwnGoodsScreensTest extends KernelUiTestCase
         $now = gmdate('Y-m-d\TH:i:s\Z', time() - 60);
         $line = static fn (string $id, string $v, int $p): array => ['line_id' => $id, 'variant_id' => $v, 'qty' => 1, 'price_inc' => $p, 'discount_inc' => 0,
             'cancelled' => false, 'refund_inc' => 0, 'free' => false];
-        (new OrderSnapshots(self::$db))->store((int) $vb->channelId, 'VB100', ['v' => 1, 'version' => 1, 'order_no' => 'VB100', 'status' => 'completed',
+        (new OrderSnapshots(self::$db))->store((int) $vb->channelId, '9100', ['v' => 1, 'version' => 1, 'order_no' => '9100', 'status' => 'completed',
             'placed_at' => $now, 'paid_at' => $now, 'gateway' => 'paypal', 'currency' => 'GBP', 'parent_ref' => null,
-            'lines' => [$line('l1', 'H', 599), $line('l2', 'O', 1200)],
+            'lines' => [$line('8901', 'H', 599), $line('8902', 'O', 1200)],
             'delivery' => ['method_id' => '1', 'method' => 'Tracked 48', 'charged_inc' => 0, 'refund_inc' => 0], 'order_refund_inc' => 0, 'grand_inc' => 1799,
             'parcels' => []], 'api');
         $web = $this->signIn($this->uiUser('finance'));
@@ -52,7 +52,7 @@ final class OwnGoodsScreensTest extends KernelUiTestCase
         $orders = $web->get('/ui/profit/orders', ['period' => 'last_7', 'store' => (int) $vb->channelId]);
         self::assertSame(200, $orders->status, $orders->describe());
         self::assertStringContainsString('VAPEBIG test site\'s own goods: £4.99, cost £3.75', self::text($orders));
-        $one = $web->get('/ui/profit/orders/view', ['store' => (int) $vb->channelId, 'ref' => 'VB100']);
+        $one = $web->get('/ui/profit/orders/view', ['store' => (int) $vb->channelId, 'ref' => '9100']);
         self::assertSame(200, $one->status, $one->describe());
         self::assertStringContainsString('the shop\'s own', self::text($one));
         self::assertStringNotContainsStringIgnoringCase('partner', $one->body);
