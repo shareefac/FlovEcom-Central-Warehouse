@@ -186,6 +186,12 @@ final class AlertDispatch
             'paypal_needs_look' => Words::say('ALERT', 'paypal_needs_look', $store, $n('count'), self::lookReasons($d['looks'] ?? []), (string) ($d['newest'] ?? '')),
             'paypal_not_on_order' => Words::say('ALERT', 'paypal_not_on_order', $store, $n('days'), (string) ($d['limit'] ?? ''), (string) ($d['day'] ?? ''),
                 (string) ($d['pence'] ?? '')),
+            // Global Payments' card fees (0084, docs/decisions.md GPF15): the job not run, a month's invoice overdue, an expense that may be an invoice
+            'gp_not_run' => ($d['minutes'] ?? null) === null ? Words::say('ALERT', 'gp_never_run', (string) ($d['account_name'] ?? ''))
+                : Words::say('ALERT', 'gp_not_run', (string) ($d['account_name'] ?? ''), self::duration($n('minutes') * 60)),
+            'gp_invoice_overdue' => Words::say('ALERT', 'gp_invoice_overdue', (string) ($d['account_name'] ?? ''), (string) ($d['months'] ?? ''), (string) $n('late')),
+            'gp_double_count' => Words::say('ALERT', 'gp_double_count', (string) ($d['account_name'] ?? ''), (string) $n('count'), (string) ($d['net'] ?? ''),
+                (string) ($d['date'] ?? ''), (string) ($d['month'] ?? '')),
             'ai_waiting' => Words::say('ALERT', 'ai_waiting', $n('count'), $n('limit'), self::duration($n('age'))), // CW-1182 (AI17)
             'ai_reader_failed' => Words::say('ALERT', 'ai_reader_failed', self::duration($n('age')), (string) ($d['error'] ?? '')),
             default => (string) ($p['detail'] ?? $p['kind']),

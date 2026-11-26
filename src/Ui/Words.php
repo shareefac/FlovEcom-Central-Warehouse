@@ -3048,6 +3048,7 @@ final class Words
         'profit.gp_merchant_ef_online' => 'Electrofag Online\'s merchant number',
         'profit.gp_expense_suppliers' => 'Expense suppliers that are Global Payments',
         'profit.gp_takings_gap_pct' => 'Ask for a tick when an invoice\'s sales are this far from CW\'s card takings (percent)',
+        'profit.gp_invoice_late_days' => 'Days after a month\'s end before the alert says its card fees invoice is missing',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -4342,6 +4343,7 @@ final class Words
         'profit.gp_merchant_ef_online' => 'The merchant number printed on this account\'s invoices: an invoice with another number is refused.',
         'profit.gp_expense_suppliers' => 'An expense from one of these suppliers that is a card fees invoice already entered is refused, so it is never counted twice.',
         'profit.gp_takings_gap_pct' => 'When an invoice\'s sales are further than this from CW\'s card takings of the month, the page asks you to check and tick.',
+        'profit.gp_invoice_late_days' => 'The health alert says a month\'s Global Payments invoice is not entered once this many days have passed after the month\'s end.',
         // "Claude reads the upload" (0082; docs/decisions.md AI7, AI8).
         'ai.read_uploads' => 'On: on Profit > Delivery bills (a Royal Mail bill) and Profit > Expenses (an invoice) staff may drop a PDF or a photo; CW sends it to '
             . 'Claude (Anthropic\'s API), fills the same check page or form, and a person still presses Store or Save. CW\'s own checks still decide. Off: '
@@ -13999,6 +14001,13 @@ final class Words
         'paypal_stale' => '%s: PayPal says its data is complete only up to %s, so the payment fees are not up to date. Tell the CW team if this stays.',
         'paypal_needs_look' => '%s: %s PayPal rows that need a look (%s; the newest %s). The money in doubt is not counted until the CW team looks at them.',
         'paypal_not_on_order' => '%s: %s day(s) with more than %s of PayPal money on no order in CW (the newest %s: %s). Tell the CW team if this is not expected.',
+        // CW-1174 (0084, docs/decisions.md GPF15): Global Payments' card fees
+        'gp_never_run' => '%s: the card fees job has not run since the account was switched on, so its card fees are not up to date. Tell the CW team.',
+        'gp_not_run' => '%s: the card fees job has not run for %s, so changed rates and entered invoices wait. Tell the CW team.',
+        'gp_invoice_overdue' => '%s: the Global Payments invoice of %s is not entered yet (%s days after the month\'s end), so its card fees are still estimated. '
+            . 'Enter it on Profit › Card fees (Global Payments My Account › Reporting › Statements).',
+        'gp_double_count' => '%s: %s Global Payments expense(s) may be an invoice already entered on Profit › Card fees (the newest %s dated %s, the %s invoice). '
+            . 'If it is the same invoice, delete the expense, so it is not counted twice.',
         // CW-1182 (AI17): Claude reads uploads - how many documents wait, the limit in minutes, how long the oldest has waited; how long ago the reader's last run failed, why
         'ai_waiting' => 'Claude reads uploads: %s document(s) have waited more than %s minutes to be read (the oldest %s). The reader runs every minute '
             . 'from cron: tell the CW team.',

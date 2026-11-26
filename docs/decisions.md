@@ -22668,3 +22668,12 @@ before is CW-1153's (0083); the plain rollback source is its code with 0084 adde
 (GpInvariants, in CW\Invariants::check): GP1 a counted row is of a paid card order, on its day, with its amount; GP2 the days hold exactly
 the rows (and the charges on no order); GP3 a spread invoice is on its orders and on no order to the penny; GP4 nothing queued, due or
 running, and no estimate at an old rate, for 6 hours; GP5 no paid card order of an account switched on without its fee for 6 hours.
+
+**Round 2 (26 Nov 2026, the lead's word on round 1).** **GPF15. The health alert** (GpFees::health, through CW\Ops\Alerts): per account
+switched on, on its main shop: `gp_not_run` (no good run of bin/gp_fees.php for an hour, or none since it was switched on an hour ago),
+`gp_invoice_overdue` (a month, from its first month to last month and not after its last day's, whose invoice is not entered
+`profit.gp_invoice_late_days` (12) days after its end: its card fees are still estimated), `gp_double_count` (an expense of a Global Payments
+supplier, any date from the account's first day, that may be an entered invoice: GPF9); in staff words (Words::ALERT). **GPF16. The race.** A
+spread racing real snapshots of the same days on another connection (orders made, changed and moved between days all the while): no snapshot
+fails or waits past its own wait; once the queued months are spread again the month is the invoice to the penny, nothing of the month is left
+estimated, and a rebuild of the days gives the same figures (GpFeesHealthTest; the snapshot worker tests/Integration/Profit/gp_snapshot_worker.php).

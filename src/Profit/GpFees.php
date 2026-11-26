@@ -43,6 +43,12 @@ final class GpFees
     public const SETTLE_WAIT_SEC = 30;
     /** How many times a spread is planned again when an order of the month changed while it worked. */
     public const SETTLE_TRIES = 3;
+    /** The accounts as staff know them (the alert's words). */
+    public const ACCOUNT_NAMES = ['vpg_online' => 'Vape and Go Online', 'ef_online' => 'Electrofag Online'];
+    /** The health alert says the job has not run well for this many minutes (it runs every 10). */
+    public const JOB_LATE_MIN = 60;
+    /** An account switched on less than this many minutes ago has its first run to come: not said yet. */
+    public const SWITCH_GRACE_MIN = 60;
     /** A spread's day found its orders changed since the plan (rolled back; planned again). */
     private const CHANGED = 'gp_spread_changed';
     private const ROW_FIELDS = ['channel_id', 'order_ref', 'account', 'day', 'base_pence', 'state', 'fee_pence', 'rate_e4', 'invoice_id', 'spread_version', 'updated_at'];
@@ -672,6 +678,90 @@ final class GpFees
         $days = array_values(array_unique($days));
         sort($days, SORT_STRING);
         return $days;
+    }
+
+    // ---- the health alert (GPF15) -------------------------------------------------------------------------------------------------------
+
+    /**
+     * What the health alert says of the card fees (bin/health_alert.php through CW\Ops\Alerts; docs/decisions.md GPF15), per account switched
+     * on (its first day reached), on its main shop:
+     *   gp_not_run          no good run of bin/gp_fees.php for JOB_LATE_MIN minutes (or none since it was switched on SWITCH_GRACE_MIN ago):
+     *                       estimates of a changed rate, months queued and invoices entered wait
+     *   gp_invoice_overdue  a month (from its first month to last month, not after its last day's) whose invoice is not entered
+     *                       profit.gp_invoice_late_days (12) days after its end: its card fees are still estimated
+     *   gp_double_count     an expense of a Global Payments supplier that may be an invoice entered on Profit > Card fees (GPF9): counted twice
+     *                       if it is the same invoice
+     * Read only. Quiet while no account is switched on (and on a schema before 0084).
+     *
+     * @return list<array{key: string, kind: string, channel: ?string, channel_id: ?int, name: ?string, mode: ?string, detail: string, data: array<string, int|string|null>}>
+     */
+    public static function health(Db $db, \DateTimeImmutable $now): array
+    {
+        if ($db->value("SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'gp_run'") === null) {
+            return [];
+        }
+        $today = ReportRefresh::ukDay(Clock::db($now));
+        $lateRaw = $db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'profit.gp_invoice_late_days'");
+        $late = is_numeric($d = json_decode((string) ($lateRaw ?? '12'), true)) ? max(0, (int) $d) : 12;
+        $shops = [];
+        foreach ($db->all('SELECT id, code, name FROM channel') as $c) {
+            $shops[(int) $c['id']] = ['code' => (string) $c['code'], 'name' => (string) $c['name']];
+        }
+        $out = [];
+        foreach (self::readConfig($db) as $acct => $c) {
+            if (!$c['on'] || (string) $c['from'] > $today || $c['main'] === null) {
+                continue;
+            }
+            $name = self::ACCOUNT_NAMES[$acct] ?? (string) $acct;
+            $base = ['channel' => $shops[$c['main']]['code'] ?? null, 'channel_id' => (int) $c['main'], 'name' => $shops[$c['main']]['name'] ?? null, 'mode' => null];
+            // the job: a good run within the hour (none yet: said once it is switched on longer than the grace)
+            $last = $db->value("SELECT MAX(finished_at) FROM gp_run WHERE account = ? AND state = 'ok' AND kind IN ('job', 'nightly')", [$acct]);
+            $mins = $last === null ? null : (int) floor(($now->getTimestamp() - Clock::fromDb((string) $last)->getTimestamp()) / 60);
+            $switched = $db->value("SELECT MAX(created_at) FROM config_change WHERE subject_type = 'setting' AND action <> 'baseline' AND subject_key = ?",
+                ['profit.gp_from_' . $acct]);
+            $since = $switched === null ? null : (int) floor(($now->getTimestamp() - Clock::fromDb((string) $switched)->getTimestamp()) / 60);
+            $justOn = $since !== null && $since >= 0 && $since < self::SWITCH_GRACE_MIN;
+            if (($mins === null && !$justOn) || ($mins !== null && $mins >= self::JOB_LATE_MIN)) {
+                $newest = $db->one('SELECT state, error FROM gp_run WHERE account = ? ORDER BY id DESC LIMIT 1', [$acct]);
+                $why = $newest !== null && $newest['state'] === 'failed' ? (string) $newest['error'] : '';
+                $out[] = ['key' => 'gp_not_run:' . $acct, 'kind' => 'gp_not_run', 'detail' => $mins === null
+                    ? sprintf('%s: the card fees job (bin/gp_fees.php) has not run well since the account was switched on', $name)
+                    : sprintf('%s: the card fees job (bin/gp_fees.php) has not run well for %d minutes (limit %d)%s', $name, $mins, self::JOB_LATE_MIN, $why === '' ? '' : ": {$why}"),
+                    'data' => ['account' => $acct, 'account_name' => $name, 'minutes' => $mins, 'limit' => self::JOB_LATE_MIN, 'error' => $why]] + $base;
+            }
+            // the months whose invoice is overdue: from its first month to last month (not after its last day's month)
+            $missing = [];
+            $oldest = null;
+            $live = array_flip(array_map('strval', $db->column('SELECT month FROM gp_invoice WHERE account = ? AND deleted_at IS NULL', [$acct])));
+            $endMonth = substr(self::addDays(substr($today, 0, 7) . '-01', -1), 0, 7);
+            if ($c['until'] !== null && substr((string) $c['until'], 0, 7) < $endMonth) {
+                $endMonth = substr((string) $c['until'], 0, 7);
+            }
+            for ($m = substr((string) $c['from'], 0, 7); $m <= $endMonth; $m = substr(self::addDays(ExpenseViews::monthDays($m)[1], 1), 0, 7)) {
+                $due = self::addDays(ExpenseViews::monthDays($m)[1], $late);
+                if ($today > $due && !isset($live[$m])) {
+                    $missing[] = $m;
+                    $oldest ??= $due;
+                }
+            }
+            if ($missing !== []) {
+                $out[] = ['key' => 'gp_invoice_overdue:' . $acct, 'kind' => 'gp_invoice_overdue', 'detail' => sprintf('%s: the Global Payments invoice of %s is not '
+                    . 'entered %d days after the month\'s end: its card fees are still estimated', $name, implode(', ', $missing), $late),
+                    'data' => ['account' => $acct, 'account_name' => $name, 'months' => implode(', ', $missing), 'count' => count($missing), 'late' => $late,
+                        'due' => $oldest]] + $base;
+            }
+            // an expense of a Global Payments supplier that may be an entered invoice of this account's shops
+            // (dated from its first day on, a future date too: an expense may be dated ahead)
+            $doubt = array_values(array_filter(GpInvoices::doubtful($db, (string) $c['from'], '2099-12-31', null), static fn (array $e): bool => in_array($e['shop'], $c['shops'], true)));
+            if ($doubt !== []) {
+                $e = end($doubt);
+                $out[] = ['key' => 'gp_double_count:' . $acct, 'kind' => 'gp_double_count', 'detail' => sprintf('%s: %d expense(s) of Global Payments may be an invoice '
+                    . 'entered on Profit > Card fees (the newest %s dated %s, the %s invoice)', $name, count($doubt), \CW\Expenses\ExpenseMoney::gbp($e['net']), $e['date'], $e['month']),
+                    'data' => ['account' => $acct, 'account_name' => $name, 'count' => count($doubt), 'net' => \CW\Expenses\ExpenseMoney::gbp($e['net']),
+                        'date' => $e['date'], 'month' => $e['month'], 'expense' => $e['id']]] + $base;
+            }
+        }
+        return $out;
     }
 
     // ---- small helpers -----------------------------------------------------------------------------------------------------------------

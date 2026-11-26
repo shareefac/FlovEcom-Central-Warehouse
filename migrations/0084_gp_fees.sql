@@ -20,8 +20,9 @@
 --  * The settings (Settings > Profit, each change kept with its history): per account (vpg_online: Vape and Go Online, which also takes Vape
 --    Big's card payments; ef_online: Electrofag Online) its first and last day (a first day is the 1st of a month; empty: not switched on;
 --    the go-live kit sets the first days), the shops it takes, the estimate's rate (October's invoices: Vape and Go 1.01%, Electrofag 2.28%),
---    its merchant number (set by the kit: not in git); the expense supplier names that are Global Payments (the double-count guard) and how far
---    an invoice's sales may differ from CW's card takings of the month before the page asks for a tick.
+--    its merchant number (set by the kit: not in git); the expense supplier names that are Global Payments (the double-count guard), how far
+--    an invoice's sales may differ from CW's card takings of the month before the page asks for a tick, and how many days after a month's end
+--    the health alert says its invoice is not entered (12).
 --
 -- HOW IT IS APPLIED: five CREATE TABLE IF NOT EXISTS (new, empty), three columns added to profit_day only while they are not there (a prepared
 -- statement, as 0077 and 0080 added theirs), the settings ON DUPLICATE KEY with their baselines only when missing. No role, no permission (the
@@ -180,12 +181,13 @@ INSERT INTO app_setting (setting_key, value_type, value_json, provisional, decis
  ('profit.gp_rate_ef_online','decimal','"2.28"',0,'GPF3','The percent of a card order Electrofag Online''s fee is estimated at (proposed by each invoice entered)'),
  ('profit.gp_merchant_ef_online','string','""',0,'GPF2','Electrofag Online''s merchant number: an invoice entered for it must print it (the go-live kit sets it)'),
  ('profit.gp_expense_suppliers','string','"Global Payments,GlobalPay,Global Pay"',0,'GPF9','The expense supplier names that are Global Payments (an expense of theirs is checked against the card fee invoices)'),
- ('profit.gp_takings_gap_pct','decimal','"10"',0,'GPF6','An invoice whose sales differ from CW''s card takings of its month by more than this percent asks for a tick')
+ ('profit.gp_takings_gap_pct','decimal','"10"',0,'GPF6','An invoice whose sales differ from CW''s card takings of its month by more than this percent asks for a tick'),
+ ('profit.gp_invoice_late_days','int','12',0,'GPF15','The health alert says a month''s invoice is not entered this many days after the month''s end')
  ON DUPLICATE KEY UPDATE setting_key = setting_key;
 
 INSERT INTO config_change (subject_type, subject_key, version, action, state, actor)
   SELECT 'setting', s.setting_key, 1, 'baseline', JSON_OBJECT('value', CAST(s.value_json AS CHAR), 'provisional', s.provisional), 'system:migrate'
   FROM app_setting s WHERE s.setting_key IN ('profit.gp_from_vpg_online', 'profit.gp_until_vpg_online', 'profit.gp_shops_vpg_online', 'profit.gp_rate_vpg_online',
     'profit.gp_merchant_vpg_online', 'profit.gp_from_ef_online', 'profit.gp_until_ef_online', 'profit.gp_shops_ef_online', 'profit.gp_rate_ef_online',
-    'profit.gp_merchant_ef_online', 'profit.gp_expense_suppliers', 'profit.gp_takings_gap_pct')
+    'profit.gp_merchant_ef_online', 'profit.gp_expense_suppliers', 'profit.gp_takings_gap_pct', 'profit.gp_invoice_late_days')
     AND NOT EXISTS (SELECT 1 FROM config_change c WHERE c.subject_type = 'setting' AND c.subject_key = s.setting_key);

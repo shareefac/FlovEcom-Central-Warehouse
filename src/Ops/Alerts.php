@@ -41,6 +41,10 @@ use CW\Settings;
  *     paypal_needs_look    PayPal rows that need a look since its first fee day, with their reasons (the money in doubt not counted until looked
  *                          at; said at most once a day)
  *     paypal_not_on_order  a day of the last re-read days with more PayPal money on no CW order than profit.paypal_not_on_order_alarm
+ *   per Global Payments account whose card fees are switched on (CW-1174, docs/decisions.md GPF15; GpFees::health):
+ *     gp_not_run           no good run of bin/gp_fees.php for an hour (or none since it was switched on an hour ago)
+ *     gp_invoice_overdue   a month's invoice not entered profit.gp_invoice_late_days (12) days after the month's end
+ *     gp_double_count      an expense of a Global Payments supplier that may be an invoice entered on Profit > Card fees
  *   "Claude reads uploads", only while it is switched on (CW-1182, docs/decisions.md AI17; DocumentReader::health):
  *     ai_waiting         a document waiting more than 10 minutes to be read (the reader, bin/ai_read.php, is not running or is stuck)
  *     ai_reader_failed   the reader's last run failed (an error, or it never ended), until a run ends well
@@ -99,6 +103,11 @@ final class Alerts
         }
         // PayPal's fees (0080, docs/decisions.md PPF14): per shop switched on, not read for 26 hours, rows not understood, money on no order
         foreach (\CW\Profit\PaypalFees::health($this->db, Clock::now()) as $p) {
+            $out[] = $p;
+        }
+        // Global Payments' card fees (0084, docs/decisions.md GPF15): per account switched on, the job not run for an hour, a month's invoice not
+        // entered 12 days after its end, an expense that may be an entered invoice
+        foreach (\CW\Profit\GpFees::health($this->db, Clock::now()) as $p) {
             $out[] = $p;
         }
         // Claude reads the upload (AI17): a document waiting too long, the reader's last run failed; quiet while reading is switched off
