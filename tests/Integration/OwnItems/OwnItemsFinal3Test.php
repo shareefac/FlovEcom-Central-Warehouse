@@ -80,7 +80,7 @@ final class OwnItemsFinal3Test extends InvoicesTestCase
         self::assertSame($zero, $use());
         $this->listing($vpg, '50601', $h);
         self::assertSame($is(['listings' => 1]), $use(), 'linked there now');
-        $this->ok($this->commit($vpg, '9851', [self::line('50601', '8851')]));
+        $this->ok($this->reserve($vpg, '9851', [self::line('50601', '8851')]));
         $this->ok($this->release($vpg, '9851'));
         self::assertSame('released', self::$db->value("SELECT state FROM reservation_unit WHERE unit_id = '8851'"));
         self::assertSame($is(['listings' => 1, 'units' => 1]), $use(), 'H1: a released unit keeps its item: counted in any state');
