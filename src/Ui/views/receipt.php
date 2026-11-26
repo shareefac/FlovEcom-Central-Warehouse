@@ -116,7 +116,7 @@
 <section class="card about-receipt" aria-labelledby="about-h">
   <h2 id="about-h"><?= $word('RECEIPT', 'about') ?></h2>
   <dl>
-    <dt><?= $word('RECEIPT', 'invoice') ?></dt><dd><?php if ($doc->externalRef === null): ?><?= $word('RECEIPT', 'no_invoice') ?><?php elseif (($gr['invoice_date'] ?? null) !== null): ?><?= $say('RECEIPT', 'invoice_dated', (string) $doc->externalRef, \CW\Ui\Html::day((string) $gr['invoice_date'])) ?><?php else: ?><?= $e($doc->externalRef) ?><?php endif; ?><?php if ($invoicePart > 1): ?> <span class="hint"><?= $say('RECEIPT', 'split_part', $invoicePart) ?></span><?php endif; ?></dd>
+    <dt><?= $word('RECEIPT', 'invoice') ?></dt><dd><?php if ($doc->externalRef === null): ?><?= $word('RECEIPT', 'no_invoice') ?><?php elseif (($gr['invoice_date'] ?? null) !== null): ?><?= $say('RECEIPT', 'invoice_dated', (string) $doc->externalRef, \CW\Ui\Html::day((string) $gr['invoice_date'])) ?><?php else: ?><?= $e($doc->externalRef) ?><?php endif; ?><?php if ($invoicePart > 1): ?> <span class="hint"><?= $say('RECEIPT', 'split_part', $invoicePart) ?></span><?php endif; ?><?php if ($invoiceToCome ?? false): ?> <?= $chip('needs', \CW\Ui\Words::RECEIPT['invoice_to_come']) ?><?php endif; ?></dd>
 <?php if (($gr['delivery_note'] ?? null) !== null): ?>
     <dt><?= $word('RECEIPT', 'delivery_note') ?></dt><dd><?= $e($gr['delivery_note']) ?></dd>
 <?php endif; ?>

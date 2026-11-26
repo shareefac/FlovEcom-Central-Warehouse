@@ -8164,6 +8164,9 @@ final class Words
         'vat' => 'VAT code',
         'currency' => 'Currency',
         'erp' => 'ERPNext name',
+        // CW-1152 (NI2): shown on the supplier's page when ticked.
+        'without_invoice' => 'Goods in without the invoice',
+        'without_invoice_yes' => 'Allowed: its deliveries can be booked in before the invoice comes',
         'notes' => 'Notes',
         'last_changed' => 'Last changed %s by %s',
         'created' => 'Added %s by %s',
@@ -8266,6 +8269,7 @@ final class Words
         'min_order_value' => 'smallest order',
         'default_vat_code' => 'VAT code',
         'is_overseas' => 'bought from abroad',
+        'goods_in_without_invoice' => 'goods in without the invoice',
         'import_route' => 'how duty stamps are put on the goods',
         'import_route_file_id' => 'duty-stamp proof',
         'dd_checked_on' => 'background check date',
@@ -8571,6 +8575,8 @@ final class Words
         'vat' => 'VAT code for their products',
         'abroad' => 'Bought from abroad',
         'abroad_tick' => 'We buy from abroad (tick for any country outside the UK)',
+        // CW-1152 (docs/decisions.md NI2): the supplier's deliveries may be booked in before its invoice comes.
+        'without_invoice_tick' => 'Can book goods in without the invoice (deliveries are booked in before the invoice comes; book the invoice when it comes)',
         'route' => 'How are UK duty stamps put on the goods, and where? (needed for suppliers abroad)',
         'dd' => 'Background check',
         'dd_on' => 'Date checked',
@@ -9395,6 +9401,7 @@ final class Words
         'invoice' => 'Supplier invoice',
         'invoice_dated' => '%s, dated %s',
         'no_invoice' => 'Not typed in yet',
+        'invoice_to_come' => 'Invoice still to come', // CW-1152 (NI4): booked in without its supplier invoice, none bills it yet
         'delivery_note' => 'Delivery note',
         'po' => 'Purchase order',
         'no_po' => 'None',
@@ -9575,6 +9582,7 @@ final class Words
         // Files (receipt_files.php).
         'files' => 'Files',
         'files_none' => 'No file yet. The supplier\'s invoice (a PDF, or a photo of a paper invoice) must be attached before the delivery is booked in.',
+        'files_none_posted' => 'No file attached.', // CW-1152 (L9): a booked-in delivery (it may have been booked in without the invoice)
         'file_line' => '%s, %s, %s',
         'file_what' => 'What it is',
         'file_label' => 'File (PDF, JPEG or PNG, at most %s MB: a camera photo is made smaller first)',
@@ -9807,6 +9815,7 @@ final class Words
         // What stops booking in, each a short line to its field (GV14).
         'fix_invoice_number' => 'Type the supplier\'s invoice number',
         'fix_invoice_file' => 'Attach the supplier\'s invoice',
+        'fix_delivery_ref' => 'Type the delivery note or page number', // CW-1152 (NI7)
         'fix_paperwork' => 'Set Paperwork (does the paperwork match the boxes?)',
         'fix_paperwork_no' => 'Paperwork says it does not match the boxes: do not book it in',
         'fix_lines' => 'Check %s',
@@ -10043,6 +10052,20 @@ final class Words
         'no_lines' => 'No products yet.',
         'invoice_number_required' => 'Type the supplier\'s invoice number. A supplier invoice is booked in once only.',
         'invoice_file_required' => 'Attach the supplier\'s invoice (a PDF, or a photo of a paper invoice).',
+        // CW-1152 (docs/decisions.md NI3): a supplier ticked "Can book goods in without the invoice": a note, not something to settle.
+        'invoice_to_come_both' => 'Invoice still to come: there is no supplier invoice number or copy yet. %s can book deliveries in without the invoice: '
+            . 'book its invoice when it comes.',
+        'invoice_to_come_number' => 'Invoice still to come: there is no supplier invoice number yet. %s can book deliveries in without the invoice: '
+            . 'book its invoice when it comes.',
+        'invoice_to_come_copy' => 'Invoice still to come: the supplier\'s invoice is not attached yet. %s can book deliveries in without the invoice: '
+            . 'attach it when it comes.',
+        'delivery_ref_required' => 'Type the delivery note or page number: without the invoice it is how CW books a delivery once.',
+        'delivery_ref_taken' => 'The delivery note or page number %s is also on %s: without the invoice a delivery is booked in once by it. Correct the number, or cancel '
+            . 'one of the two deliveries.',
+        'invoice_billed_elsewhere' => 'This supplier invoice (%s) is booked already for %s, which was booked in without it. A supplier invoice is booked in once only: '
+            . 'correct the number, or cancel this delivery.',
+        'invoice_link_changed' => 'This delivery is the delivery of %s: its supplier and supplier invoice number are that invoice\'s (%s). Put them back, or cancel it and '
+            . 'receive the delivery as its own.',
         'invoice_copy_elsewhere' => 'The invoice file %s is also the invoice of %s. A supplier invoice is booked in once only: attach the right invoice, or cancel '
             . 'one of the two deliveries.',
         // Pack PO (PO10): one invoice shared by deliveries of different orders.
@@ -12977,6 +13000,11 @@ final class Words
         'show_accepted_short' => 'Differences accepted',
         'group_not_invoiced' => 'Waiting for an invoice',
         'not_invoiced_cell' => 'Not invoiced',
+        // CW-1152 (NI8): an invoice whose goods would come in while deliveries of the same products wait for their invoice
+        'separate_tick' => 'This is a separate delivery (not the deliveries named above)',
+        'separate_reason' => 'Why (for example: a second delivery came on Friday)',
+        'separate_save' => 'Confirm',
+        'invoice_to_come' => 'Invoice still to come', // CW-1152 (NI4): a delivery booked in with no supplier invoice number
         'deliveries_one' => '1 delivery',
         'deliveries_many' => '%s deliveries',
     ];
@@ -13253,6 +13281,7 @@ final class Words
         'from_receipt' => 'Started from the delivery: check the lines against the paper, type the total without VAT and the VAT, then make it final.',
         // Pack J (PJ6, PJ10)
         'receiving_saved' => 'Saved: how its goods come in.',
+        'separate_saved' => 'Saved: its goods are a separate delivery.', // CW-1152 (NI8)
         'timed' => 'The time is set: it becomes final by itself then.',
         'untimed' => 'The time is taken off: it stays a draft.',
         'number_taken' => 'Started from the delivery. Its invoice number is already on %s: type this invoice\'s own number.',
@@ -13282,6 +13311,7 @@ final class Words
 
     /** A refused change of an invoice or a credit note, by error code (a code without words keeps the service's sentence). */
     public const INVOICE_ERROR = [
+        'separate_not_ticked' => 'Tick "This is a separate delivery" to confirm it, and say why.', // CW-1152 (NI8)
         'on_line' => 'Line %s: %s',
         // CW-917 (EC7, EC8): the copies of ERPNext purchase invoices.
         'erp_copy' => 'This is a copy of an ERPNext invoice. Change or cancel it in ERPNext, and CW follows. Nothing was saved.',

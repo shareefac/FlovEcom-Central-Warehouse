@@ -1811,10 +1811,11 @@ final class UiTemplatesTest extends TestCase
         self::assertMatchesRegularExpression('#<div class="doc-bar">\s*<a class="btn ghost" href="[^"]*" data-leave>.*?</a>\s*<span class="doc-bar-note">.*?</span>\s*'
             . '(<\?php if \(\$lines !== \[\]\): \?>\s*)?<button class="btn" type="submit" form="ret-lines">.*?</button>\s*(<\?php endif; \?>\s*)?'
             . '<button type="submit" class="btn primary" form="ret-post">#s', $t['supplier_return.php'], 'the draft: Leave, the note, Save the lines, then Make final');
-        // The supplier form: 27 fields in three sections, the country a picker of every country (what CW keeps: its two-letter code).
+        // The supplier form: 28 fields in three sections (CW-1152: the tick "Can book goods in without the invoice" in Terms), the country a picker of
+        // every country (what CW keeps: its two-letter code).
         preg_match_all("/\\\$field\\('([a-z0-9_]+)'/", $t['supplier_form.php'], $fields);
         self::assertSame(array_keys(\CW\Suppliers\Suppliers::FIELDS), array_values(array_intersect(array_keys(\CW\Suppliers\Suppliers::FIELDS), $fields[1])), 'every field');
-        self::assertCount(27, $fields[1]);
+        self::assertCount(28, $fields[1]);
         self::assertSame(['details', 'terms', 'dd'], preg_match_all("/^    '([a-z]+)' => \\[\$/m", $t['supplier_form.php'], $sec) > 0 ? $sec[1] : []);
         self::assertStringContainsString("\$field('country', 'country', 'country')", $t['supplier_form.php']);
         self::assertStringContainsString('\CW\Ui\Words::COUNTRY as $code => $name', $t['supplier_field.php']);

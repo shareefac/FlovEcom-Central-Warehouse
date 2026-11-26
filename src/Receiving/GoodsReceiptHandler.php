@@ -27,7 +27,8 @@ use CW\Stock;
  *  validate()       the goods_receipt row; every line has its grn_line and follows the formulas (qty = packs x units per pack > 0,
  *                   unit cost = half-up(pack price / units per pack, 6), amount = half-up(packs x pack price, 2)); then the
  *                   receipt's plan (ReceiptPlan::build, the item cards FOR SHARE, I122): its first problem refuses (422, every
- *                   problem in detail.problems): the invoice number and its copy, an active supplier, a receivable PO, the
+ *                   problem in detail.problems): the invoice number and its copy (a note instead for a supplier ticked "Can book
+ *                   goods in without the invoice", CW-1152: its row read FOR SHARE), an active supplier, a receivable PO, the
  *                   received time, the bench check, blocked items (ItemCompliance 'receive'), the relay route, the duty stamps
  *                   and the refusal date, one selling mode per item, the over-delivery tolerance.
  *  approvalUnits()  0 (GRN has no approval rule).
@@ -193,7 +194,9 @@ final class GoodsReceiptHandler implements DocumentHandler, ReviewInvolvement
         Audit::write($db, $caller, 'grn.post', 'document', (string) $doc->id, $opKey . ':grn', ['number' => $doc->number, 'supplier' => $plan['header']['supplier']['code'] ?? null,
             'invoice' => $doc->externalRef, 'po' => $plan['po']['number'] ?? null, 'lines' => count($plan['lines']), 'units' => $t['units'], 'accepted' => $t['accepted'],
             'verify' => $t['verify'], 'quarantine' => $t['quarantine'], 'refused' => $t['refused'], 'short' => $t['short'], 'incidents' => $incidents,
-            'expected_duty' => ReceiptMath::decimal($t['expected_duty_pence']), 'received_at' => $gr['received_at']]);
+            'expected_duty' => ReceiptMath::decimal($t['expected_duty_pence']), 'received_at' => $gr['received_at']]
+            // CW-1152 (docs/decisions.md NI3): booked without the supplier invoice number and/or its copy (a supplier ticked for it).
+            + ($plan['header']['invoice_to_come'] === [] ? [] : ['invoice_to_come' => $plan['header']['invoice_to_come']]));
 
         // 5b. Pack J (docs/decisions.md PJ3, PJ8): a receipt made from a supplier invoice closes what that invoice put on its way: its
         //     arrival rows are received (linked to this receipt's line of each item), the invoice's match is worked out again, and the

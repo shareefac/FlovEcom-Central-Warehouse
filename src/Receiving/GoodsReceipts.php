@@ -890,6 +890,55 @@ final class GoodsReceipts
         return $out;
     }
 
+    /**
+     * CW-1152 (docs/decisions.md NI4): whether a posted delivery was booked in without its supplier invoice (no invoice number, or no copy
+     * of it attached: a supplier ticked "Can book goods in without the invoice") and no posted supplier invoice bills it yet: its page says
+     * "Invoice still to come". Read only.
+     */
+    public function invoiceToCome(int $id): bool
+    {
+        $r = $this->db->one("SELECT d.external_ref, EXISTS (SELECT 1 FROM document_file f JOIN stored_file sf ON sf.id = f.file_id WHERE f.document_id = d.id "
+            . "AND f.role = 'supplier_invoice' AND sf.mime IN (" . implode(', ', array_fill(0, count(ReceiptPlan::INVOICE_MIMES), '?')) . ')) AS has_copy, '
+            . "(EXISTS (SELECT 1 FROM sinv_line sl JOIN supplier_invoice si ON si.document_id = sl.document_id AND si.kind = 'invoice' "
+            . "JOIN document x ON x.id = sl.document_id AND x.status = 'posted' WHERE sl.grn_document_id = d.id) "
+            . "OR EXISTS (SELECT 1 FROM goods_receipt_invoice gi JOIN document x ON x.id = gi.sinv_document_id AND x.status = 'posted' WHERE gi.grn_document_id = d.id)) AS billed "
+            . "FROM document d WHERE d.id = ? AND d.doc_type = 'GRN' AND d.status = 'posted' AND d.reverses_id IS NULL", [...ReceiptPlan::INVOICE_MIMES, $id]);
+        // M7: the number as the booked-once key reads it (only spaces is none)
+        return $r !== null && (int) $r['billed'] === 0 && (ReceiptMath::invoiceKey((string) ($r['external_ref'] ?? '')) === '' || (int) $r['has_copy'] === 0);
+    }
+
+    /**
+     * CW-1152 (docs/decisions.md NI8, H2): the supplier's posted deliveries still waiting for their invoice (booked in without its number or its
+     * copy, no posted supplier invoice billing them) that took in any of these items: their numbers, oldest first, at most $limit. Read only.
+     *
+     * @param list<int> $skus
+     * @return list<string>
+     */
+    public static function waitingForInvoice(Db $db, int $supplierId, array $skus, int $limit = 5): array
+    {
+        if ($skus === []) {
+            return [];
+        }
+        $out = [];
+        foreach ($db->all("SELECT DISTINCT d.id, d.number, d.external_ref, EXISTS (SELECT 1 FROM document_file f JOIN stored_file sf ON sf.id = f.file_id "
+            . "WHERE f.document_id = d.id AND f.role = 'supplier_invoice' AND sf.mime IN (" . implode(', ', array_fill(0, count(ReceiptPlan::INVOICE_MIMES), '?')) . ')) AS has_copy '
+            . "FROM goods_receipt g JOIN document d ON d.id = g.document_id AND d.doc_type = 'GRN' AND d.status = 'posted' AND d.reverses_id IS NULL "
+            . 'JOIN grn_line gl ON gl.document_id = d.id AND gl.accepted_units > 0 JOIN document_line dl ON dl.document_id = gl.document_id AND dl.line_no = gl.line_no '
+            . 'AND dl.sku_id IN (' . implode(', ', array_fill(0, count($skus), '?')) . ') '
+            . "WHERE g.supplier_id = ? AND NOT EXISTS (SELECT 1 FROM sinv_line sl JOIN supplier_invoice si ON si.document_id = sl.document_id AND si.kind = 'invoice' "
+            . "JOIN document x ON x.id = sl.document_id AND x.status = 'posted' WHERE sl.grn_document_id = d.id) "
+            . "AND NOT EXISTS (SELECT 1 FROM goods_receipt_invoice gi JOIN document x ON x.id = gi.sinv_document_id AND x.status = 'posted' WHERE gi.grn_document_id = d.id) "
+            . 'ORDER BY d.id', [...ReceiptPlan::INVOICE_MIMES, ...array_map('intval', $skus), $supplierId]) as $r) {
+            if (ReceiptMath::invoiceKey((string) ($r['external_ref'] ?? '')) === '' || (int) $r['has_copy'] === 0) {
+                $out[] = (string) $r['number'];
+                if (count($out) >= $limit) {
+                    break;
+                }
+            }
+        }
+        return $out;
+    }
+
     /** What posting would do and what stops it now (ReceiptPlan::build, no locks): the editor's and the bench view's checklist. */
     public function plan(int $id): array
     {
@@ -1335,10 +1384,12 @@ final class GoodsReceipts
                     break;
                 case 'invoice_number':
                     $t = self::text($v, self::INVOICE_MAX, 'invoice_number');
-                    $out[$k] = $t;
+                    // CW-1152 (M7): only spaces (a non-breaking one too) is no number, as the booked-once key reads it.
+                    $out[$k] = $t !== null && ReceiptMath::invoiceKey($t) === '' ? null : $t;
                     break;
                 case 'delivery_note':
-                    $out[$k] = self::text($v, 64, 'delivery_note');
+                    $t = self::text($v, 64, 'delivery_note');
+                    $out[$k] = $t !== null && ReceiptMath::invoiceKey($t) === '' ? null : $t; // CW-1152: the delivery reference likewise (NI7)
                     break;
                 case 'backdate_reason':
                     $out[$k] = self::text($v, 500, 'backdate_reason');

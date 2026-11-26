@@ -22753,6 +22753,64 @@ reads name the primary key; writing a fee row takes InnoDB's shared lock of its 
 double-count check reads Electrofag too, takes more names, reads the lead's reviewed ids at each step from the box (never pinned in the kit
 folder), runs before any setting of the switch, and only says it (no stop) once Vape and Go Online is on with the kit's values (L1-L3).
 
+## Goods in without the supplier invoice, per supplier (CW-1152, branch `grn-noinv`, 26 Nov 2026; NI1-NI6; migration 0086)
+
+The owner (CW chat, 21 Nov 2026): "sometimes we will not have the invoice in hand, and it just stuck there ... It shouldn't be a mandatory";
+26 Nov 2026 ~21:25 UK: option "A) Per supplier" (each supplier its own tick, off by default), and ~21:12: "can you just do it quickly now" (the
+smallest safe version; live only on his word, never on Black Friday). Real cases: the Manchester supplier (a carbon-book page per few days,
+later ONE supplier invoice for those deliveries) and Cloud Tech (no invoice copy at all). Code: `src/Suppliers/Suppliers.php` (FIELDS),
+`src/Receiving/ReceiptPlan.php`, `GoodsReceiptHandler.php` (the posting's audit), `GoodsReceipts::invoiceToCome`, `src/Duty/DutyRegister.php`,
+the supplier form and page, the delivery page, Purchase invoices > Delivered, no invoice yet, `Ui\Words`, `Ui\ReceiptWords`. Tests:
+`tests/Integration/Migration0086Test.php`, `tests/Integration/Receiving/GoodsInWithoutInvoiceTest.php`,
+`tests/Integration/UiKernel/GoodsInWithoutInvoiceScreensTest.php` (and the supplier form's field count in BuyingPatternsScreensTest).
+
+**NI1. One supplier column (0086).** `supplier.goods_in_without_invoice` TINYINT(1) NOT NULL DEFAULT 0, added INSTANTLY: every supplier off at
+install, so nothing changes until a person ticks one. Ticking suppliers is a staff/owner action after the go-live, never a kit step.
+**NI2. The tick is a supplier field like the terms.** "Can book goods in without the invoice" in the form's Terms section, changed by whoever
+may change a supplier's details (suppliers.manage), with the form's version (409 when changed meanwhile), audited `supplier.update` with
+[before, after]. It is NOT an approval-relevant (identity) field: it opens no reviewer task, as payment terms do not (the smallest version;
+adding it to Suppliers::IDENTITY would make a change on an active supplier reviewed afterwards, non-blocking: the lead's or the owner's call).
+The supplier's page says "Goods in without the invoice: Allowed ..." while it is ticked.
+**NI3. The rule at posting.** For a delivery whose supplier is ticked, a missing supplier invoice number and a missing invoice copy are a note
+("Invoice still to come: ...", the plan's warnings, in the screens' words) instead of `invoice_number_required` / `invoice_file_required`.
+Every other check stays: a typed number is booked once (duplicate_invoice), the same copy on another live delivery (invoice_copy_elsewhere),
+the copy's type, invoice_shared, the supplier active, the bench (paperwork and every line), the duty stamps and the refusal date. The tick is
+read when posting, from the supplier row read FOR SHARE under the posting's locks (validate and post; after the document row, before the item
+cards: GoodsReceipts' lock order; only Suppliers writes the row, X-locked, and it never locks a document or an item card), so it cannot be
+taken off between the check and the booking; ticked off again, the next posting is refused as before (what was booked stays booked). The
+posting's audit `grn.post` carries `invoice_to_come` (number, copy) when it was booked without them.
+**NI4. "Invoice still to come".** A posted delivery with no invoice number or no copy, and no posted supplier invoice (kind invoice; through
+its lines or as the invoice it was made from) billing it, shows "Invoice still to come" on its page (GoodsReceipts::invoiceToCome). On
+Purchase invoices > Delivered, no invoice yet, a delivery with no number shows "Invoice still to come" where the number would be. "Book its
+invoice" works as for any delivery: the invoice draft starts with no number (the desk types it from the paper; the invoice itself still needs
+its number and totals to be posted).
+**NI5. The duty register.** A delivery booked without the number prints the number(s) of the posted supplier invoice(s) that billed it (a
+credit note never), blank until one does; a search finds it by that number. One read per page of the register.
+**NI6. Cost.** Unchanged: the delivery's stock is booked at its line's price; a later posted supplier invoice's price replaces it for the
+units still on hand, as for every delivery.
+
+**The Codex astra review of 5bc45a6 (4 High, 3 Medium, 2 Low) and the lead's decisions (26 Nov 2026 ~21:35 UK), each shown failing first
+(runs/noinv_logs/r2_red.log) and then green.** **NI7. Booked once without the invoice** (H1, H3): a ticked supplier's delivery with no
+invoice number needs its delivery note or carbon-book page number (`delivery_ref_required`: "Type the delivery note or page number: without
+the invoice it is how CW books a delivery once."), in the booked-once form (ReceiptMath::invoiceKey: case and spaces aside); posting is refused
+(`delivery_ref_taken`, naming it) while another live receipt of the supplier (draft, waiting, posted; not cancelled or reversed) has the same
+reference; a NUMBERED delivery of a ticked supplier is refused when a numberless live one has it. Read in the posting's transaction: of two
+receipts with one reference, the one whose reference was saved later always sees the other (a draft counts as live), so at most one is booked.
+A supplier invoice number that a posted invoice billed on another posted receipt booked without it (that receipt's key is not the number) is
+refused on a fresh receipt (`invoice_billed_elsewhere`; the invoice's row, document and lines read FOR SHARE under the posting's locks); an
+explicit later delivery on one invoice (invoice_part > 1) and a receipt made from that invoice stay as they were. **NI8. An invoice that would
+bring the same goods in again** (H2): a draft invoice (CW's own) with goods lines no delivery names (count on arrival, book as received) whose
+products were taken in by posted deliveries of the supplier still waiting for their invoice is not made final (`receipts_to_come`, naming up
+to five) unless the desk bills them (Book its invoice / Add a delivery) or confirms "This is a separate delivery" with a reason (3-500
+characters: supplier_invoice.separate_delivery, 0086; SupplierInvoices::setSeparateDelivery, audit invoice.separate with the deliveries it was
+confirmed against; kept in the posting anchor when set). **NI9. The receipt of an invoice keeps it** (H4): a receipt made from a supplier
+invoice (goods_receipt_invoice), its first one too, posts only with that invoice's supplier and supplier invoice number
+(`invoice_link_changed`; the rest of an invoice keeps its own check). **NI10. The rest** (M5-M7, L8, L9): the duty register prints and finds
+the number of the invoice that billed THAT delivery line (grn_document_id and grn_line_no), the numbers joined in PHP (never cut short); a copy
+of a type a delivery never takes (copied from an invoice) stays `invoice_file_required` (the note is for no copy at all); a number or delivery
+reference of only spaces (a non-breaking one too) is kept as none on entry, and read as none everywhere by the booked-once key; a booked-in
+delivery with no file says "No file attached." in its Files section.
+
 ## CW-1160 Parcel2Go labels in the delivery cost (0085; design cw_work/runs/P2G_STATE.md "PHASE A DESIGN"; the owner, 26 Nov 2026: "start parcel2go", Q1-Q3; the lead's D1-D9)
 
 **PGL1. What Parcel2Go gives.** Its public API (https://www.parcel2go.com/api/swagger/docs/v1, read 26 Nov 2026) has no list of labels by date and no

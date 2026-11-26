@@ -45,6 +45,15 @@ $headSide = $partial('doc_head_bar', ['form' => 'pi-form', 'default' => \CW\Ui\W
     <li><?= $e(\CW\Ui\Controller\InvoicesController::problemText($p)) ?></li>
 <?php endforeach; ?>
   </ul>
+<?php if (!$isNew && in_array('receipts_to_come', array_column($problems, 'code'), true)): // CW-1152 (NI8): the desk's confirmation ?>
+  <form class="record" method="post" action="<?= $u('/ui/purchasing/invoices/' . $doc->id . '/separate') ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="version" value="<?= $e($formVersion ?? $doc->version) ?>">
+    <label class="choice"><input type="checkbox" name="separate" value="1"> <?= $word('INVOICES', 'separate_tick') ?></label>
+    <label><?= $word('INVOICES', 'separate_reason') ?> <input type="text" name="separate_reason" minlength="3" maxlength="500" required></label>
+    <p class="actions"><button type="submit" class="btn"><?= $word('INVOICES', 'separate_save') ?></button></p>
+  </form>
+<?php endif; ?>
 </section>
 <?php endif; ?>
 
