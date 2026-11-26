@@ -22567,3 +22567,14 @@ only the owners, the own figures and their day difference (OrderSnapshots::reown
 included; it never skips an order waiting for a cost. **VB14** a past day's own stock is valued at the price in force then. **VB16** the
 stored lists of what to buy leave out an item that is a shop's own now. Marks, snapshots, bills and purchase orders read the periods under
 the items' rows (FOR SHARE; a mark takes its time under the row FOR UPDATE).
+
+The final review of 2d13f32 (Codex astra + Fable; the lead's decisions A-F) changed: **VB4** a mark reads the setting's shop under its row
+(FOR SHARE); a mark from now and a removal put right, after their commit, the sales already worked out whose paid time is at or after their
+time (a shop's clock runs up to 5 minutes ahead; more than 200 orders: item_owner_refresh, the nightly O3 says it, docs/ops.md); the go-live
+tool takes an item as already marked only at its exact start. **VB7** the go-live tool marks every OTHER final bill of only the listed items
+made since the start as the shop's own bill (with its credit notes) and refuses the whole run on a bill that mixes them with ours. **VB11** an
+order's margin of ours is worked out from our goods whenever ours is known; by product / brand / supplier keeps a row that holds no own goods
+whatever its figures. **VB12** a scoped re-cost changes a named line's cost only (its stored units, sale and restock state stay: the returns
+path moves those) and counts a line it leaves because the cost job has not reached its paid time (`pending`, --fail-deferred). **VB14** a past
+day's own stock takes the price in force before the exclusive cut-off. **VB16** every reorder line, the All view and Buy for N days too,
+says a shop's own item now and suggests nothing for it. A final own bill says "Whose bill" on its own page.
