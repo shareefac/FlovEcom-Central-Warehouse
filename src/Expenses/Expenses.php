@@ -54,7 +54,9 @@ final class Expenses
             $v = $this->fields($db, $in, null);
             $supplier = $this->supplierFor($db, $caller, $v['supplier'], (bool) ($in['new_supplier'] ?? false), null);
             // CW-1174 (0084, docs/decisions.md GPF9): a Global Payments invoice entered on Profit > Card fees is never an expense too
-            \CW\Profit\GpInvoices::guardExpense($db, $v['supplier'], $v['shop'], $v['invoice_date'], $v['net'], $v['net'] + $v['vat']);
+            // (the supplier it resolved to, never the name as typed: the Codex review of 6043729, M11)
+            \CW\Profit\GpInvoices::guardExpense($db, (string) $db->value('SELECT name FROM expense_supplier WHERE id = ?', [$supplier]), $v['shop'], $v['invoice_date'],
+                $v['net'], $v['net'] + $v['vat']);
             $this->checkSame($db, $supplier, $v, null, $same);
             $fileId = $file === null ? null : ExpenseFiles::store($this->files(), $caller, $file['path'], $file['name']);
             $now = Clock::db(Clock::now());

@@ -88,10 +88,13 @@ final class GpFeesUnitTest extends TestCase
         // a refund changes nothing of the order's paid amount: the stored row stays as it is
         [$again] = GpFees::plan($cfg, 1, '9100001', $order, $row, '2026-11-20 10:00:00', $none);
         self::assertSame($row, $again);
-        // an actual share stays while its base and month stay (a day moved inside the month moves it along)
+        // an actual share stays while its base and month stay (a day moved inside the month moves it along, and the applied month is spread
+        // again so its rounding penny follows the day order: the Codex review of 6043729, L15)
         $actual = ['state' => 'actual', 'fee_pence' => 29, 'rate_e4' => null, 'invoice_id' => 7, 'spread_version' => 1] + $row;
         [$kept, $q] = GpFees::plan($cfg, 1, '9100001', ['day' => '2026-11-21'] + $order, $actual, '2026-11-21 10:00:00', $live);
-        self::assertSame(['actual', 29, '2026-11-21', []], [$kept['state'], $kept['fee_pence'], $kept['day'], $q]);
+        self::assertSame(['actual', 29, '2026-11-21', [['vpg_online', '2026-11']]], [$kept['state'], $kept['fee_pence'], $kept['day'], $q]);
+        [$same, $q] = GpFees::plan($cfg, 1, '9100001', $order, $actual, '2026-11-21 10:00:00', $live);
+        self::assertSame([$actual, []], [$same, $q], 'nothing changed: nothing queued');
         // another amount in an applied month: an estimate, and the month queued to be spread again
         [$moved, $q] = GpFees::plan($cfg, 1, '9100001', ['grand_inc' => 4000] + $order, $actual, '2026-11-21 10:00:00', $live);
         self::assertSame(['estimate', 40, [['vpg_online', '2026-11']]], [$moved['state'], $moved['fee_pence'], $q]);

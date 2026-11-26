@@ -22678,3 +22678,26 @@ supplier, any date from the account's first day, that may be an entered invoice:
 spread racing real snapshots of the same days on another connection (orders made, changed and moved between days all the while): no snapshot
 fails or waits past its own wait; once the queued months are spread again the month is the invoice to the penny, nothing of the month is left
 estimated, and a rebuild of the days gives the same figures (GpFeesHealthTest; the snapshot worker tests/Integration/Profit/gp_snapshot_worker.php).
+
+**The Codex review of 6043729 (round 1: 4 High, 10 Medium, 1 Low; the lead's decisions, 26 Nov 2026), each shown failing first
+(GpFeesR1Test, GpFeesCliTest).** **GPF17. A shop's own first day** (`profit.gp_shop_from_<shop>`: Vape and Go 1 Nov, Vape Big and
+Electrofag 1 Dec, their real profit start; H2): before it a shop's card order gets no estimate; an invoice of its month is shared over it
+too and its share goes on the account's MAIN shop (gp_other, the month's last day), so Vape and Go's November carries the whole Vape and Go
+Online invoice to the penny (as PayPal: no shop yet, the main shop); such an order changed in an applied month queues the month; CW's card
+takings of a month count them. **GPF18. A spread is done only when the month is what it spread** (H1): no month queued meanwhile, no
+counted row of the month that is not its share, its shares whole, else it stays due; the job takes the queue under the spreads' lock; GP3
+also says a done month with a row that is not its share. **GPF19. Bounded guards** (H3): a day pass, a spread's day and a charge-on-no-order
+move wait at most 1 s for each day guard and give way (rolled back, left for the next run) when they have held them 2 s before writing, so a
+snapshot of any shop or payment type never waits past its own 3 s; a run that left days records no settings signature. **GPF20. The quick
+stop** (H4): `bin/gp_fees.php --stop --account=<a> --reason="..." --admin` empties the account's first day (a version with the reason),
+goes over its days and invoices at once and exits 0 only when no card fee of the account counts (rows off, charges on no order 0); every run
+finding the job's lock held exits 4 (busy); switching off settles back every invoice of the account (its charge on no order goes: M6); the
+first run of an account counts as a settings change. **GPF21. Eligibility** (M7, M8, M13): the settings are read again in each snapshot
+(a batch started before a switch-off never counts a fee after it); an order that is no card order before or now reads nothing of the card
+fees; a re-send (parent_ref) never has one. **GPF22. The invoice rules** (M10, M11, M12): one matching window for an invoice and an expense
+(from its month's first day to the later of the next month's end and 31 days after its printed date) in the saves both ways and the alert;
+supplier names compare as the suppliers' do (the table's collation) and an expense is checked on the supplier it resolved to; an invoice
+settles at its full net charge whatever its rate (only the estimate rate is capped at 10%). **GPF23. The job's deadline** (M14): a run stops
+starting work at 230 s (cron's hard stop 300 s, inside the installer's 6-minute drain), the nightly and the stop wait 50 s for the lock; a run
+left "running" by a process that stopped is marked failed by the next. **GPF24. Re-dating inside the month** (L15): an actual order moved to
+another day of its month queues the month, so the rounding penny follows the day order.

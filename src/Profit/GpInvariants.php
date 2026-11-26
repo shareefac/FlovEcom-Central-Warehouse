@@ -32,7 +32,7 @@ final class GpInvariants
         $v = [];
         foreach ($db->all("SELECT g.channel_id, g.order_ref, g.day, g.base_pence, o.day AS o_day, o.grand_inc, o.gateway FROM gp_fee_order g JOIN sale_order o "
             . "ON o.channel_id = g.channel_id AND o.order_ref = g.order_ref WHERE g.state <> 'off' AND (o.day IS NULL OR o.day <> g.day OR o.grand_inc <> g.base_pence "
-            . "OR o.gateway <> 'globalpay') ORDER BY g.channel_id, g.order_ref LIMIT " . self::MAX_PER_CHECK) as $r) {
+            . "OR o.gateway <> 'globalpay' OR o.parent_ref IS NOT NULL) ORDER BY g.channel_id, g.order_ref LIMIT " . self::MAX_PER_CHECK) as $r) {
             $v[] = "GP1 card fee of order {$r['order_ref']} (shop {$r['channel_id']}): counted on {$r['day']} with base {$r['base_pence']}p, the order is "
                 . ($r['o_day'] === null ? 'not paid' : "paid on {$r['o_day']}") . " for {$r['grand_inc']}p by '{$r['gateway']}'";
         }
@@ -54,19 +54,28 @@ final class GpInvariants
             . 'HAVING f + i.other_pence <> i.net_pence ORDER BY i.id LIMIT ' . self::MAX_PER_CHECK) as $r) {
             $v[] = "GP3 card fee invoice {$r['id']} ({$r['month']}): net {$r['net_pence']}p, on its orders {$r['f']}p and on no order {$r['other_pence']}p";
         }
+        // ... and its month holds no counted row that is not its last spread's share (a late order's estimate beside the full invoice: H1)
+        foreach ($db->all("SELECT i.id, i.month, COUNT(*) AS n FROM gp_invoice i JOIN gp_fee_order g ON g.account = i.account AND g.state <> 'off' "
+            . "AND g.day BETWEEN DATE(CONCAT(i.month, '-01')) AND LAST_DAY(DATE(CONCAT(i.month, '-01'))) "
+            . "AND NOT (g.state = 'actual' AND g.invoice_id = i.id AND g.spread_version = i.spread_version) WHERE i.deleted_at IS NULL AND i.spread_state = 'done' "
+            . 'AND NOT EXISTS (SELECT 1 FROM gp_due q WHERE q.account = i.account AND q.month = i.month) GROUP BY i.id, i.month ORDER BY i.id LIMIT ' . self::MAX_PER_CHECK) as $r) {
+            $v[] = "GP3 card fee invoice {$r['id']} ({$r['month']}): spread, yet {$r['n']} counted rows of its month are not its shares";
+        }
         $stale = 'UTC_TIMESTAMP(6) - INTERVAL ' . self::STALE_HOURS . ' HOUR';
         foreach ($db->all("SELECT account, month, MIN(queued_at) AS q FROM gp_due WHERE queued_at < {$stale} GROUP BY account, month ORDER BY account, month LIMIT "
             . self::MAX_PER_CHECK) as $r) {
             $v[] = "GP4 {$r['account']} {$r['month']}: queued to be spread again since {$r['q']} (bin/gp_fees.php takes it every 10 minutes)";
         }
+        $cfg = GpFees::readConfig($db);
         foreach ($db->all("SELECT id, account, month FROM gp_invoice WHERE deleted_at IS NULL AND spread_state = 'due' AND updated_at < {$stale} ORDER BY id LIMIT "
             . self::MAX_PER_CHECK) as $r) {
-            $v[] = "GP4 card fee invoice {$r['id']} ({$r['account']} {$r['month']}): still waiting to be spread " . self::STALE_HOURS . ' hours after it was saved';
+            if (($cfg[(string) $r['account']]['on'] ?? false) === true) { // an account switched off keeps its invoices due, counting nothing
+                $v[] = "GP4 card fee invoice {$r['id']} ({$r['account']} {$r['month']}): still waiting to be spread " . self::STALE_HOURS . ' hours after it was saved';
+            }
         }
         foreach ($db->all("SELECT id, account FROM gp_run WHERE state = 'running' AND started_at < {$stale} ORDER BY id LIMIT " . self::MAX_PER_CHECK) as $r) {
             $v[] = "GP4 card fee run {$r['id']} ({$r['account']}): still running " . self::STALE_HOURS . ' hours after it started';
         }
-        $cfg = GpFees::readConfig($db);
         foreach ($cfg as $acct => $c) {
             if ($c['rate'] !== null) {
                 $n = (int) $db->value("SELECT COUNT(*) FROM gp_fee_order WHERE account = ? AND state = 'estimate' AND rate_e4 <> ? AND updated_at < {$stale}", [$acct, $c['rate']]);
@@ -83,10 +92,17 @@ final class GpInvariants
             if ($from > $to) {
                 continue;
             }
+            // each shop from its own first day (H2); re-sends never (M13)
+            $shopCond = [];
+            $shopParams = [];
+            foreach ($c['shops'] as $ch) {
+                $shopCond[] = '(o.channel_id = ? AND o.day >= ?)';
+                array_push($shopParams, $ch, max($from, (string) ($c['shop_from'][$ch] ?? $from)));
+            }
             foreach ($db->all("SELECT o.channel_id, o.order_ref, o.day FROM sale_order o LEFT JOIN gp_fee_order g ON g.channel_id = o.channel_id AND g.order_ref = o.order_ref "
-                . 'WHERE o.day BETWEEN ? AND ? AND o.channel_id IN (' . implode(', ', array_fill(0, count($c['shops']), '?')) . ") AND o.gateway = 'globalpay' "
+                . 'WHERE o.day BETWEEN ? AND ? AND (' . implode(' OR ', $shopCond) . ") AND o.gateway = 'globalpay' AND o.parent_ref IS NULL "
                 . "AND o.grand_inc > 0 AND (g.order_ref IS NULL OR g.state = 'off') AND o.updated_at < {$stale} ORDER BY o.day, o.channel_id, o.order_ref LIMIT "
-                . self::MAX_PER_CHECK, [$from, $to, ...$c['shops']]) as $r) {
+                . self::MAX_PER_CHECK, [$from, $to, ...$shopParams]) as $r) {
                 $v[] = "GP5 card order {$r['order_ref']} (shop {$r['channel_id']}, paid {$r['day']}): no card fee counted for it ({$acct})";
             }
         }

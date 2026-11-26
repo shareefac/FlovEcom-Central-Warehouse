@@ -111,8 +111,11 @@ final class GpFeesR1Test extends StockTestCase
         };
         self::$db->exec("UPDATE gp_invoice SET spread_state = 'due' WHERE id = ?", [$id]);
         (new GpFees(self::$db))->settleMonth(self::sys(), 'vpg_online', '2026-11');
-        self::assertSame('due', (string) self::$db->value('SELECT spread_state FROM gp_invoice WHERE id = ?', [$id]),
-            'the late order is not in the spread\'s plan: the invoice stays due, never done beside its estimate');
+        // the plan without the late order is never marked done: planned again (it then holds the late order) or left due, never done beside an estimate
+        $state = (string) self::$db->value('SELECT spread_state FROM gp_invoice WHERE id = ?', [$id]);
+        $estimates = (int) self::$db->value("SELECT COUNT(*) FROM gp_fee_order WHERE state = 'estimate'");
+        self::assertTrue($state === 'due' || ($estimates === 0 && (int) self::$db->value("SELECT SUM(fee_pence) FROM gp_fee_order WHERE state = 'actual'") === 100),
+            "the late order is not in the first plan: never done beside its estimate ({$state}, {$estimates} estimates)");
         (new GpFees(self::$db))->run(self::sys());
         self::assertSame('done', (string) self::$db->value('SELECT spread_state FROM gp_invoice WHERE id = ?', [$id]));
         self::assertSame(100, (int) self::$db->value("SELECT SUM(fee_pence) FROM gp_fee_order WHERE state = 'actual'"));

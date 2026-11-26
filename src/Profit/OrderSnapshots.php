@@ -651,8 +651,9 @@ final class OrderSnapshots
                     [$sh['own_units'], $sh['own_sale_ex'], $sh['own_refund_ex'], $sh['own_cost'], $sh['own_no_cost'], $channelId, $ref]);
                 $delivery = DeliveryBills::orderCost($db, $channelId, $ref);
                 $fee = PaypalFees::orderFee($db, $channelId, $ref);
-                // its card fee (0084, GPF4) stays the shop's and on its day: the same before and after (VB10)
-                $gp = GpFees::orderFee($db, $channelId, $ref);
+                // its card fee (0084, GPF4) stays the shop's and on its day: the same before and after (VB10); none read for an order that is no card
+                // order (M8)
+                $gp = ($old['gateway'] ?? '') === GpFees::GATEWAY ? GpFees::orderFee($db, $channelId, $ref) : ['fee' => 0, 'est' => 0];
                 ProfitDays::change($db, $channelId, ProfitDays::orderShare($old, $p['lines'], $delivery, $fee, $gp),
                     ProfitDays::orderShare(array_merge($old, $sh), $p['new_lines'], $delivery, $fee, $gp));
                 return true;
@@ -969,7 +970,7 @@ final class OrderSnapshots
         // Its Global Payments card fee (0084, docs/decisions.md GPF1-GPF4): decided again from the order as written now (gateway, paid day, what the
         // card was charged) and written with it, under the day guards taken above: what it counted before on its old day, what it counts now on
         // its day. A refund changes nothing of it.
-        [$gpOld, $gpNew] = ($this->gp ??= new GpFees($this->db, $this->clock))->onSnapshot($db, $channelId, $ref, $order, $now);
+        [$gpOld, $gpNew] = ($this->gp ??= new GpFees($this->db, $this->clock))->onSnapshot($db, $channelId, $ref, $old, $order, $now);
         ProfitDays::change($db, $channelId, ProfitDays::orderShare($old, $oldLines, $delivery, $fee, $gpOld),
             ProfitDays::orderShare($order, $newLines, $delivery, $fee, $gpNew));
         // Its PayPal chargebacks (0080, docs/decisions.md PPF54, PPF59): whether each counts rests on this order's refunds and payment, so when it

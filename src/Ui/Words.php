@@ -3049,6 +3049,9 @@ final class Words
         'profit.gp_expense_suppliers' => 'Expense suppliers that are Global Payments',
         'profit.gp_takings_gap_pct' => 'Ask for a tick when an invoice\'s sales are this far from CW\'s card takings (percent)',
         'profit.gp_invoice_late_days' => 'Days after a month\'s end before the alert says its card fees invoice is missing',
+        'profit.gp_shop_from_vapeandgo' => 'Vape and Go\'s card orders get a card fee from',
+        'profit.gp_shop_from_vapebig' => 'Vape Big\'s card orders get a card fee from',
+        'profit.gp_shop_from_electrofag' => 'Electrofag\'s card orders get a card fee from',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -4344,6 +4347,9 @@ final class Words
         'profit.gp_expense_suppliers' => 'An expense from one of these suppliers that is a card fees invoice already entered is refused, so it is never counted twice.',
         'profit.gp_takings_gap_pct' => 'When an invoice\'s sales are further than this from CW\'s card takings of the month, the page asks you to check and tick.',
         'profit.gp_invoice_late_days' => 'The health alert says a month\'s Global Payments invoice is not entered once this many days have passed after the month\'s end.',
+        'profit.gp_shop_from_vapeandgo' => 'Before this day the shop\'s card orders get no card fee; their share of an invoice goes on the account\'s main shop (on no order).',
+        'profit.gp_shop_from_vapebig' => 'Before this day the shop\'s card orders get no card fee; their share of an invoice goes on Vape and Go (on no order).',
+        'profit.gp_shop_from_electrofag' => 'Before this day the shop\'s card orders get no card fee.',
         // "Claude reads the upload" (0082; docs/decisions.md AI7, AI8).
         'ai.read_uploads' => 'On: on Profit > Delivery bills (a Royal Mail bill) and Profit > Expenses (an invoice) staff may drop a PDF or a photo; CW sends it to '
             . 'Claude (Anthropic\'s API), fills the same check page or form, and a person still presses Store or Save. CW\'s own checks still decide. Off: '

@@ -51,6 +51,19 @@ final class GpFees
     public const SWITCH_GRACE_MIN = 60;
     /** A spread's day found its orders changed since the plan (rolled back; planned again). */
     private const CHANGED = 'gp_spread_changed';
+    /** A guard of a day was held elsewhere (rolled back at once; left for the next run: the Codex review of 6043729, H3). */
+    private const BUSY = 'gp_guard_busy';
+    /**
+     * How long a day pass, a spread's day or a charge-on-no-order move waits for each day guard, and how long it may have held them before it
+     * writes (seconds): a snapshot of any shop waits at most about this for one of them, well inside its own 3 s (OrderSnapshots::
+     * QUEUE_LOCK_WAIT_SEC). Busy: rolled back, the work left for the next run (H3).
+     */
+    public const GUARD_WAIT_SEC = 1;
+    public const HOLD_SEC = 2.0;
+    /** The job's work deadline (seconds; cron's hard stop is 300 and the installer waits 360 for running jobs: M14); what is left waits for the next run. */
+    public const WORK_SEC = 230.0;
+    /** Tests only: called by a spread right after it planned (H1: a late order and the job's queue meanwhile). */
+    public static ?\Closure $afterPlan = null;
     private const ROW_FIELDS = ['channel_id', 'order_ref', 'account', 'day', 'base_pence', 'state', 'fee_pence', 'rate_e4', 'invoice_id', 'spread_version', 'updated_at'];
 
     /** @var \Closure(): \DateTimeImmutable */
@@ -58,8 +71,11 @@ final class GpFees
     /** @var array<string, array<string, mixed>>|null */
     private ?array $cfg = null;
 
-    /** @param (\Closure(): \DateTimeImmutable)|null $clock */
-    public function __construct(private readonly Db $db, ?\Closure $clock = null)
+    /**
+     * @param (\Closure(): \DateTimeImmutable)|null $clock
+     * @param float $workSec the job's work deadline (run()), from its start
+     */
+    public function __construct(private readonly Db $db, ?\Closure $clock = null, private readonly float $workSec = self::WORK_SEC)
     {
         $this->clock = $clock ?? static fn (): \DateTimeImmutable => Clock::now();
     }
@@ -71,7 +87,7 @@ final class GpFees
      * millionths, its merchant number, whether it is switched on (a first day of the 1st of a month, a rate, a shop) and the signature of the
      * settings that decide which orders count (a job seeing another goes over the account's days again).
      *
-     * @return array<string, array{account: string, from: ?string, until: ?string, shops: list<int>, codes: list<string>, main: ?int, rate: ?int, merchant: string, on: bool, sig: string}>
+     * @return array<string, array{account: string, from: ?string, until: ?string, shops: list<int>, codes: list<string>, main: ?int, rate: ?int, merchant: string, on: bool, shop_from: array<int, ?string>, sig: string}>
      */
     public static function readConfig(Db $db): array
     {
@@ -95,12 +111,20 @@ final class GpFees
                     $shops[] = $ids[$c];
                 }
             }
+            // each shop's own first day (H2: Vape Big's card fees count from 1 Dec, its real profit start): before it a card order of the shop has
+            // no estimate, and an invoice's share of it goes on the account's main shop (on no order); not set: the account's first day
+            $shopFrom = [];
+            foreach ($codes as $code) {
+                if (isset($ids[$code])) {
+                    $shopFrom[$ids[$code]] = self::dayOrNull($v["profit.gp_shop_from_{$code}"] ?? null);
+                }
+            }
             $rawRate = $v["profit.gp_rate_{$a}"] ?? null;
             $rate = is_string($rawRate) ? ProfitMath::rateE4($rawRate) : (is_int($rawRate) ? ProfitMath::rateE4((string) $rawRate) : null);
             $on = $from !== null && str_ends_with($from, '-01') && $rate !== null && $shops !== [];
             $out[$a] = ['account' => $a, 'from' => $from, 'until' => $until, 'shops' => $shops, 'codes' => $codes, 'main' => $shops[0] ?? null, 'rate' => $rate,
-                'merchant' => is_string($v["profit.gp_merchant_{$a}"] ?? null) ? $v["profit.gp_merchant_{$a}"] : '', 'on' => $on,
-                'sig' => substr(hash('sha256', (string) json_encode([$on ? $from : null, $until, $shops])), 0, 16)];
+                'merchant' => is_string($v["profit.gp_merchant_{$a}"] ?? null) ? $v["profit.gp_merchant_{$a}"] : '', 'on' => $on, 'shop_from' => $shopFrom,
+                'sig' => substr(hash('sha256', (string) json_encode([$on ? $from : null, $until, $shops, $shopFrom])), 0, 16)];
         }
         return $out;
     }
@@ -116,10 +140,30 @@ final class GpFees
         $this->cfg = null;
     }
 
-    /** The account whose card payments an order went through (GPF1), or null: it counts no card fee. */
-    public static function accountOf(array $cfg, int $channelId, ?string $gateway, ?string $day): ?string
+    /**
+     * The account whose card payments an order went through and that counts its fee (GPF1), or null: it counts no card fee. A re-send (a
+     * replacement: parent_ref) never counts one (M13); a shop's card order before the shop's own first day neither (H2: preStartAccount()).
+     */
+    public static function accountOf(array $cfg, int $channelId, ?string $gateway, ?string $day, ?string $parent = null): ?string
     {
-        if ($gateway !== self::GATEWAY || $day === null) {
+        $a = self::takenBy($cfg, $channelId, $gateway, $day, $parent);
+        return $a !== null && (($cfg[$a]['shop_from'][$channelId] ?? null) === null || $day >= $cfg[$a]['shop_from'][$channelId]) ? $a : null;
+    }
+
+    /**
+     * The account a card order of a shop BEFORE the shop's own first day went through (H2), or null: no estimate, but an invoice of its month
+     * is shared over it too and its share goes on the account's main shop (on no order).
+     */
+    public static function preStartAccount(array $cfg, int $channelId, ?string $gateway, ?string $day, ?string $parent = null): ?string
+    {
+        $a = self::takenBy($cfg, $channelId, $gateway, $day, $parent);
+        return $a !== null && ($cfg[$a]['shop_from'][$channelId] ?? null) !== null && $day < $cfg[$a]['shop_from'][$channelId] ? $a : null;
+    }
+
+    /** The account switched on that took a card order (globalpay, paid in its days, of one of its shops, no re-send), or null. */
+    private static function takenBy(array $cfg, int $channelId, ?string $gateway, ?string $day, ?string $parent): ?string
+    {
+        if ($gateway !== self::GATEWAY || $day === null || $parent !== null) {
             return null;
         }
         foreach ($cfg as $a => $c) {
@@ -150,7 +194,8 @@ final class GpFees
      */
     public static function plan(array $cfg, int $channelId, string $ref, ?array $order, ?array $old, string $now, \Closure $live, bool $keepActual = true): array
     {
-        $acct = $order === null ? null : self::accountOf($cfg, $channelId, (string) ($order['gateway'] ?? ''), $order['day'] === null ? null : (string) $order['day']);
+        $acct = $order === null ? null : self::accountOf($cfg, $channelId, (string) ($order['gateway'] ?? ''), $order['day'] === null ? null : (string) $order['day'],
+            ($order['parent_ref'] ?? null) === null ? null : (string) $order['parent_ref']);
         $base = $order === null ? 0 : (int) $order['grand_inc'];
         if ($acct !== null && $base <= 0) {
             $acct = null;
@@ -167,8 +212,12 @@ final class GpFees
         $day = (string) $order['day'];
         $month = substr($day, 0, 7);
         if ($keepActual && $oldOn && $old['state'] === 'actual' && (string) $old['account'] === $acct && $oldMonth === $month && (int) $old['base_pence'] === $base) {
-            // its share of the month's invoice stays (the month's total is the same); a day moved inside the month moves it along
-            return [(string) $old['day'] === $day ? $old : ['day' => $day, 'updated_at' => $now] + $old, []];
+            // its share of the month's invoice stays (the month's total is the same); a day moved inside the month moves it along and the month is
+            // spread again, so its rounding penny follows the day order (L15)
+            if ((string) $old['day'] === $day) {
+                return [$old, []];
+            }
+            return [['day' => $day, 'updated_at' => $now] + $old, $live($acct, $month) ? [[$acct, $month]] : []];
         }
         $rate = (int) $cfg[$acct]['rate'];
         $new = ['channel_id' => $channelId, 'order_ref' => $old === null ? $ref : (string) $old['order_ref'], 'account' => $acct, 'day' => $day, 'base_pence' => $base,
@@ -211,18 +260,36 @@ final class GpFees
     /**
      * The snapshot's part (OrderSnapshots::apply, inside its transaction, holding the order's day guards, after its sale_order row is written):
      * the order's row decided again and written; what it counted before and counts now (ProfitDays::orderShare counts them on the order's
-     * day before and now). An order of a month whose invoice is applied queues the month (gp_due), in the same transaction (GPF8).
+     * day before and now). An order of a month whose invoice is applied queues the month (gp_due), in the same transaction (GPF8). An order
+     * that was no card order and is none now reads nothing of the card fees (M8); the settings are read again in each snapshot (M7: a batch
+     * that started before an account was switched off never counts a fee after it). A shop's card order before the shop's own first day
+     * queues an applied month when it changed (its share of the invoice is the main shop's: H2).
      *
+     * @param array<string, mixed>|null $before the sale_order row as it was before this snapshot (null: none)
      * @param array<string, mixed>|null $order the sale_order row as written now (null: none)
      * @return array{0: array{fee: int, est: int}, 1: array{fee: int, est: int}}
      */
-    public function onSnapshot(Db $db, int $channelId, string $ref, ?array $order, string $now): array
+    public function onSnapshot(Db $db, int $channelId, string $ref, ?array $before, ?array $order, string $now): array
     {
-        $old = self::stored($db, $channelId, $ref);
-        if ($old === null && ($order === null || ($order['gateway'] ?? '') !== self::GATEWAY || $order['day'] === null)) {
-            return [['fee' => 0, 'est' => 0], ['fee' => 0, 'est' => 0]]; // not a card order and never was: nothing read further
+        $card = static fn (?array $o): bool => $o !== null && ($o['gateway'] ?? '') === self::GATEWAY;
+        if (!$card($before) && !$card($order)) {
+            return [['fee' => 0, 'est' => 0], ['fee' => 0, 'est' => 0]]; // no card order before or now: its row, if any, is off (GP1)
         }
-        [$new, $queue] = self::plan($this->config(), $channelId, $ref, $order, $old, $now, self::liveReader($db));
+        $cfg = self::readConfig($db);
+        $old = self::stored($db, $channelId, $ref);
+        $live = self::liveReader($db);
+        [$new, $queue] = self::plan($cfg, $channelId, $ref, $order, $old, $now, $live);
+        $key = static fn (?array $o): string => $o === null ? '-' : implode('|', [(string) ($o['day'] ?? ''), (string) ($o['grand_inc'] ?? ''), (string) ($o['gateway'] ?? ''),
+            (string) ($o['parent_ref'] ?? '')]);
+        if ($key($before) !== $key($order)) {
+            foreach ([$before, $order] as $o) {
+                $a = $o === null || $o['day'] === null ? null : self::preStartAccount($cfg, $channelId, (string) ($o['gateway'] ?? ''), (string) $o['day'],
+                    ($o['parent_ref'] ?? null) === null ? null : (string) $o['parent_ref']);
+                if ($a !== null && $live($a, substr((string) $o['day'], 0, 7))) {
+                    $queue[] = [$a, substr((string) $o['day'], 0, 7)];
+                }
+            }
+        }
         if ($new !== null && $new !== $old) {
             self::writeRows($db, [$new]);
         }
@@ -262,73 +329,118 @@ final class GpFees
      * Every order of the account's shops paid on $day decided again (plan()) and written with the day's figures, in ONE transaction under the
      * guards of the day of every shop involved (GPF4): the backfill, the job after a setting changed or a rate changed, the nightly. A row of
      * the account on the day whose order is not paid any more is switched off. $keepActual false: the actual rows go back to estimates (an
-     * invoice deleted or its account switched off: settleMonth()).
+     * invoice deleted or its account switched off: settleMonth()). A guard held elsewhere: rolled back at once, `busy` (H3: the next run).
      *
-     * @return array{orders: int, written: int, before: int, after: int}
+     * @return array{orders: int, written: int, before: int, after: int, busy: bool}
      */
     public function syncDay(string $acct, string $day, bool $keepActual = true): array
     {
         $now = Clock::db(($this->clock)());
         $cfg = $this->config();
-        return $this->db->transaction(static function (Db $db) use ($cfg, $acct, $day, $keepActual, $now): array {
-            $chs = $cfg[$acct]['shops'];
-            foreach ($db->column('SELECT DISTINCT channel_id FROM gp_fee_order WHERE account = ? AND day = ?', [$acct, $day]) as $c) {
-                $chs[] = (int) $c;
-            }
-            $chs = array_values(array_unique($chs));
-            sort($chs);
-            if ($chs === []) {
-                return ['orders' => 0, 'written' => 0, 'before' => 0, 'after' => 0];
-            }
-            foreach ($chs as $c) {
-                ProfitDays::guard($db, $c, [$day]);
-            }
-            $in = implode(', ', array_fill(0, count($chs), '?'));
-            $orders = $db->all("SELECT channel_id, order_ref, day, gateway, grand_inc FROM sale_order WHERE day = ? AND channel_id IN ({$in}) ORDER BY channel_id, order_ref",
-                [$day, ...$chs]);
-            $rows = [];
-            foreach ($db->all("SELECT g.* FROM gp_fee_order g JOIN sale_order o ON o.channel_id = g.channel_id AND o.order_ref = g.order_ref WHERE o.day = ? "
-                . "AND o.channel_id IN ({$in})", [$day, ...$chs]) as $g) {
-                $rows[$g['channel_id'] . '|' . strtolower((string) $g['order_ref'])] = $g;
-            }
-            $live = self::liveReader($db);
-            $writes = [];
-            $queue = [];
-            $delta = [];
-            $before = 0;
-            $after = 0;
-            foreach ($orders as $o) {
-                $ch = (int) $o['channel_id'];
-                $old = $rows[$ch . '|' . strtolower((string) $o['order_ref'])] ?? null;
-                [$new, $q] = self::plan($cfg, $ch, (string) $o['order_ref'], $o, $old, $now, $live, $keepActual);
-                $s0 = self::share($old);
-                $s1 = self::share($new);
-                $before += $s0['fee'];
-                $after += $s1['fee'];
-                if ($new !== null && $new !== $old) {
-                    $writes[] = $new;
-                    $delta[$ch]['gp_fee'] = ($delta[$ch]['gp_fee'] ?? 0) + $s1['fee'] - $s0['fee'];
-                    $delta[$ch]['gp_fee_est'] = ($delta[$ch]['gp_fee_est'] ?? 0) + $s1['est'] - $s0['est'];
+        try {
+            return $this->bounded(static function (Db $db, float $t0) use ($cfg, $acct, $day, $keepActual, $now): array {
+                $chs = $cfg[$acct]['shops'];
+                foreach ($db->column('SELECT DISTINCT channel_id FROM gp_fee_order WHERE account = ? AND day = ?', [$acct, $day]) as $c) {
+                    $chs[] = (int) $c;
                 }
-                array_push($queue, ...$q);
+                $chs = array_values(array_unique($chs));
+                sort($chs);
+                if ($chs === []) {
+                    return ['orders' => 0, 'written' => 0, 'before' => 0, 'after' => 0, 'busy' => false];
+                }
+                foreach ($chs as $c) {
+                    ProfitDays::guard($db, $c, [$day]);
+                }
+                $in = implode(', ', array_fill(0, count($chs), '?'));
+                $orders = $db->all("SELECT channel_id, order_ref, day, gateway, grand_inc, parent_ref FROM sale_order WHERE day = ? AND channel_id IN ({$in}) "
+                    . 'ORDER BY channel_id, order_ref', [$day, ...$chs]);
+                $rows = [];
+                foreach ($db->all("SELECT g.* FROM gp_fee_order g JOIN sale_order o ON o.channel_id = g.channel_id AND o.order_ref = g.order_ref WHERE o.day = ? "
+                    . "AND o.channel_id IN ({$in})", [$day, ...$chs]) as $g) {
+                    $rows[$g['channel_id'] . '|' . strtolower((string) $g['order_ref'])] = $g;
+                }
+                $live = self::liveReader($db);
+                $writes = [];
+                $queue = [];
+                $delta = [];
+                $before = 0;
+                $after = 0;
+                foreach ($orders as $o) {
+                    $ch = (int) $o['channel_id'];
+                    $old = $rows[$ch . '|' . strtolower((string) $o['order_ref'])] ?? null;
+                    [$new, $q] = self::plan($cfg, $ch, (string) $o['order_ref'], $o, $old, $now, $live, $keepActual);
+                    $s0 = self::share($old);
+                    $s1 = self::share($new);
+                    $before += $s0['fee'];
+                    $after += $s1['fee'];
+                    if ($new !== null && $new !== $old) {
+                        $writes[] = $new;
+                        $delta[$ch]['gp_fee'] = ($delta[$ch]['gp_fee'] ?? 0) + $s1['fee'] - $s0['fee'];
+                        $delta[$ch]['gp_fee_est'] = ($delta[$ch]['gp_fee_est'] ?? 0) + $s1['est'] - $s0['est'];
+                    }
+                    array_push($queue, ...$q);
+                }
+                // a row of the account on this day whose order is not paid now counts nowhere (the snapshot that took its day off switched it off):
+                // switched off here too, never left counting
+                foreach ($db->all("SELECT g.* FROM gp_fee_order g JOIN sale_order o ON o.channel_id = g.channel_id AND o.order_ref = g.order_ref WHERE g.account = ? "
+                    . "AND g.day = ? AND g.state <> 'off' AND o.day IS NULL", [$acct, $day]) as $g) {
+                    $writes[] = ['state' => 'off', 'fee_pence' => 0, 'rate_e4' => null, 'invoice_id' => null, 'spread_version' => null, 'updated_at' => $now] + $g;
+                }
+                self::holdOk($t0);
+                self::writeRows($db, $writes);
+                foreach ($delta as $ch => $d) {
+                    ProfitDays::bump($db, (int) $ch, $day, $d);
+                }
+                // a guard made a row of a day with nothing on it: taken away again, as a rebuild has none
+                foreach ($chs as $c) {
+                    DeliveryBills::tidy($db, $c, $day);
+                }
+                self::queue($db, $queue, $now);
+                return ['orders' => count($orders), 'written' => count($writes), 'before' => $before, 'after' => $after, 'busy' => false];
+            });
+        } catch (\UnexpectedValueException $e) {
+            if ($e->getMessage() !== self::BUSY) {
+                throw $e;
             }
-            // a row of the account on this day whose order is not paid now counts nowhere (the snapshot that took its day off switched it off):
-            // switched off here too, never left counting
-            foreach ($db->all("SELECT g.* FROM gp_fee_order g JOIN sale_order o ON o.channel_id = g.channel_id AND o.order_ref = g.order_ref WHERE g.account = ? "
-                . "AND g.day = ? AND g.state <> 'off' AND o.day IS NULL", [$acct, $day]) as $g) {
-                $writes[] = ['state' => 'off', 'fee_pence' => 0, 'rate_e4' => null, 'invoice_id' => null, 'spread_version' => null, 'updated_at' => $now] + $g;
+            return ['orders' => 0, 'written' => 0, 'before' => 0, 'after' => 0, 'busy' => true];
+        }
+    }
+
+    /**
+     * $fn($db, $t0) in a transaction of its own whose row waits are GUARD_WAIT_SEC at most (H3): a guard held elsewhere (a lock wait, a
+     * deadlock) rolls it back at once and is thrown as BUSY; never retried here (the next run does it). The session's wait is put back.
+     *
+     * @template T
+     * @param \Closure(Db, float): T $fn
+     * @return T
+     */
+    private function bounded(\Closure $fn): mixed
+    {
+        $wait = (int) $this->db->value('SELECT @@SESSION.innodb_lock_wait_timeout');
+        $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . self::GUARD_WAIT_SEC);
+        try {
+            $t0 = microtime(true);
+            return $this->db->transaction(static fn (Db $db): mixed => $fn($db, $t0), 0);
+        } catch (\PDOException $e) {
+            if (in_array(Db::driverCode($e), [1205, 1213], true)) {
+                throw new \UnexpectedValueException(self::BUSY);
             }
-            self::writeRows($db, $writes);
-            foreach ($delta as $ch => $d) {
-                ProfitDays::bump($db, (int) $ch, $day, $d);
+            throw $e;
+        } finally {
+            try {
+                $this->db->exec('SET SESSION innodb_lock_wait_timeout = ' . $wait);
+            } catch (\Throwable) {
+                // the connection is gone: nothing to put back
             }
-            // a guard made a row of a day with nothing on it: taken away again, as a rebuild has none
-            foreach ($chs as $c) {
-                DeliveryBills::tidy($db, $c, $day);
-            }
-            self::queue($db, $queue, $now);
-            return ['orders' => count($orders), 'written' => count($writes), 'before' => $before, 'after' => $after];
-        });
+        }
+    }
+
+    /** The guards held longer than HOLD_SEC before the writes (a huge day, a slow read): rolled back as BUSY rather than keep a snapshot waiting (H3). */
+    private static function holdOk(float $t0): void
+    {
+        if (microtime(true) - $t0 > self::HOLD_SEC) {
+            throw new \UnexpectedValueException(self::BUSY);
+        }
     }
 
     // ---- an invoice's month ------------------------------------------------------------------------------------------------------------
@@ -340,7 +452,8 @@ final class GpFees
      * is the version planned). No live invoice (deleted) or the account switched off: the month's actual rows back to estimates and every
      * charge on no order of the month taken away. One settle at a time (a named lock; $wait seconds at most, else 'busy': the job does it).
      *
-     * @return string done | back | busy | retry (an order kept changing: left due for the next run) | off (a live invoice, its account switched off: left due)
+     * @return string done | back | busy (the lock, or a guard held elsewhere: left for the next run) | retry (an order kept changing: left due for the next run)
+     *   | off (a live invoice, its account switched off: left due, nothing of it counts)
      */
     public function settleMonth(Caller $caller, string $acct, string $month, int $wait = 0): string
     {
@@ -357,8 +470,7 @@ final class GpFees
                 $cfg = $this->config();
                 $inv = $this->db->one('SELECT * FROM gp_invoice WHERE live_key = ?', [$acct . '|' . $month]);
                 if ($inv === null || !$cfg[$acct]['on']) {
-                    $this->settleBack($acct, $month);
-                    return $inv === null ? 'back' : 'off';
+                    return $this->settleBack($acct, $month) ?? ($inv === null ? 'back' : 'off');
                 }
                 $r = $this->spread($caller, $cfg, $inv);
                 if ($r !== 'retry') {
@@ -387,17 +499,28 @@ final class GpFees
         [$first, $last] = ExpenseViews::monthDays($month);
         $id = (int) $inv['id'];
         $now = Clock::db(($this->clock)());
-        $rows = $this->db->all("SELECT channel_id, order_ref, day, base_pence FROM gp_fee_order WHERE account = ? AND day BETWEEN ? AND ? AND state <> 'off' "
-            . 'ORDER BY day, channel_id, order_ref', [$acct, $first, $last]);
-        $weights = [];
-        foreach ($rows as $i => $r) {
-            $weights[$i] = (int) $r['base_pence'];
+        $rows = $this->db->all("SELECT channel_id, order_ref, day, base_pence FROM gp_fee_order WHERE account = ? AND day BETWEEN ? AND ? AND state <> 'off'",
+            [$acct, $first, $last]);
+        // H2: the card orders of a shop before its own first day (no estimate): shared over too, their shares on the main shop (on no order)
+        $pre = self::preStartOrders($this->db, $cfg[$acct], $first, $last);
+        $all = [];
+        foreach ($rows as $r) {
+            $all[] = ['day' => (string) $r['day'], 'ch' => (int) $r['channel_id'], 'ref' => (string) $r['order_ref'], 'base' => (int) $r['base_pence'], 'pre' => false];
         }
+        foreach ($pre as $r) {
+            $all[] = ['day' => (string) $r['day'], 'ch' => (int) $r['channel_id'], 'ref' => (string) $r['order_ref'], 'base' => (int) $r['grand_inc'], 'pre' => true];
+        }
+        usort($all, static fn (array $a, array $b): int => [$a['day'], $a['ch'], strtolower($a['ref'])] <=> [$b['day'], $b['ch'], strtolower($b['ref'])]);
         $net = (int) $inv['net_pence'];
-        $shares = ProfitMath::shareOut($net, $weights);
-        $takings = array_sum($weights);
-        // no card order in the month (nothing to share it over): on the account's main shop, on the month's last counted day (GPF7)
-        $other = $takings === 0 ? $net : 0;
+        $shares = ProfitMath::shareOut($net, array_column($all, 'base'));
+        $takings = array_sum(array_column($all, 'base'));
+        $preShare = 0;
+        foreach ($all as $i => $r) {
+            $preShare += $r['pre'] ? $shares[$i] : 0;
+        }
+        // no card order in the month (nothing to share it over): on the account's main shop, on the month's last counted day (GPF7); the shares of
+        // the shops' card orders before their own first day go there too (H2)
+        $other = $takings === 0 ? $net : $preShare;
         $otherDay = $cfg[$acct]['until'] !== null && $cfg[$acct]['until'] < $last ? (string) $cfg[$acct]['until'] : $last;
         $otherCh = $cfg[$acct]['main'];
         if ($other !== 0 && $otherCh === null) {
@@ -405,14 +528,28 @@ final class GpFees
         }
         $version = (int) $inv['spread_version'] + 1;
         $plan = [];
-        foreach ($rows as $i => $r) {
-            $plan[(string) $r['day']][$r['channel_id'] . '|' . strtolower((string) $r['order_ref'])] = ['base' => (int) $r['base_pence'], 'fee' => $shares[$i]];
+        $onOrders = 0;
+        foreach ($all as $i => $r) {
+            if (!$r['pre']) {
+                $plan[$r['day']][$r['ch'] . '|' . strtolower($r['ref'])] = ['base' => $r['base'], 'fee' => $shares[$i]];
+                $onOrders += $shares[$i];
+            }
+        }
+        if (self::$afterPlan !== null) {
+            (self::$afterPlan)();
         }
         // the charge on no order put somewhere else before (another day, or none now): taken away first, under its own day's guard
-        foreach ($this->db->all('SELECT id, other_channel, other_day, other_pence FROM gp_invoice WHERE account = ? AND month = ? AND other_pence <> 0', [$acct, $month]) as $o) {
-            if ((int) $o['id'] !== $id || $other === 0 || (int) $o['other_channel'] !== $otherCh || (string) $o['other_day'] !== $otherDay) {
-                $this->clearOther((int) $o['id']);
+        try {
+            foreach ($this->db->all('SELECT id, other_channel, other_day, other_pence FROM gp_invoice WHERE account = ? AND month = ? AND other_pence <> 0', [$acct, $month]) as $o) {
+                if ((int) $o['id'] !== $id || $other === 0 || (int) $o['other_channel'] !== $otherCh || (string) $o['other_day'] !== $otherDay) {
+                    $this->clearOther((int) $o['id']);
+                }
             }
+        } catch (\UnexpectedValueException $e) {
+            if ($e->getMessage() !== self::BUSY) {
+                throw $e;
+            }
+            return 'busy';
         }
         // the days: every day with a planned row, every day with an actual row of the account in the month (rows gone off are the snapshot's)
         $days = array_keys($plan);
@@ -428,20 +565,37 @@ final class GpFees
             try {
                 $this->spreadDay($cfg, $id, $version, $acct, $d, $plan[$d] ?? [], $d === $otherDay && $other !== 0 ? [$otherCh, $other] : null, $now);
             } catch (\UnexpectedValueException $e) {
+                if ($e->getMessage() === self::BUSY) {
+                    return 'busy'; // a guard held elsewhere: rolled back at once, left due for the next run (H3)
+                }
                 if ($e->getMessage() !== self::CHANGED) {
                     throw $e;
                 }
                 return 'retry'; // rolled back: an order of the day changed since the plan
             }
         }
-        return $this->db->transaction(static function (Db $db) use ($caller, $inv, $id, $version, $rows, $net, $other, $takings, $now): string {
+        $planned = count($plan) === 0 ? 0 : array_sum(array_map('count', $plan));
+        return $this->db->transaction(static function (Db $db) use ($caller, $inv, $id, $version, $rows, $net, $other, $takings, $now, $acct, $month, $first, $last,
+            $planned, $onOrders): string {
             $cur = $db->one('SELECT * FROM gp_invoice WHERE id = ? FOR UPDATE', [$id]);
             if ($cur === null || (int) $cur['version'] !== (int) $inv['version'] || $cur['deleted_at'] !== null) {
                 return 'retry'; // changed or deleted while it was spread: its own write set it due again
             }
+            // H1: done only when the month is exactly what was spread: no month queued meanwhile (an order changed), no counted row of the month
+            // that is not this spread's share (a late order's estimate), this spread's shares whole; else it stays due (the job spreads it again)
+            if ($db->value('SELECT 1 FROM gp_due WHERE account = ? AND month = ? LIMIT 1', [$acct, $month]) !== null) {
+                return 'retry';
+            }
+            $stray = (int) $db->value("SELECT COUNT(*) FROM gp_fee_order WHERE account = ? AND day BETWEEN ? AND ? AND state <> 'off' "
+                . "AND NOT (state = 'actual' AND invoice_id = ? AND spread_version = ?)", [$acct, $first, $last, $id, $version]);
+            $mine = $db->one("SELECT COUNT(*) AS n, COALESCE(SUM(fee_pence), 0) AS f FROM gp_fee_order WHERE invoice_id = ? AND spread_version = ? AND state = 'actual'",
+                [$id, $version]) ?? ['n' => -1, 'f' => -1];
+            if ($stray !== 0 || (int) $mine['n'] !== $planned || (int) $mine['f'] !== $onOrders) {
+                return 'retry';
+            }
             $db->exec("UPDATE gp_invoice SET spread_state = 'done', spread_version = ?, spread_at = ?, spread_orders = ?, spread_pence = ?, cw_takings_pence = ? WHERE id = ?",
-                [$version, $now, count($rows), $net - $other, $takings, $id]);
-            GpInvoices::history($db, $caller, $id, null, 'spread', null, ['spread_version' => $version, 'orders' => count($rows), 'on_orders' => $net - $other,
+                [$version, $now, $planned, $net - $other, $takings, $id]);
+            GpInvoices::history($db, $caller, $id, null, 'spread', null, ['spread_version' => $version, 'orders' => $planned, 'on_orders' => $net - $other,
                 'not_on_an_order' => $other, 'cw_takings' => $takings], null);
             return 'done';
         });
@@ -457,7 +611,7 @@ final class GpFees
      */
     private function spreadDay(array $cfg, int $invoiceId, int $version, string $acct, string $day, array $want, ?array $other, string $now): bool
     {
-        return $this->db->transaction(static function (Db $db) use ($cfg, $invoiceId, $version, $acct, $day, $want, $other, $now): bool {
+        return $this->bounded(static function (Db $db, float $t0) use ($cfg, $invoiceId, $version, $acct, $day, $want, $other, $now): bool {
             $chs = $cfg[$acct]['shops'];
             foreach (array_keys($want) as $k) {
                 $chs[] = (int) explode('|', $k)[0];
@@ -502,6 +656,7 @@ final class GpFees
                 $delta[$ch]['gp_fee'] = ($delta[$ch]['gp_fee'] ?? 0) + $s1['fee'] - $s0['fee'];
                 $delta[$ch]['gp_fee_est'] = ($delta[$ch]['gp_fee_est'] ?? 0) + $s1['est'] - $s0['est'];
             }
+            self::holdOk($t0);
             self::writeRows($db, $writes);
             if ($other !== null) {
                 $inv = $db->one('SELECT other_channel, other_day, other_pence FROM gp_invoice WHERE id = ? FOR UPDATE', [$invoiceId]);
@@ -526,7 +681,7 @@ final class GpFees
     /** An invoice's charge on no order taken away from its day (under that day's guard), the day's row tidied when nothing is left on it. */
     private function clearOther(int $invoiceId): void
     {
-        $this->db->transaction(static function (Db $db) use ($invoiceId): void {
+        $this->bounded(static function (Db $db, float $t0) use ($invoiceId): void {
             $peek = $db->one('SELECT other_channel, other_day FROM gp_invoice WHERE id = ?', [$invoiceId]);
             if ($peek === null || $peek['other_channel'] === null || $peek['other_day'] === null) {
                 return;
@@ -543,34 +698,85 @@ final class GpFees
         });
     }
 
-    /** A month back to estimates (no live invoice, or the account switched off): its actual rows decided again without their invoice, every charge on no order of it taken away. */
-    private function settleBack(string $acct, string $month): void
+    /**
+     * A month back to estimates (no live invoice, or the account switched off): its actual rows decided again without their invoice, every
+     * charge on no order of it taken away. 'busy' when a guard was held elsewhere (the rest is left for the next run), else null.
+     */
+    private function settleBack(string $acct, string $month): ?string
     {
         [$first, $last] = ExpenseViews::monthDays($month);
         foreach ($this->db->column("SELECT DISTINCT day FROM gp_fee_order WHERE account = ? AND day BETWEEN ? AND ? AND state = 'actual' ORDER BY day",
             [$acct, $first, $last]) as $d) {
-            $this->syncDay($acct, (string) $d, false);
+            if ($this->syncDay($acct, (string) $d, false)['busy']) {
+                return 'busy';
+            }
         }
-        foreach ($this->db->column('SELECT id FROM gp_invoice WHERE account = ? AND month = ? AND other_pence <> 0', [$acct, $month]) as $id) {
-            $this->clearOther((int) $id);
+        try {
+            foreach ($this->db->column('SELECT id FROM gp_invoice WHERE account = ? AND month = ? AND other_pence <> 0', [$acct, $month]) as $id) {
+                $this->clearOther((int) $id);
+            }
+        } catch (\UnexpectedValueException $e) {
+            if ($e->getMessage() !== self::BUSY) {
+                throw $e;
+            }
+            return 'busy';
         }
+        return null;
+    }
+
+    /**
+     * The card orders of the account's shops before each shop's own first day in $first..$last (H2): globalpay, paid in the account's days,
+     * an amount, no re-send. No estimate is counted for them; an invoice is shared over them too, their shares on the main shop.
+     *
+     * @return list<array{channel_id: int|string, order_ref: string, day: string, grand_inc: int|string}>
+     */
+    public static function preStartOrders(Db $db, array $c, string $first, string $last): array
+    {
+        if (!$c['on']) {
+            return [];
+        }
+        $cond = [];
+        $params = [];
+        foreach ($c['shop_from'] as $ch => $day) {
+            if ($day !== null && $day > $first) {
+                $cond[] = '(o.channel_id = ? AND o.day < ?)';
+                array_push($params, (int) $ch, $day);
+            }
+        }
+        if ($cond === []) {
+            return [];
+        }
+        $lo = max($first, (string) $c['from']);
+        $hi = $c['until'] !== null && $c['until'] < $last ? (string) $c['until'] : $last;
+        if ($lo > $hi) {
+            return [];
+        }
+        return $db->all("SELECT o.channel_id, o.order_ref, o.day, o.grand_inc FROM sale_order o WHERE o.day BETWEEN ? AND ? AND o.gateway = 'globalpay' AND o.grand_inc > 0 "
+            . 'AND o.parent_ref IS NULL AND (' . implode(' OR ', $cond) . ')', [$lo, $hi, ...$params]);
     }
 
     // ---- the job -----------------------------------------------------------------------------------------------------------------------
 
     /**
-     * The job (bin/gp_fees.php, GPF8), per account: the months queued taken (their invoice due again), the account's days gone over again
-     * when its settings changed since its last good run (and the last RECHECK_DAYS days on the nightly; a backfill: the days asked), the
-     * estimates at an old rate worked out again, the invoices due spread, an invoice's charge on no order left by a delete taken away. Each
-     * account's pass is a gp_run row (ok or failed in CW's words).
+     * The job (bin/gp_fees.php, GPF8), per account: the months queued taken (their invoice due again, under the spreads' lock: H1), the
+     * account's days gone over again when its settings changed since its last good run (and every live invoice of it spread again or, switched
+     * off, settled back: M6; the last RECHECK_DAYS days on the nightly; a backfill: the days asked), the estimates at an old rate worked out
+     * again, the invoices due spread, an invoice's charge on no order left by a delete taken away. A run left by a process that stopped is
+     * marked failed first (M14). Work stops at the deadline (workSec from the start: inside the installer's drain window, M14) and on a day
+     * whose guard is held elsewhere (H3): what is left waits for the next run, whose settings signature is recorded only when its days were
+     * all gone over. Each account's pass is a gp_run row (ok or failed in CW's words).
      *
-     * @return array<string, array<string, int|string>> per account: what it did
+     * @return array<string, array<string, int|string>> per account: what it did (left: days or months left for the next run; busy: of them, a guard held)
      */
     public function run(Caller $caller, string $kind = 'job', ?string $from = null, ?string $to = null, ?string $only = null): array
     {
         if (!in_array($kind, ['job', 'nightly', 'backfill'], true)) {
             throw new \InvalidArgumentException('job, nightly or backfill');
         }
+        $deadline = microtime(true) + $this->workSec;
+        // M14: a run still "running" is one whose process stopped (only the job's lock holder runs): failed, said why
+        $this->db->exec("UPDATE gp_run SET state = 'failed', error = 'abandoned: its process stopped before it finished', finished_at = ? WHERE state = 'running'",
+            [Clock::db(($this->clock)())]);
         $out = [];
         foreach (self::ACCOUNTS as $acct) {
             if ($only !== null && $only !== $acct) {
@@ -580,13 +786,31 @@ final class GpFees
             $cfg = $this->config()[$acct];
             $runId = $this->db->insert('INSERT INTO gp_run (account, kind, from_day, to_day, actor, started_at) VALUES (?, ?, ?, ?, ?, ?)',
                 [$acct, $kind, $from, $to, $caller->actor, Clock::db(($this->clock)())]);
-            $did = ['dues' => 0, 'days' => 0, 'written' => 0, 'orders' => 0, 'spread' => 0, 'left' => 0];
+            $did = ['dues' => 0, 'days' => 0, 'written' => 0, 'orders' => 0, 'spread' => 0, 'left' => 0, 'busy' => 0];
             $before = 0;
             $after = 0;
+            $complete = true;
             try {
                 $did['dues'] = $this->takeDues($acct);
-                foreach ($this->daysToSync($cfg, $kind, $from, $to) as $d) {
+                [$days, $changed] = $this->daysToSync($cfg, $kind, $from, $to);
+                if ($changed) {
+                    // its settings changed (first or last day, shops, a shop's first day, switched off): every live invoice of it spread again (or
+                    // settled back while switched off), so nothing it counted under the old settings stays (M6)
+                    $this->db->exec("UPDATE gp_invoice SET spread_state = 'due' WHERE account = ? AND deleted_at IS NULL", [$acct]);
+                }
+                foreach ($days as $d) {
+                    if (microtime(true) >= $deadline) {
+                        $did['left']++;
+                        $complete = false;
+                        continue;
+                    }
                     $s = $this->syncDay($acct, $d);
+                    if ($s['busy']) {
+                        $did['busy']++;
+                        $did['left']++;
+                        $complete = false;
+                        continue;
+                    }
                     $did['days']++;
                     $did['written'] += $s['written'];
                     $did['orders'] += $s['orders'];
@@ -597,25 +821,41 @@ final class GpFees
                 if ($cfg['rate'] !== null) {
                     foreach ($this->db->column("SELECT DISTINCT day FROM gp_fee_order WHERE account = ? AND state = 'estimate' AND rate_e4 <> ? ORDER BY day",
                         [$acct, $cfg['rate']]) as $d) {
+                        if (microtime(true) >= $deadline) {
+                            $did['left']++;
+                            continue;
+                        }
                         $s = $this->syncDay($acct, (string) $d);
-                        $did['days']++;
+                        $s['busy'] ? $did['left']++ : $did['days']++;
                         $did['written'] += $s['written'];
                     }
                 }
                 $months = $this->db->column("SELECT month FROM gp_invoice WHERE account = ? AND ((deleted_at IS NULL AND spread_state = 'due') "
-                    . 'OR (deleted_at IS NOT NULL AND other_pence <> 0)) ORDER BY month', [$acct]);
+                    . 'OR other_pence <> 0) ORDER BY month', [$acct]);
                 // a deleted invoice whose month still has actual rows of it (the delete's own settle did not finish): back to estimates
                 foreach ($this->db->column("SELECT i.month FROM gp_invoice i WHERE i.account = ? AND i.deleted_at IS NOT NULL "
                     . "AND EXISTS (SELECT 1 FROM gp_fee_order g WHERE g.invoice_id = i.id AND g.state = 'actual')", [$acct]) as $m) {
                     $months[] = (string) $m;
                 }
                 foreach (array_values(array_unique(array_map('strval', $months))) as $m) {
+                    // a done invoice of an account switched on with its charge on no order where it belongs: nothing to do
+                    if ($cfg['on'] && $this->db->value("SELECT 1 FROM gp_invoice WHERE account = ? AND month = ? AND ((deleted_at IS NULL AND spread_state = 'due') "
+                        . 'OR (deleted_at IS NOT NULL AND other_pence <> 0)) LIMIT 1', [$acct, $m]) === null
+                        && $this->db->value("SELECT 1 FROM gp_invoice i WHERE i.account = ? AND i.month = ? AND i.deleted_at IS NOT NULL AND EXISTS (SELECT 1 FROM gp_fee_order g "
+                            . "WHERE g.invoice_id = i.id AND g.state = 'actual') LIMIT 1", [$acct, $m]) === null) {
+                        continue;
+                    }
+                    if (microtime(true) >= $deadline) {
+                        $did['left']++;
+                        continue;
+                    }
                     $r = $this->settleMonth($caller, $acct, $m, self::SETTLE_WAIT_SEC);
-                    $r === 'done' || $r === 'back' ? $did['spread']++ : $did['left']++;
+                    in_array($r, ['done', 'back', 'off'], true) ? $did['spread']++ : $did['left']++;
                 }
-                // a backfill goes over the days asked only: it never says the account's days were gone over with its settings (the job does)
+                // a backfill goes over the days asked only: it never says the account's days were gone over with its settings (the job does); a run
+                // that left days of a settings change records no signature, so the next run goes over them again
                 $this->db->exec("UPDATE gp_run SET state = 'ok', sig = ?, orders_read = ?, rows_written = ?, pence_before = ?, pence_after = ?, finished_at = ? WHERE id = ?",
-                    [$kind === 'backfill' ? null : $cfg['sig'], $did['orders'], $did['written'], $before, $after, Clock::db(($this->clock)()), $runId]);
+                    [$kind === 'backfill' || !$complete ? null : $cfg['sig'], $did['orders'], $did['written'], $before, $after, Clock::db(($this->clock)()), $runId]);
             } catch (\Throwable $e) {
                 $this->db->exec("UPDATE gp_run SET state = 'failed', error = ?, finished_at = ? WHERE id = ?",
                     [mb_substr(self::why($e), 0, 255), Clock::db(($this->clock)()), $runId]);
@@ -628,6 +868,24 @@ final class GpFees
 
     /** The months queued for the account (gp_due) taken: each one's live invoice marked due, its queue rows removed, in one transaction. */
     private function takeDues(string $acct): int
+    {
+        // under the spreads' lock (H1): no spread of the account's months is between its plan and its done while the queue is taken
+        $lock = 'cw_gp_settle:' . (string) $this->db->value('SELECT DATABASE()');
+        if ((int) $this->db->value('SELECT GET_LOCK(?, ?)', [$lock, self::SETTLE_WAIT_SEC]) !== 1) {
+            return 0; // a spread holds it: the queue waits for the next run (durable)
+        }
+        try {
+            return $this->takeDuesLocked($acct);
+        } finally {
+            try {
+                $this->db->value('SELECT RELEASE_LOCK(?)', [$lock]);
+            } catch (\Throwable) {
+                // the connection is gone: MySQL released it with the session
+            }
+        }
+    }
+
+    private function takeDuesLocked(string $acct): int
     {
         $n = 0;
         foreach ($this->db->all('SELECT month, MAX(id) AS top FROM gp_due WHERE account = ? GROUP BY month', [$acct]) as $q) {
@@ -645,7 +903,7 @@ final class GpFees
      * whenever its settings changed since its last good run, every day from the earliest of its first day and its earliest counted row to
      * today (a first day moved earlier, a shop added or taken away, switched off).
      *
-     * @return list<string>
+     * @return array{0: list<string>, 1: bool} the days, and whether the account's settings changed since its last good run
      */
     private function daysToSync(array $cfg, string $kind, ?string $from, ?string $to): array
     {
@@ -655,11 +913,14 @@ final class GpFees
             if ($from === null || $to === null || $from > $to) {
                 throw new \InvalidArgumentException('a backfill needs --from and --to, from on or before to');
             }
-            return self::range($from, $to);
+            return [self::range($from, $to), false];
         }
         $earliest = $this->db->value("SELECT MIN(day) FROM gp_fee_order WHERE account = ? AND state <> 'off'", [$cfg['account']]);
         $last = $this->db->value("SELECT sig FROM gp_run WHERE account = ? AND state = 'ok' AND sig IS NOT NULL ORDER BY id DESC LIMIT 1", [$cfg['account']]);
-        if ($last !== null && (string) $last !== $cfg['sig']) {
+        // changed since its last good run; with none yet (the first run, or every one before left days) its days are gone over when it counts
+        // anything or is switched on (the Codex review of 6043729: a switch-off before any good run is never skipped)
+        $changed = $last === null ? ($earliest !== null || $cfg['on']) : (string) $last !== $cfg['sig'];
+        if ($changed) {
             $start = $cfg['on'] ? (string) $cfg['from'] : null;
             if ($earliest !== null && ($start === null || (string) $earliest < $start)) {
                 $start = (string) $earliest;
@@ -677,7 +938,7 @@ final class GpFees
         }
         $days = array_values(array_unique($days));
         sort($days, SORT_STRING);
-        return $days;
+        return [$days, $changed];
     }
 
     // ---- the health alert (GPF15) -------------------------------------------------------------------------------------------------------

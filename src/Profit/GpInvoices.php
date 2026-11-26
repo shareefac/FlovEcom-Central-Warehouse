@@ -62,7 +62,7 @@ final class GpInvoices
                     ['field' => 'month', 'invoice' => (int) $live]);
             }
             $this->checkGap($db, $acct, $month, $v, self::ticked($in['gap_ok'] ?? null));
-            self::checkExpenses($db, $cfg[$acct], $month, $v['net'], $v['net'] + $v['vat']);
+            self::checkExpenses($db, $cfg[$acct], $month, $v['invoice_date'], $v['net'], $v['net'] + $v['vat']);
             $now = Clock::db(($this->clock)());
             $id = $db->insert('INSERT INTO gp_invoice (account, month, merchant_no, invoice_date, sales_pence, net_pence, vat_pence, total_pence, rate_e4, note, '
                 . 'created_by, created_actor, created_at, updated_by, updated_actor, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -103,8 +103,8 @@ final class GpInvoices
             if ($v['sales'] !== (int) $row['sales_pence']) {
                 $this->checkGap($db, $acct, $month, $v, self::ticked($in['gap_ok'] ?? null));
             }
-            if ($v['net'] !== (int) $row['net_pence'] || $v['vat'] !== (int) $row['vat_pence']) {
-                self::checkExpenses($db, $cfg[$acct], $month, $v['net'], $v['net'] + $v['vat']);
+            if ($v['net'] !== (int) $row['net_pence'] || $v['vat'] !== (int) $row['vat_pence'] || $v['invoice_date'] !== (string) $row['invoice_date']) {
+                self::checkExpenses($db, $cfg[$acct], $month, $v['invoice_date'], $v['net'], $v['net'] + $v['vat']);
             }
             $before = self::state($db, $id);
             $version = (int) $row['version'] + 1;
@@ -179,32 +179,52 @@ final class GpInvoices
                 $caller->actor, Clock::db(Clock::now())]);
     }
 
-    /** CW's card takings of an account's month: the bases of its card orders that count (GPF6). */
+    /**
+     * CW's card takings of an account's month (GPF6): the bases of its card orders that count, and the card orders of its shops before their own
+     * first day (H2: an invoice holds them too).
+     */
     public static function cwTakings(Db $db, string $acct, string $month): int
     {
         [$first, $last] = ExpenseViews::monthDays($month);
-        return (int) $db->value("SELECT COALESCE(SUM(base_pence), 0) FROM gp_fee_order WHERE account = ? AND day BETWEEN ? AND ? AND state <> 'off'", [$acct, $first, $last]);
+        $pre = GpFees::preStartOrders($db, GpFees::readConfig($db)[$acct], $first, $last);
+        return (int) $db->value("SELECT COALESCE(SUM(base_pence), 0) FROM gp_fee_order WHERE account = ? AND day BETWEEN ? AND ? AND state <> 'off'", [$acct, $first, $last])
+            + array_sum(array_map(static fn (array $r): int => (int) $r['grand_inc'], $pre));
     }
+
+    /**
+     * THE matching window of an invoice and an expense (M10: one rule for the saves both ways and the alert): from the first day of the
+     * invoice's month to the later of the next month's last day and 31 days after the invoice's own printed date. SQL over gp_invoice i.
+     */
+    private const WINDOW_SQL = "DATE(CONCAT(i.month, '-01')) <= %s AND %s <= GREATEST(LAST_DAY(DATE_ADD(DATE(CONCAT(i.month, '-01')), INTERVAL 1 MONTH)), "
+        . 'DATE_ADD(i.invoice_date, INTERVAL 31 DAY))';
 
     // ---- the double count with Expenses (GPF9) ---------------------------------------------------------------------------------------
 
     /** Whether an expense supplier name is one of Global Payments' (profit.gp_expense_suppliers; without case, spaces at the ends ignored). */
     public static function isGpSupplier(Db $db, string $name): bool
     {
-        $v = $db->value('SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ?', [self::SUPPLIERS_KEY]);
-        $list = $v === null ? '' : (string) json_decode((string) $v, true);
-        foreach (explode(',', $list) as $n) {
-            if (trim($n) !== '' && mb_strtolower(trim($n)) === mb_strtolower(trim($name))) {
+        // compared the way the suppliers' own names compare (the table's collation: case and accents aside), so a name typed "Glóbal Payments"
+        // that finds the supplier "Global Payments" is Global Payments here too (M11)
+        foreach (self::gpNames($db) as $n) {
+            if ((int) $db->value('SELECT ? = ? COLLATE utf8mb4_0900_ai_ci', [trim($name), $n]) === 1) {
                 return true;
             }
         }
         return false;
     }
 
+    /** @return list<string> the supplier names that are Global Payments (profit.gp_expense_suppliers), trimmed */
+    private static function gpNames(Db $db): array
+    {
+        $v = $db->value('SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ?', [self::SUPPLIERS_KEY]);
+        return array_values(array_filter(array_map(static fn (string $n): string => trim($n), explode(',', $v === null ? '' : (string) json_decode((string) $v, true))),
+            static fn (string $n): bool => $n !== ''));
+    }
+
     /**
      * Expenses::add / change: an expense of a Global Payments supplier for $shop, dated $date, with this net and total, refused when it is an
-     * invoice entered on Profit > Card fees (a live invoice of an account taking $shop, of the expense's month or the month before, with the
-     * same net or total): it counts on the orders there. Takes the guard's row lock first (the invoice's save takes it too). A credit note
+     * invoice entered on Profit > Card fees (a live invoice of an account taking $shop whose matching window holds $date: WINDOW_SQL, M10, with
+     * the same net or total): it counts on the orders there. $supplierName is the supplier the expense names (resolved: M11). Takes the guard's row lock first (the invoice's save takes it too). A credit note
      * (net below 0) is never refused.
      */
     public static function guardExpense(Db $db, string $supplierName, int $shop, string $date, int $net, int $total): void
@@ -216,13 +236,12 @@ final class GpInvoices
         if ($net <= 0) {
             return;
         }
-        $months = [substr($date, 0, 7), self::prevMonth(substr($date, 0, 7))];
         foreach (GpFees::readConfig($db) as $acct => $c) {
             if (!in_array($shop, $c['shops'], true)) {
                 continue;
             }
-            $hit = $db->one('SELECT id, month FROM gp_invoice WHERE account = ? AND month IN (?, ?) AND deleted_at IS NULL AND (net_pence = ? OR total_pence = ?) LIMIT 1',
-                [$acct, $months[0], $months[1], $net, $total]);
+            $hit = $db->one('SELECT i.id, i.month FROM gp_invoice i WHERE i.account = ? AND i.deleted_at IS NULL AND (i.net_pence = ? OR i.total_pence = ?) AND '
+                . sprintf(self::WINDOW_SQL, '?', '?') . ' LIMIT 1', [$acct, $net, $total, $date, $date]);
             if ($hit !== null) {
                 throw new CwException('gp_invoice_same', "this is the Global Payments invoice of {$hit['month']} entered on Profit > Card fees: it counts on the "
                     . 'card orders there, so it is not an expense too', 409, ['field' => 'net', 'invoice' => (int) $hit['id'], 'month' => (string) $hit['month']]);
@@ -239,37 +258,31 @@ final class GpInvoices
      */
     public static function doubtful(Db $db, string $from, string $to, ?int $shop): array
     {
-        $v = $db->value('SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ?', [self::SUPPLIERS_KEY]);
-        $names = array_values(array_filter(array_map(static fn (string $n): string => mb_strtolower(trim($n)), explode(',', $v === null ? '' : (string) json_decode((string) $v, true))),
-            static fn (string $n): bool => $n !== ''));
+        $names = self::gpNames($db);
         if ($names === []) {
             return [];
         }
-        $live = [];
-        foreach ($db->all('SELECT account, month FROM gp_invoice WHERE deleted_at IS NULL') as $r) {
-            $live[$r['account'] . '|' . $r['month']] = true;
-        }
-        if ($live === []) {
-            return [];
-        }
-        $cfg = GpFees::readConfig($db);
         $out = [];
-        foreach ($db->all('SELECT e.id, e.channel_id, e.invoice_date, e.net_pence, s.name FROM expense e JOIN expense_supplier s ON s.id = e.supplier_id '
-            . 'WHERE e.deleted_at IS NULL AND e.net_pence > 0 AND e.invoice_date BETWEEN ? AND ?' . ($shop === null ? '' : ' AND e.channel_id = ?') . ' ORDER BY e.invoice_date, e.id',
-            [$from, $to, ...($shop === null ? [] : [$shop])]) as $e) {
-            if (!in_array(mb_strtolower(trim((string) $e['name'])), $names, true)) {
+        foreach (GpFees::readConfig($db) as $acct => $c) {
+            if ($c['shops'] === []) {
                 continue;
             }
-            $m = substr((string) $e['invoice_date'], 0, 7);
-            foreach ($cfg as $acct => $c) {
-                if (in_array((int) $e['channel_id'], $c['shops'], true) && (isset($live[$acct . '|' . $m]) || isset($live[$acct . '|' . self::prevMonth($m)]))) {
-                    $out[] = ['id' => (int) $e['id'], 'shop' => (int) $e['channel_id'], 'date' => (string) $e['invoice_date'], 'net' => (int) $e['net_pence'],
-                        'month' => isset($live[$acct . '|' . $m]) ? $m : self::prevMonth($m)];
-                    break;
-                }
+            $shops = $shop === null ? $c['shops'] : array_values(array_intersect($c['shops'], [$shop]));
+            if ($shops === []) {
+                continue;
+            }
+            // each live expense of a Global Payments supplier name (the table's collation: M11) inside a live invoice's matching window (M10)
+            foreach ($db->all('SELECT e.id, e.channel_id, e.invoice_date, e.net_pence, MIN(i.month) AS month FROM expense e JOIN expense_supplier s ON s.id = e.supplier_id '
+                . 'JOIN gp_invoice i ON i.account = ? AND i.deleted_at IS NULL AND ' . sprintf(self::WINDOW_SQL, 'e.invoice_date', 'e.invoice_date')
+                . ' WHERE e.deleted_at IS NULL AND e.net_pence > 0 AND e.invoice_date BETWEEN ? AND ? AND e.channel_id IN (' . implode(', ', array_fill(0, count($shops), '?'))
+                . ') AND s.name IN (' . implode(', ', array_fill(0, count($names), '?')) . ') GROUP BY e.id, e.channel_id, e.invoice_date, e.net_pence ORDER BY e.invoice_date, e.id',
+                [$acct, $from, $to, ...$shops, ...$names]) as $e) {
+                $out[(int) $e['id']] = ['id' => (int) $e['id'], 'shop' => (int) $e['channel_id'], 'date' => (string) $e['invoice_date'], 'net' => (int) $e['net_pence'],
+                    'month' => (string) $e['month']];
             }
         }
-        return $out;
+        ksort($out);
+        return array_values($out);
     }
 
     // ---- the form ----------------------------------------------------------------------------------------------------------------------
@@ -323,10 +336,9 @@ final class GpInvoices
         if (!mb_check_encoding($note, 'UTF-8') || mb_strlen($note) > self::NOTE_MAX || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $note) === 1) {
             throw new CwException('gp_bad_note', 'the note is at most ' . self::NOTE_MAX . ' characters', 422, ['field' => 'note']);
         }
-        $rate = $money['sales'] > 0 ? ProfitMath::mulDivRound($money['net'], 1_000_000, $money['sales']) : 0;
-        if ($rate > 100_000) {
-            throw new CwException('gp_rate_too_high', 'the charge is more than 10% of the sales: check the figures', 422, ['field' => 'net']);
-        }
+        // the invoice's own rate (net / sales); an invoice always settles at its full net charge, whatever its rate (a low-volume month with a
+        // minimum charge is 25% and more: M12); only the estimate rate is capped at 10% (setRate())
+        $rate = $money['sales'] > 0 ? min(ProfitMath::mulDivRound($money['net'], 1_000_000, $money['sales']), 4_000_000_000) : 0;
         return ['merchant_no' => $c['merchant'], 'invoice_date' => $date, 'sales' => $money['sales'], 'net' => $money['net'], 'vat' => $money['vat'], 'rate' => $rate,
             'note' => $note === '' ? null : $note];
     }
@@ -347,23 +359,23 @@ final class GpInvoices
         }
     }
 
-    /** An expense of a Global Payments supplier that is this invoice (same net or total, the invoice's month or the next): refused (GPF9). */
-    private static function checkExpenses(Db $db, array $c, string $month, int $net, int $total): void
+    /**
+     * An expense of a Global Payments supplier that is this invoice (same net or total, dated inside the invoice's matching window: WINDOW_SQL,
+     * M10): refused (GPF9). The names compare the way the suppliers' do (M11).
+     */
+    private static function checkExpenses(Db $db, array $c, string $month, string $invoiceDate, int $net, int $total): void
     {
         if ($c['shops'] === [] || $net <= 0) {
             return;
         }
-        $v = $db->value('SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ?', [self::SUPPLIERS_KEY]);
-        $names = array_values(array_filter(array_map(static fn (string $n): string => trim($n), explode(',', $v === null ? '' : (string) json_decode((string) $v, true))),
-            static fn (string $n): bool => $n !== ''));
+        $names = self::gpNames($db);
         if ($names === []) {
             return;
         }
-        [$first] = ExpenseViews::monthDays($month);
-        [, $nextLast] = ExpenseViews::monthDays(substr(RegularCostMath::addDays($first, 40), 0, 7));
-        $hit = $db->one('SELECT e.id FROM expense e JOIN expense_supplier s ON s.id = e.supplier_id WHERE e.deleted_at IS NULL AND e.channel_id IN ('
-            . implode(', ', array_fill(0, count($c['shops']), '?')) . ') AND e.invoice_date BETWEEN ? AND ? AND (e.net_pence = ? OR e.total_pence = ?) AND s.name IN ('
-            . implode(', ', array_fill(0, count($names), '?')) . ') LIMIT 1', [...$c['shops'], $first, $nextLast, $net, $total, ...$names]);
+        $hit = $db->one('SELECT e.id FROM expense e JOIN expense_supplier s ON s.id = e.supplier_id JOIN (SELECT ? AS month, ? AS invoice_date) i WHERE e.deleted_at IS NULL '
+            . 'AND e.channel_id IN (' . implode(', ', array_fill(0, count($c['shops']), '?')) . ') AND ' . sprintf(self::WINDOW_SQL, 'e.invoice_date', 'e.invoice_date')
+            . ' AND (e.net_pence = ? OR e.total_pence = ?) AND s.name IN (' . implode(', ', array_fill(0, count($names), '?')) . ') LIMIT 1',
+            [$month, $invoiceDate, ...$c['shops'], $net, $total, ...$names]);
         if ($hit !== null) {
             throw new CwException('gp_expense_same', 'this invoice is entered as an expense already (Profit > Expenses): delete that expense first, so it is not counted twice',
                 409, ['field' => 'net', 'expense' => (int) $hit['id']]);
@@ -376,8 +388,8 @@ final class GpInvoices
      */
     private function setRate(Db $db, Caller $caller, string $acct, string $month, array $v): bool
     {
-        if ($v['sales'] <= 0 || $v['rate'] <= 0) {
-            return false;
+        if ($v['sales'] <= 0 || $v['rate'] <= 0 || $v['rate'] > 100_000) {
+            return false; // no sales, or above 10%: never the estimate rate (M12; the setting's own limit)
         }
         $newer = $db->value('SELECT 1 FROM gp_invoice WHERE account = ? AND deleted_at IS NULL AND month > ? LIMIT 1', [$acct, $month]);
         if ($newer !== null) {
@@ -410,12 +422,5 @@ final class GpInvoices
     private static function ticked(mixed $v): bool
     {
         return in_array($v, [true, 1, '1', 'on'], true);
-    }
-
-    private static function prevMonth(string $m): string
-    {
-        $y = (int) substr($m, 0, 4);
-        $mo = (int) substr($m, 5, 2) - 1;
-        return $mo === 0 ? sprintf('%04d-12', $y - 1) : sprintf('%04d-%02d', $y, $mo);
     }
 }

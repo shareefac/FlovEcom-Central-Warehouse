@@ -128,7 +128,8 @@ final class GpFeesTest extends StockTestCase
         $vpg = $this->site('vapeandgo', 'live');
         $vb = $this->site('vapebig', 'live');
         $ef = $this->site('electrofag', 'live');
-        $this->on();
+        // the shops' own first days on the account's (Vape Big's and Electrofag's are seeded 1 Dec: GpFeesR1Test H2 holds that rule)
+        $this->on('vpg_online', '2026-11-01', ['profit.gp_shop_from_vapebig' => '2026-11-01', 'profit.gp_shop_from_electrofag' => '2026-11-01']);
         foreach (['pp' => '9100011', 'pphf' => '9100012', 'office' => '9100013', '' => '9100014'] as $gw => $ref) {
             $this->store($vpg, $ref, '2026-11-19T10:00:00Z', 2999, $gw);
             self::assertNull(self::row($vpg, $ref), "paid by {$gw}: not a Global Payments order");
@@ -251,7 +252,7 @@ final class GpFeesTest extends StockTestCase
     public function testARateChangeWorksOutEveryEstimateAgainAndLeavesActualsAlone(): void
     {
         $vpg = $this->site('vapeandgo', 'live');
-        $this->on('vpg_online', '2026-10-01', ['profit.gp_merchant_vpg_online' => self::MERCHANT]);
+        $this->on('vpg_online', '2026-10-01', ['profit.gp_merchant_vpg_online' => self::MERCHANT, 'profit.gp_shop_from_vapeandgo' => '2026-10-01']);
         $this->store($vpg, '9100031', '2026-10-15T10:00:00Z', 1000);
         $this->store($vpg, '9100032', '2026-11-19T10:00:00Z', 2999);
         (new GpInvoices(self::$db))->add(self::sys(), self::invoice(['month' => '2026-10', 'invoice_date' => '2026-10-31', 'sales' => '10.00', 'net' => '0.50', 'total' => '0.50']));

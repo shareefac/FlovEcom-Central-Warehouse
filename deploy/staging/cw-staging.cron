@@ -108,6 +108,7 @@ MAILTO=""
 
 # Global Payments' card fees (CW-1174, docs/decisions.md GPF8): nothing is read from Global Payments; the months whose invoice must be spread again,
 # an account's days gone over again when its settings changed, estimates at an old rate worked out again, invoices due spread. The nightly also goes
-# over the last 62 days. Nothing to do while no account is switched on (profit.gp_from_<account>).
-3-59/10 * * * *  root  cd /opt/cw-staging && timeout 540 php bin/gp_fees.php --db=cw_staging >> /var/log/cw/gp_fees.log 2>&1
-35 5 * * *  root  cd /opt/cw-staging && timeout 1800 php bin/gp_fees.php --db=cw_staging --nightly >> /var/log/cw/gp_fees.log 2>&1
+# over the last 62 days. Nothing to do while no account is switched on (profit.gp_from_<account>). Each run stops starting work at 230 s (inside
+# the installer's 6-minute drain); timeout 300 is the hard stop; a run that finds the lock held exits 4 (busy), the nightly waits 50 s first.
+3-59/10 * * * *  root  cd /opt/cw-staging && timeout 300 php bin/gp_fees.php --db=cw_staging >> /var/log/cw/gp_fees.log 2>&1
+35 5 * * *  root  cd /opt/cw-staging && timeout 300 php bin/gp_fees.php --db=cw_staging --nightly >> /var/log/cw/gp_fees.log 2>&1
