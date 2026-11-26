@@ -340,4 +340,46 @@ final class GpFeesLastTest extends StockTestCase
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM gp_invoice'));
         self::assertIsInt(self::invoices()->add(self::sys(), self::invoice())['id'], 'once November has ended');
     }
+    /**
+     * The line-by-line check of e1fe6a9 (Fable L4): a batch whose rows all changed between the plan and the batch writes nothing, and the
+     * summary row its guard made on a day with nothing on it is taken away again (as a rebuild has none): never a row of zeros left.
+     */
+    public function testL4ABatchThatWritesNothingLeavesNoRowOfZeros(): void
+    {
+        $vpg = $this->site('vapeandgo', 'live');
+        self::bigDay($vpg, '2026-11-11', 1);
+        $this->on();
+        $moved = false;
+        self::hook(function (string $at) use (&$moved): void {
+            if ($at === 'sync_planned' && !$moved) {
+                $moved = true; // the order moved to the 12th between the plan and its batch (its snapshot, elsewhere)
+                self::$db->exec("UPDATE sale_order SET day = '2026-11-12', paid_at = '2026-11-12 10:00:00' WHERE order_ref = '8000000'");
+            }
+        });
+        (new GpFees(self::$db))->syncDay('vpg_online', '2026-11-11');
+        self::assertTrue($moved);
+        self::assertNull(self::$db->value("SELECT 1 FROM profit_day WHERE channel_id = ? AND day = '2026-11-11'", [$vpg->channelId]),
+            'no summary row of zeros left on the 11th');
+        self::same($vpg, '2026-11-11');
+        self::hook(null);
+        (new GpFees(self::$db))->syncDay('vpg_online', '2026-11-12'); // the order's fee on its day (the nightly checks after the test)
+    }
+
+    /**
+     * The line-by-line check of e1fe6a9 (Fable L5): a nightly killed before it finished (left "running", marked failed by the next run) never
+     * loses the days it did not reach: the next 10-minute run goes over the nightly's days once.
+     */
+    public function testL5AKilledNightlysDaysAreGoneOverByTheNextRun(): void
+    {
+        $vpg = $this->site('vapeandgo', 'live');
+        $this->on();
+        (new GpFees(self::$db))->run(self::sys());
+        self::bigDay($vpg, '2026-11-07', 1); // a card order with no card fee (only a day pass gives it one)
+        self::$db->exec("INSERT INTO gp_run (account, kind, actor, started_at) VALUES ('vpg_online', 'nightly', 'system:gp_fees', UTC_TIMESTAMP(6) - INTERVAL 2 HOUR)");
+        $d = (new GpFees(self::$db))->run(self::sys())['vpg_online'];
+        self::assertSame('failed', (string) self::$db->value("SELECT state FROM gp_run WHERE kind = 'nightly' ORDER BY id DESC LIMIT 1"), 'the killed nightly marked failed');
+        self::assertSame('estimate', (string) self::$db->value("SELECT state FROM gp_fee_order WHERE order_ref = '8000000'"), 'the next run went over its days');
+        self::assertGreaterThan(1, $d['days']);
+        self::assertSame(0, (new GpFees(self::$db))->run(self::sys())['vpg_online']['days'], 'once: the run after it goes over none again');
+    }
 }
