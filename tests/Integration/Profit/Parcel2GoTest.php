@@ -368,4 +368,22 @@ final class Parcel2GoTest extends StockTestCase
         self::assertContains('p2g_gap', array_column(Parcel2Go::health(self::$db, new \DateTimeImmutable('2026-11-25 13:05:00', new \DateTimeZone('UTC'))), 'kind'));
         $this->assertClean();
     }
+
+    public function testAnExtraPaymentOfALabelNotSeenYetDoesNotStopItsOwnPrice(): void
+    {
+        // the kit's trial of 26 Nov: the first read stored the newest basket, whose Extra Payment named an older label CW had not seen (added
+        // from the invoice); the label's own price must still be read once the export (or the list) brings it
+        $this->on();
+        self::order($this->vpg, '1570031', '2026-11-02T09:00:00Z', ['H00TST0000000031' => '2026-11-03T09:30:00Z']);
+        $this->clockAt = '2026-11-25 12:00:00';
+        $this->pull([P2gFixtures::apiLine(150000032, 95000032, '2026-11-24T10:00:00Z')], [95000032 => P2gFixtures::invoiceText(95000032, '24/11/2026',
+            [[150000031, 'Extra Payment', 1, 293, 0], [150000032, 'Evri Europe Standard Parcelshop', 1, 700, 0]])], [150000032 => ['H00TST0000000032']]);
+        self::assertSame(['invoice', 'not_needed'], [self::p2gLine(150000031)['source'], self::p2gLine(150000031)['price_state']]);
+        $this->pull([P2gFixtures::apiLine(150000031, 95000031, '2026-11-03T10:00:00Z'), P2gFixtures::apiLine(150000032, 95000032, '2026-11-24T10:00:00Z')],
+            [95000031 => P2gFixtures::invoiceText(95000031, '03/11/2026', [[150000031, 'Evri Europe Standard Parcelshop', 1, 1132, 0]])],
+            [150000031 => ['H00TST0000000031'], 150000032 => ['H00TST0000000032']]);
+        self::assertSame(['priced', '2026-11-03'], [self::p2gLine(150000031)['price_state'], self::p2gLine(150000031)['paid_day']], 'its own paid day and price, once it is seen');
+        self::assertSame(1132 + 293, DeliveryBills::orderCost(self::$db, $this->vpg, '1570031'), 'its price and its Extra Payment on its order');
+        $this->assertClean();
+    }
 }
