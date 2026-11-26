@@ -14,9 +14,7 @@ use CW\Tests\Support\TestDb;
 
 /**
  * CW-1153, the last Codex check of a46cc3d (astra), the code findings, each red on a46cc3d first:
- *  H4  before the go-live kit changes the items' price history it counts, under the items' rows, every way another shop's sale could read it:
- *      a sale line paid since the mark's start, a line with no cost fixed yet (any time), a snapshot waiting in the queue that names one of
- *      them (by its listing or by a reserved unit), a reserved unit with no cost fixed yet, a link on that shop (ItemOwners::otherShopUse)
+ *  H4  (superseded by the strict rule of the last fix round: OwnItemsFinal3Test)
  *  H5  a re-cost that has nothing left to write on an order still says the order when a newer snapshot of it waits in the queue (deferred),
  *      read under the order's guard: --fail-deferred never says "done" while a correction waits
  *  M12 "lowest margin first" uses the margin of ours each row shows, for which orders it lists, their count, their order and the pages
@@ -97,40 +95,6 @@ final class OwnItemsLastCheckTest extends InvoicesTestCase
     private static function markOwn(int $sku): void
     {
         (new ItemOwners(self::$db))->add(Caller::system('own_items_kit'), (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$sku]), 'Vape Big\'s own goods', self::FROM);
-    }
-
-    /** @return array<string, int> */
-    private function use(int $sku): array
-    {
-        return ItemOwners::otherShopUse(self::$db, [$sku], (int) $this->vbs->channelId, self::FROM);
-    }
-
-    public function testH4EveryWayAnotherShopsSaleCouldReadTheItemsPriceHistoryIsCounted(): void
-    {
-        $vpg = $this->site('vapeandgo', 'live');
-        $h = $this->item('legacy', 0, 'Hayati 4000 LC');
-        self::price($h, null);
-        $zero = ['lines' => 0, 'unpriced' => 0, 'queued' => 0, 'reservations' => 0, 'links' => 0];
-        $is = static fn (array $over): array => array_merge($zero, $over);
-        self::assertSame($zero, $this->use($h));
-        $this->listing($vpg, '50501', $h);
-        self::assertSame($is(['links' => 1]), $this->use($h), 'linked on another shop');
-        $this->ok($this->commit($vpg, '9811', [self::line('50501', '8811')]));
-        self::assertSame($is(['links' => 1, 'reservations' => 1]), $this->use($h), 'a unit reserved there with no cost fixed yet');
-        $snaps = new OrderSnapshots(self::$db);
-        $snaps->accept((int) $vpg->channelId, '9811', self::raw('9811', [self::sl('8811', '50501', 599)]), 'api');
-        self::assertSame($is(['links' => 1, 'reservations' => 1, 'queued' => 1]), $this->use($h), 'its first paid snapshot waits in the queue');
-        $snaps->applyQueued();
-        self::assertSame($is(['links' => 1, 'lines' => 1]), $this->use($h), 'worked out: a sale line paid since the start, its cost fixed (no price: none)');
-        // a sale there paid BEFORE the start whose cost the cost job has not fixed yet: it would read the history being changed (a fresh
-        // service: one reads the cost job's mark once)
-        self::$db->exec("UPDATE profit_job SET mark_at = '2026-11-05 00:00:00' WHERE job = 'item_cost'");
-        $this->ok($this->commit($vpg, '9812', [self::line('50501', '8812')]));
-        (new OrderSnapshots(self::$db))->store((int) $vpg->channelId, '9812', self::raw('9812', [self::sl('8812', '50501', 599)], ['placed_at' => '2026-11-10T09:59:00Z',
-            'paid_at' => '2026-11-10T10:00:00Z']), 'api');
-        self::assertNull(self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = '8812'"));
-        self::assertSame($is(['links' => 1, 'lines' => 1, 'unpriced' => 1, 'reservations' => 1]), $this->use($h));
-        self::assertSame($zero, ItemOwners::otherShopUse(self::$db, [$h], (int) $vpg->channelId, self::FROM), 'the shop itself is not another shop');
     }
 
     public function testH5TheReCostSaysAnOrderWaitingInTheQueueWhenItHasNothingLeftToWrite(): void
