@@ -89,7 +89,9 @@ final class Grants
         // 0080 (docs/decisions.md PPF8): every change of a PayPal row, before and after.
         'paypal_txn_history',
         // 0084 (docs/decisions.md GPF10): every add, change, delete and spread of a Global Payments invoice.
-        'gp_invoice_history'];
+        'gp_invoice_history',
+        // 0085 (docs/decisions.md PGL5, PGL8): a Parcel2Go bill row's label (written once with its row) and each export read.
+        'p2g_charge', 'p2g_import'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -281,7 +283,10 @@ final class Grants
         'paypal_txn', 'paypal_run',
         // 0084 (docs/decisions.md GPF4): a card order's Global Payments fee (decided again in place, switched off, never removed) and a run of
         // bin/gp_fees.php. gp_due keeps FULL rights: a month queued is taken away once its invoice is marked due again.
-        'gp_fee_order', 'gp_run'];
+        'gp_fee_order', 'gp_run',
+        // 0085 (docs/decisions.md PGL3, PGL4, PGL9): a Parcel2Go label (its fields filled, its price state moved, never removed), its parcels (their
+        // tracking numbers and pins filled from NULL) and each run of bin/p2g_pull.php.
+        'p2g_line', 'p2g_parcel', 'p2g_run'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

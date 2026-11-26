@@ -55,6 +55,12 @@ final class Settings
         // 0078 (DL90 K2): the go-live kit's undo holds every Royal Mail write while this names its run (empty: not held)
         'delivery.rm_writes_held' => ['pattern' => '/^([a-z0-9][a-z0-9_.:-]{7,63})?$/D',
             'pattern_says' => 'empty (Royal Mail bills may be written), or the run id of the go-live kit\'s undo that holds them'],
+        // 0085 (CW-1160, docs/decisions.md PGL2): each Parcel2Go account's first day (empty: switched off; the go-live kit's switch step sets it with
+        // the account's state), and how many hours a paid label may wait for its price before the health alert says so
+        'delivery.p2g_from_vapeandgo' => ['pattern' => '/^(20[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01]))?$/D', 'pattern_says' => 'a day like 2026-11-01 (empty: switched off)'],
+        'delivery.p2g_from_vapebig' => ['pattern' => '/^(20[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01]))?$/D', 'pattern_says' => 'a day like 2026-11-01 (empty: switched off)'],
+        'delivery.p2g_tracking_wait_days' => ['min' => 0, 'max' => 30],
+        'delivery.p2g_price_wait_hours' => ['min' => 1, 'max' => 168],
         // Each shop's first real profit day (0079, EX39) is never before the first day CW holds that shop's sales: the floor is read from the
         // data (the shop's first day in profit_day), so it is always the real one (the Fable re-check of 8dbee81, F-A; docs/decisions.md EX63).
         'profit.real_from_vapeandgo' => ['sales_from' => 'vapeandgo'],
