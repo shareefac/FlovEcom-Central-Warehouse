@@ -69,8 +69,13 @@ $feesOn = array_values(array_filter($shops, static fn (array $s): bool => $s['st
 </table>
 </div>
 <?php foreach (array_filter($shops, static fn (array $s): bool => $s['started'] && ($s['own'] ?? null) !== null) as $s): ?>
+<?php if ($s['own']['incomplete']): ?>
+<p class="own-goods-line" role="note"><?= $e(\CW\Ui\Words::say('PROFIT', 'own_goods_line_unknown', (string) $s['shop'], $gbp((int) $s['own']['goods']), $gbp((int) $s['own']['cost']),
+    \CW\Ui\Html::int((int) $s['own']['units']), \CW\Ui\Html::int((int) $s['own']['no_cost'] + (int) $s['own']['pending']))) ?></p>
+<?php else: ?>
 <p class="own-goods-line" role="note"><?= $e(\CW\Ui\Words::say('PROFIT', 'own_goods_line', (string) $s['shop'], $gbp((int) $s['own']['goods']), $gbp((int) $s['own']['cost']),
     $gbp((int) $s['own']['profit']), \CW\Ui\Html::int((int) $s['own']['units']))) ?></p>
+<?php endif; ?>
 <?php endforeach; ?>
 <?php foreach ($feesOn as $s): ?>
 <p class="muted"><?= $say('PROFIT', 'real_fees_paypal', (string) $s['shop'], \CW\Ui\Html::day((string) $s['fees_from'])) ?></p>

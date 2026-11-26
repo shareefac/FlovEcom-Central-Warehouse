@@ -137,8 +137,11 @@ final class ProfitController
         $stores = $views->stores();
         $store = self::store($ctx, $stores);
         [$period, $from, $to, $warn] = self::period($ctx);
-        [$noCost, $pending] = ProfitDays::snapshot($ctx->db, static fn (): array => [$views->noCost($from, $to, $store), array_sum($views->pending($from, $to, $store))]);
-        return $ctx->page('profit_no_cost', ['rows' => $noCost, 'pending' => $pending,
+        // CW-1153 (the Codex review of bd9104d, M20): the selling shop's own items with no price, a list of their own (never in ours)
+        [$noCost, $pending, $ownRows, $ownPending] = ProfitDays::snapshot($ctx->db, static fn (): array => [$views->noCost($from, $to, $store),
+            array_sum($views->pending($from, $to, $store)), $views->noCost($from, $to, $store, true), array_sum($views->pending($from, $to, $store, true))]);
+        return $ctx->page('profit_no_cost', ['rows' => $noCost, 'pending' => $pending, 'own_rows' => $ownRows, 'own_pending' => $ownPending,
+            'own_shop' => (string) (\CW\Items\ItemOwners::shop($ctx->db)['name'] ?? ''),
             'limit' => ProfitViews::ROW_LIMIT, 'period' => $period,
             'periods' => ReportsController::PERIODS, 'from' => $from, 'to' => $to, 'warn' => $warn, 'stores' => $stores, 'storeId' => $store],
             200, ['title' => Words::MENU['profit_no_cost']]);

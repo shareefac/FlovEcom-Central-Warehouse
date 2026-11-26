@@ -236,9 +236,7 @@ final class ProfitViews
         // final review of 3c31d94, a-M9, c-M6, PR143), read for the rows that have re-sends (a few on a page).
         $chain = function (array $rows): array {
             foreach ($rows as $i => $r) {
-                $f = (int) $r['resends'] > 0 ? OrderSnapshots::resendFigures($this->db, (int) $r['channel_id'], (string) $r['order_ref']) : ['nc' => 0, 'open' => 0];
-                $rows[$i]['resend_no_cost'] = (int) $f['nc'];
-                $rows[$i]['resend_pending'] = (int) $f['open'];
+                $rows[$i]['rs'] = (int) $r['resends'] > 0 ? OrderSnapshots::resendFigures($this->db, (int) $r['channel_id'], (string) $r['order_ref']) : self::NO_RESENDS;
             }
             return $rows;
         };
@@ -313,36 +311,73 @@ final class ProfitViews
      */
     private static function orderRow(array $r): array
     {
-        // CW-1153 (VB11): the row's goods, cost, units and units with no price are OURS (the selling shop's own goods taken off: they are on the
-        // row's own line); its margin is ours too when it sold any of them (else the stored one, the same).
-        $ownGoods = (int) ($r['own_sale_ex'] ?? 0) - (int) ($r['own_refund_ex'] ?? 0);
-        $ownCost = (int) ($r['own_cost'] ?? 0);
-        $hasOwn = (int) ($r['own_units'] ?? 0) !== 0 || $ownGoods !== 0 || $ownCost !== 0;
-        $r['units'] = (int) $r['units'] - (int) ($r['own_units'] ?? 0);
-        $r['units_no_cost'] = (int) $r['units_no_cost'] - (int) ($r['own_no_cost'] ?? 0);
-        $sale = (int) $r['sale_ex'] - $ownGoods;
-        $cost = (int) $r['cost'] - $ownCost;
-        $resendCost = (int) $r['resend_cost'];
-        if ($hasOwn && $r['margin_bp'] !== null) {
-            $r['margin_bp'] = ProfitMath::marginBp($sale - $cost - $resendCost, $sale);
-        }
-        // An order not paid (any more) shows no profit and no margin, whatever its rows still hold (the Codex check of the fix round, F18 PARTLY,
-        // PR152: a sale paid with its cost fixed and then unpaid showed £7, 70%).
+        // CW-1153 (VB11; the Codex review of bd9104d, M7 and M8): the row's goods, cost, units, units with no price, re-send cost and profits are
+        // OURS (split(): the selling shop's own goods, and its own goods re-sent, taken off: they are on the row's own line); its margin is ours
+        // too when it has any of them (else the stored one, the same).
+        $sp = self::split($r, $r['rs'] ?? self::NO_RESENDS, (int) ($r['pending'] ?? 0), (int) ($r['own_pending'] ?? 0));
+        $ours = $sp['ours'];
+        $own = $sp['own'];
         $unpaid = $r['paid_at'] === null;
-        $ownUnknown = $unpaid || (int) $r['units_no_cost'] > 0 || (int) ($r['pending'] ?? 0) > 0;
-        $resendUnknown = (int) ($r['resend_no_cost'] ?? 0) > 0 || (int) ($r['resend_pending'] ?? 0) > 0;
+        $margin = $r['margin_bp'];
+        if ($sp['any_own'] && $margin !== null) {
+            $margin = ProfitMath::marginBp($ours['goods'] - $ours['cost'] - $ours['resend_cost'], $ours['goods']);
+        }
         return ['store_id' => (int) $r['channel_id'], 'store' => (string) $r['store'], 'ref' => (string) $r['order_ref'], 'no' => (string) $r['order_no'],
             'status' => (string) $r['status'], 'paid_at' => $r['paid_at'] === null ? null : (string) $r['paid_at'], 'gateway' => (string) $r['gateway'],
-            'parent' => $r['parent_ref'] === null ? null : (string) $r['parent_ref'], 'units' => (int) $r['units'], 'sale' => $sale, 'cost' => $cost,
-            'resends' => (int) $r['resends'], 'resend_cost' => $resendCost, 'profit' => $ownUnknown ? null : $sale - $cost,
-            'with_resends' => (int) $r['resends'] === 0 ? null : ($ownUnknown || $resendUnknown ? null : $sale - $cost - $resendCost),
-            'margin_bp' => $unpaid || $r['margin_bp'] === null ? null : (int) $r['margin_bp'], 'unpaid' => $unpaid,
-            'delivery' => (int) $r['delivery_ex'], 'no_cost' => (int) $r['units_no_cost'], 'pending' => (int) ($r['pending'] ?? 0),
-            'own_unknown' => $ownUnknown, 'resend_unknown' => $resendUnknown,
-            // Incomplete: some unit it counts, its own or a paid re-send's, has no price or waits for it.
-            'incomplete' => $ownUnknown || $resendUnknown,
-            'shop_own' => $hasOwn ? ['units' => (int) $r['own_units'], 'goods' => $ownGoods, 'cost' => $ownCost,
-                'profit' => (int) ($r['own_no_cost'] ?? 0) > 0 || (int) ($r['own_pending'] ?? 0) > 0 ? null : $ownGoods - $ownCost] : null];
+            'parent' => $r['parent_ref'] === null ? null : (string) $r['parent_ref'], 'units' => $ours['units'], 'sale' => $ours['goods'], 'cost' => $ours['cost'],
+            'resends' => (int) $r['resends'], 'resend_cost' => $ours['resend_cost'], 'profit' => $ours['profit'], 'with_resends' => $ours['with_resends'],
+            // An order not paid (any more) shows no profit and no margin, whatever its rows still hold (the Codex check of the fix round, F18 PARTLY,
+            // PR152: a sale paid with its cost fixed and then unpaid showed £7, 70%).
+            'margin_bp' => $unpaid || $margin === null ? null : (int) $margin, 'unpaid' => $unpaid,
+            'delivery' => (int) $r['delivery_ex'], 'no_cost' => $ours['no_cost'], 'pending' => $ours['pending'],
+            'own_unknown' => $ours['unknown'], 'resend_unknown' => $ours['resend_unknown'],
+            // Incomplete: some unit of ours it counts, its own or a paid re-send's, has no price or waits for it.
+            'incomplete' => $ours['unknown'] || $ours['resend_unknown'],
+            'shop_own' => $sp['any_own'] ? $own : null,
+            'shop_own_resend_cost' => $own['resend_cost']];
+    }
+
+    /** No re-sends (resendFigures()' shape). */
+    public const NO_RESENDS = ['n' => 0, 'c' => 0, 'nc' => 0, 'open' => 0, 'c_own' => 0, 'nc_own' => 0, 'open_own' => 0];
+
+    /**
+     * CW-1153 (the Codex review of bd9104d, M7 and M8): ONE order's money split into OURS and the selling shop's OWN goods: the one calculation
+     * both order readers use (Profit by order's rows and one order's page). Each side: units, goods sold (its lines' sale ex VAT less its share
+     * of the order-level refund), that refund share, buying cost, units with no price, units waiting for a cost, profit (null: not known: not
+     * paid, or a unit of that side with no price or waiting for one), its paid re-sends' cost by whose goods were re-sent (a re-send of the
+     * shop's own goods never costs us: resendFigures()' c_own) and its profit with them (null while a re-sent unit of that side is not known).
+     * Every penny once: ours = the whole less the shop's own.
+     *
+     * @param array<string, mixed> $o a sale_order row (sale_ex, order_refund_ex, cost, units, units_no_cost, own_*, resends, resend_cost, paid_at)
+     * @param array<string, int|string> $rs its paid re-sends (OrderSnapshots::resendFigures(), or NO_RESENDS)
+     * @param int $pending its units of ours waiting for a cost (lines), $ownPending the shop's own
+     * @return array{ours: array<string, mixed>, own: array<string, mixed>, any_own: bool}
+     */
+    public static function split(array $o, array $rs, int $pending, int $ownPending): array
+    {
+        $unpaid = $o['paid_at'] === null;
+        $resends = (int) ($o['resends'] ?? 0);
+        $wholeRefund = (int) ($o['order_refund_ex'] ?? 0);
+        $ownRefund = (int) ($o['own_refund_ex'] ?? 0);
+        $ownGoods = (int) ($o['own_sale_ex'] ?? 0) - $ownRefund;
+        $ownResend = (int) ($rs['c_own'] ?? 0);
+        $side = static function (int $units, int $goods, int $refund, int $cost, int $noCost, int $pend, int $resendCost, int $resendNc, int $resendOpen)
+            use ($unpaid, $resends): array {
+            $unknown = $unpaid || $noCost > 0 || $pend > 0;
+            $resendUnknown = $resendNc > 0 || $resendOpen > 0;
+            return ['units' => $units, 'goods' => $goods, 'refund' => $refund, 'cost' => $cost, 'no_cost' => $noCost, 'pending' => $pend,
+                'profit' => $unknown ? null : $goods - $cost, 'resend_cost' => $resendCost,
+                'with_resends' => $resends === 0 ? null : ($unknown || $resendUnknown ? null : $goods - $cost - $resendCost),
+                'unknown' => $unknown, 'resend_unknown' => $resendUnknown];
+        };
+        $own = $side((int) ($o['own_units'] ?? 0), $ownGoods, $ownRefund, (int) ($o['own_cost'] ?? 0), (int) ($o['own_no_cost'] ?? 0), $ownPending, $ownResend,
+            (int) ($rs['nc_own'] ?? 0), (int) ($rs['open_own'] ?? 0));
+        $ours = $side((int) $o['units'] - $own['units'], (int) $o['sale_ex'] - $ownGoods, $wholeRefund - $ownRefund, (int) $o['cost'] - $own['cost'],
+            (int) $o['units_no_cost'] - $own['no_cost'], $pending, (int) $o['resend_cost'] - $ownResend, (int) ($rs['nc'] ?? 0) - (int) ($rs['nc_own'] ?? 0),
+            (int) ($rs['open'] ?? 0) - (int) ($rs['open_own'] ?? 0));
+        $any = $own['units'] !== 0 || $own['goods'] !== 0 || $own['cost'] !== 0 || $own['no_cost'] !== 0 || $ownPending !== 0 || $ownResend !== 0
+            || (int) ($rs['nc_own'] ?? 0) !== 0 || (int) ($rs['open_own'] ?? 0) !== 0;
+        return ['ours' => $ours, 'own' => $own, 'any_own' => $any];
     }
 
     /**
@@ -375,6 +410,11 @@ final class ProfitViews
             || array_filter($lines, static fn (array $l): bool => $l['cost_source'] === null && $l['removed_at'] === null && (int) $l['units'] > 0
                 && (int) $l['restocked'] === 0) !== []);
         $theirs = array_filter($resends, static fn (array $r): bool => $r['paid_at'] !== null && ((int) $r['units_no_cost'] > 0 || (int) $r['pending'] > 0)) !== [];
+        // CW-1153 (the Codex review of bd9104d, M7 and M8): ours and the selling shop's own goods apart, by the one calculation Profit by order's
+        // rows use (split()): its lines waiting for a cost on each side, its chain's re-sends by whose goods were re-sent.
+        $waiting = static fn (bool $own): int => count(array_filter($lines, static fn (array $l): bool => $l['cost_source'] === null && $l['removed_at'] === null
+            && (int) $l['units'] > 0 && (int) $l['restocked'] === 0 && ($l['item_owner'] !== null) === $own));
+        $split = self::split($o, $chain === [] ? self::NO_RESENDS : OrderSnapshots::resendFigures($this->db, $store, (string) $o['order_ref']), $waiting(false), $waiting(true));
         // A clone's price the shop has on it, as its page says it is not counted: its lines that count (a cancelled line, or one gone from the
         // order, is none of it: the second final review of 3c31d94, Fable L7, PR147).
         $cloneGoods = 0;
@@ -398,6 +438,7 @@ final class ProfitViews
             'resends' => $resends,
             'own_incomplete' => $own,
             'resends_incomplete' => $theirs,
+            'split' => $split,
         ];
     }
 
@@ -492,7 +533,9 @@ final class ProfitViews
             'own' => ['units' => $ownUnits, 'goods' => $ownGoods, 'cost' => $ownCost, 'profit' => $ownGoods - $ownCost,
                 'margin_bp' => ProfitMath::marginBp($ownGoods - $ownCost, $ownGoods), 'no_cost' => $ownNoCost, 'pending' => $ownPending,
                 'any' => $ownUnits !== 0 || $ownGoods !== 0 || $ownCost !== 0 || $ownNoCost !== 0 || $ownPending !== 0,
-                'incomplete' => self::incomplete($ownNoCost + $ownPending, $ownUnits)]];
+                // the shop's own profit is not complete while ANY of its units has no price or waits for one (the Codex review of bd9104d, M20:
+                // its sales are never shown as its profit), not the 0.5% rule of ours
+                'incomplete' => $ownNoCost + $ownPending > 0]];
     }
 
     /**

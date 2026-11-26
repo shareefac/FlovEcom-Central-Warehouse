@@ -9,10 +9,14 @@
 // parcel with its bill lines or "not billed yet".
 // Its PayPal money (0080, docs/decisions.md PPF16): each PayPal row on it (a sale's fee, a refund's fee back, a chargeback's money and fees),
 // the day it counts on and what it costs; none: no table.
+// CW-1153 (the Codex review of bd9104d, M7 and M8): the goods, cost, re-send cost and profits above are OURS (ProfitViews::split(), the same
+// calculation as Profit by order's rows); the selling shop's own goods on the order (and its own goods re-sent) are in a table of their own.
 $o = $order;
-$sale = (int) $o['sale_ex'];
-$cost = (int) $o['cost'];
-$resendCost = (int) $o['resend_cost'];
+$ours = $split['ours'];
+$shopOwn = $split['own'];
+$sale = (int) $ours['goods'];
+$cost = (int) $ours['cost'];
+$resendCost = (int) $ours['resend_cost'];
 $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw_cost' => \CW\Ui\Words::PROFIT['source_cw_cost'],
     'estimate' => \CW\Ui\Words::PROFIT['source_estimate'], 'none' => \CW\Ui\Words::PROFIT['source_none']];
 ?>
@@ -20,10 +24,13 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
     aside: $explain('profit_cost', \CW\Ui\Words::PROFIT['cost_from']), back: ['/ui/profit/orders', \CW\Ui\Words::PROFIT['back']]) ?>
 <?php if ($o['paid_at'] === null): ?>
 <p class="note" role="status"><?= $word('PROFIT', 'unpaid') ?></p>
-<?php elseif ((int) $o['units_no_cost'] > 0 || $resends_incomplete): ?>
+<?php elseif ($ours['no_cost'] > 0 || $ours['resend_unknown']): ?>
 <p class="note" role="status"><?= $word('PROFIT', 'incomplete_note') ?></p>
-<?php elseif ($own_incomplete): ?>
+<?php elseif ($ours['pending'] > 0): ?>
 <p class="note" role="status"><?= $word('PROFIT', 'pending_note') ?></p>
+<?php endif; ?>
+<?php if ($split['any_own']): ?>
+<p class="muted"><?= $word('PROFIT', 'own_order_note') ?></p>
 <?php endif; ?>
 <?php if ($o['parent_ref'] !== null && ((int) $clone_goods_inc !== 0 || (int) $o['delivery_charged_inc'] !== 0)): ?>
 <p class="note" role="status"><?= $say('PROFIT', 'resend_not_counted', \CW\Ui\Html::money((int) $clone_goods_inc / 100),
@@ -47,19 +54,19 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
     <tr><th scope="row"><?= $word('PROFIT', 'cost') ?></th><td class="num"><?= $money($cost / 100) ?></td></tr>
 <?php if ($o['paid_at'] === null): ?>
     <tr><th scope="row"><?= $word('PROFIT', 'profit') ?></th><td class="num"><?= $word('PROFIT', 'unpaid_profit') ?></td></tr>
-<?php elseif ($own_incomplete): ?>
+<?php elseif ($ours['profit'] === null): ?>
     <tr><th scope="row"><?= $word('PROFIT', 'profit') ?></th><td class="num"><?= $word('PROFIT', 'unknown') ?> <span class="muted"><?= $word('PROFIT', 'incomplete') ?></span></td></tr>
 <?php else: ?>
-    <tr><th scope="row"><?= $word('PROFIT', 'profit') ?></th><td class="num"><?= $money(($sale - $cost) / 100) ?> (<?= $e(\CW\Profit\ProfitViews::pct(\CW\Profit\ProfitMath::marginBp($sale - $cost, $sale))) ?>)</td></tr>
+    <tr><th scope="row"><?= $word('PROFIT', 'profit') ?></th><td class="num"><?= $money($ours['profit'] / 100) ?> (<?= $e(\CW\Profit\ProfitViews::pct(\CW\Profit\ProfitMath::marginBp($ours['profit'], $sale))) ?>)</td></tr>
 <?php endif; ?>
 <?php if ((int) $o['resends'] > 0): ?>
     <tr><th scope="row"><?= $word('PROFIT', 'resend_cost') ?></th><td class="num"><?= $money($resendCost / 100) ?></td></tr>
 <?php if ($o['paid_at'] === null): ?>
     <tr><th scope="row"><?= $word('PROFIT', 'with_resends') ?></th><td class="num"><?= $word('PROFIT', 'unpaid_profit') ?></td></tr>
-<?php elseif ($own_incomplete || $resends_incomplete): ?>
+<?php elseif ($ours['with_resends'] === null): ?>
     <tr><th scope="row"><?= $word('PROFIT', 'with_resends') ?></th><td class="num"><?= $word('PROFIT', 'unknown') ?> <span class="muted"><?= $word('PROFIT', 'incomplete') ?></span></td></tr>
 <?php else: ?>
-    <tr><th scope="row"><?= $word('PROFIT', 'with_resends') ?></th><td class="num"><?= $money(($sale - $cost - $resendCost) / 100) ?> (<?= $e(\CW\Profit\ProfitViews::pct($o['margin_bp'] === null ? null : (int) $o['margin_bp'])) ?>)</td></tr>
+    <tr><th scope="row"><?= $word('PROFIT', 'with_resends') ?></th><td class="num"><?= $money($ours['with_resends'] / 100) ?> (<?= $e(\CW\Profit\ProfitViews::pct(\CW\Profit\ProfitMath::marginBp($ours['with_resends'], $sale))) ?>)</td></tr>
 <?php endif; ?>
 <?php endif; ?>
     <tr><th scope="row"><?= $word('PROFIT', 'delivery_method') ?></th><td><?= $e((string) ($o['delivery_method'] ?? '')) ?></td></tr>
@@ -74,6 +81,35 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
   </tbody>
 </table>
 </div>
+<?php if ($split['any_own']): ?>
+
+<h2><?= $say('PROFIT', 'own_order_table', (string) $o['store']) ?></h2>
+<div class="table-wrap">
+<table class="stack rp-table profit-order-own">
+  <tbody>
+    <tr><th scope="row"><?= $word('PROFIT', 'own_units') ?></th><td class="num"><?= $n($shopOwn['units']) ?></td></tr>
+    <tr><th scope="row"><?= $word('PROFIT', 'goods') ?></th><td class="num"><?= $money($shopOwn['goods'] / 100) ?></td></tr>
+<?php if ($shopOwn['refund'] !== 0): ?>
+    <tr><th scope="row"><?= $word('PROFIT', 'own_refund_share') ?></th><td class="num"><?= $money($shopOwn['refund'] / 100) ?></td></tr>
+<?php endif; ?>
+    <tr><th scope="row"><?= $word('PROFIT', 'cost') ?></th><td class="num"><?= $money($shopOwn['cost'] / 100) ?></td></tr>
+<?php if ($o['paid_at'] === null): ?>
+    <tr><th scope="row"><?= $word('PROFIT', 'profit') ?></th><td class="num"><?= $word('PROFIT', 'unpaid_profit') ?></td></tr>
+<?php elseif ($shopOwn['profit'] === null): ?>
+    <tr><th scope="row"><?= $word('PROFIT', 'profit') ?></th><td class="num"><?= $word('PROFIT', 'unknown') ?> <span class="muted"><?= $word('PROFIT', 'incomplete') ?></span></td></tr>
+<?php else: ?>
+    <tr><th scope="row"><?= $word('PROFIT', 'profit') ?></th><td class="num"><?= $money($shopOwn['profit'] / 100) ?> (<?= $e(\CW\Profit\ProfitViews::pct(\CW\Profit\ProfitMath::marginBp($shopOwn['profit'], $shopOwn['goods']))) ?>)</td></tr>
+<?php endif; ?>
+<?php if ((int) $o['resends'] > 0): ?>
+    <tr><th scope="row"><?= $word('PROFIT', 'resend_cost') ?></th><td class="num"><?= $money($shopOwn['resend_cost'] / 100) ?></td></tr>
+<?php if ($o['paid_at'] !== null): ?>
+    <tr><th scope="row"><?= $word('PROFIT', 'with_resends') ?></th><td class="num"><?php if ($shopOwn['with_resends'] === null): ?><?= $word('PROFIT', 'unknown') ?> <span class="muted"><?= $word('PROFIT', 'incomplete') ?></span><?php else: ?><?= $money($shopOwn['with_resends'] / 100) ?><?php endif; ?></td></tr>
+<?php endif; ?>
+<?php endif; ?>
+  </tbody>
+</table>
+</div>
+<?php endif; ?>
 
 <h2><?= $word('PROFIT', 'delivery_table') ?></h2>
 <?php if ($o['parent_ref'] !== null): ?>

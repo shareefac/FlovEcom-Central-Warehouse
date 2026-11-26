@@ -63,7 +63,7 @@
       <td class="num" data-label="<?= $word('PROFIT', 'own_units') ?>"><?= $n($r['f']['own']['units']) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'goods') ?>"><?= $money($r['f']['own']['goods'] / 100) ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'cost') ?>"><?= $money($r['f']['own']['cost'] / 100) ?></td>
-      <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?= $money($r['f']['own']['profit'] / 100) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?php if ($r['f']['own']['incomplete']): ?><?= $word('PROFIT', 'unknown') ?> <span class="muted"><?= $word('PROFIT', 'incomplete') ?></span><?php else: ?><?= $money($r['f']['own']['profit'] / 100) ?><?php endif; ?></td>
       <td class="num" data-label="<?= $word('PROFIT', 'no_cost') ?>"><?= $n($r['f']['own']['no_cost']) ?><?php if ($r['f']['own']['pending'] > 0): ?> <span class="muted"><?= $say('PROFIT', 'waiting_count', (string) $r['f']['own']['pending']) ?></span><?php endif; ?></td>
     </tr>
 <?php endforeach; ?>

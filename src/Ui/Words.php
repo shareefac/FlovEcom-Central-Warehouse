@@ -11048,6 +11048,14 @@ final class Words
         'own_units' => 'Units',
         'own_order_line' => 'and %s\'s own goods: %s, cost %s',
         'own_line' => 'the shop\'s own',
+        // CW-1153, the Codex review of bd9104d: one order's page shows ours above and the shop's own goods apart (M7, M8); the shop's own profit
+        // is never shown while one of its units has no price (M20)
+        'own_order_table' => '%s\'s own goods on this order',
+        'own_order_note' => 'Sold from the shop\'s own stock (Settings > Own items): not in our goods, cost or profit above, never added to them.',
+        'own_refund_share' => 'Its share of the refund not on a line',
+        'own_goods_line_unknown' => '%s\'s own goods (not ours, not in the figures above): sales %s, buying cost %s so far (%s units); its profit is not known yet: %s of its units have no buying price (Profit > No buying price lists them).',
+        'own_no_cost_table' => '%s\'s own items with no price',
+        'own_no_cost_note' => 'Sold from the shop\'s own stock (Settings > Own items), so never in our figures. Give each a buying price and the shop\'s own profit is known.',
         'real_days' => 'From %s to %s.',
         'real_no_expenses' => 'The expenses, the regular costs and the real profit are shown to those who see the expenses (Finance and the Expenses job).',
         'col_expenses' => 'Expenses',
