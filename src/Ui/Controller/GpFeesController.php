@@ -31,7 +31,7 @@ final class GpFeesController
     public const PERM_VIEW = ExpenseAccess::PERM_VIEW;
     public const PERM_EDIT = ExpenseAccess::PERM_EDIT;
     private const NOTICES = ['added', 'changed', 'unchanged', 'deleted'];
-    private const FIELDS = ['account', 'month', 'merchant_no', 'invoice_date', 'sales', 'net', 'vat', 'total', 'note', 'use_rate', 'gap_ok', 'current_ok'];
+    private const FIELDS = ['account', 'month', 'merchant_no', 'invoice_date', 'sales', 'net', 'vat', 'total', 'note', 'use_rate', 'gap_ok'];
 
     public function list(Context $ctx): HtmlResponse
     {
@@ -68,8 +68,13 @@ final class GpFeesController
         } catch (CwException $e) {
             // changed by someone else since the page was opened: the invoice as it is now with its new version (never the old figures as typed,
             // which a second press would send again over the other change: the final review of 7332729, M14)
-            return ExpensesController::deniedWrite($e) ? ExpensesController::denied($ctx, $e)
-                : $this->one($ctx, $id, $e->httpStatus, $e, $e->errorCode === 'changed_meanwhile' ? null : $typed, null);
+            // any other refusal keeps what was typed WITH the version it was typed on (the check of 513fa3d, M3): never the new version beside the old
+            // figures, so a second press is refused as changed meanwhile when someone changed it since
+            if (ExpensesController::deniedWrite($e)) {
+                return ExpensesController::denied($ctx, $e);
+            }
+            return $e->errorCode === 'changed_meanwhile' ? $this->one($ctx, $id, $e->httpStatus, $e, null, null)
+                : $this->one($ctx, $id, $e->httpStatus, $e, $typed, null, self::seen($ctx));
         }
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['notice' => $r['changed'] ? 'changed' : 'unchanged']));
     }
@@ -99,7 +104,7 @@ final class GpFeesController
         foreach ($db->all('SELECT id, name FROM channel') as $c) {
             $names[(int) $c['id']] = (string) $c['name'];
         }
-        $today = ProfitViews::today();
+        $today = GpInvoices::today();
         $accounts = [];
         foreach (GpFees::readConfig($db) as $acct => $c) {
             $months = [];
@@ -131,9 +136,9 @@ final class GpFeesController
                 'rate' => $c['rate'] === null ? null : ProfitMath::ratePercent($c['rate']), 'merchant' => $c['merchant'] !== '',
                 'shops' => array_map(static fn (int $id): string => $names[$id] ?? (string) $id, $c['shops']), 'months' => array_values($months)];
         }
-        // last month by default: its invoice comes early this month; the month still running needs its own tick (the final review of 7332729, F5)
+        // last month by default: its invoice comes early this month (the final review of 7332729, F5); the month still running is refused (FA4)
         $defaults = ['account' => '', 'month' => self::prev(substr($today, 0, 7)), 'merchant_no' => '', 'invoice_date' => '', 'sales' => '', 'net' => '', 'vat' => '0.00',
-            'total' => '', 'note' => '', 'use_rate' => '1', 'gap_ok' => '', 'current_ok' => ''];
+            'total' => '', 'note' => '', 'use_rate' => '1', 'gap_ok' => ''];
         return $ctx->page('profit_card_fees', ['accounts' => $accounts, 'canEdit' => $ctx->me()->can(self::PERM_EDIT), 'typed' => $typed + $defaults,
             'error' => $error === null ? null : ExpensesController::plain($error), 'errorField' => $error?->detail['field'] ?? null, 'notice' => $notice,
             'formKey' => ExpensesController::formKey($ctx, $error), 'gap' => $error !== null && $error->errorCode === 'gp_takings_gap' ? $error->detail : null,
@@ -141,8 +146,8 @@ final class GpFeesController
             $status, ['title' => Words::MENU['profit_card_fees']]);
     }
 
-    /** @param array<string, string>|null $typed */
-    private function one(Context $ctx, int $id, int $status, ?CwException $error, ?array $typed, ?string $notice): HtmlResponse
+    /** @param array<string, string>|null $typed @param int|null $seen the version $typed was typed on (null: the invoice's own) */
+    private function one(Context $ctx, int $id, int $status, ?CwException $error, ?array $typed, ?string $notice, ?int $seen = null): HtmlResponse
     {
         $inv = $ctx->db->one('SELECT * FROM gp_invoice WHERE id = ?', [$id]);
         if ($inv === null) {
@@ -153,7 +158,8 @@ final class GpFeesController
         $form = $typed ?? ['merchant_no' => (string) $inv['merchant_no'], 'invoice_date' => (string) $inv['invoice_date'], 'sales' => $money((int) $inv['sales_pence']),
             'net' => $money((int) $inv['net_pence']), 'vat' => $money((int) $inv['vat_pence']), 'total' => $money((int) $inv['total_pence']),
             'note' => (string) ($inv['note'] ?? ''), 'use_rate' => '', 'gap_ok' => ''];
-        return $ctx->page('profit_card_fee', ['inv' => $inv, 'history' => $history, 'typed' => $form, 'canEdit' => $ctx->me()->can(self::PERM_EDIT),
+        return $ctx->page('profit_card_fee', ['inv' => $inv, 'history' => $history, 'typed' => $form, 'seen' => $seen ?? (int) $inv['version'],
+            'canEdit' => $ctx->me()->can(self::PERM_EDIT),
             'error' => $error === null ? null : ExpensesController::plain($error), 'errorField' => $error?->detail['field'] ?? null, 'notice' => $notice,
             'cw' => GpInvoices::cwTakings($ctx->db, (string) $inv['account'], (string) $inv['month'])],
             $status, ['title' => Words::say('PROFIT', 'gp_one_title', Words::PROFIT['gp_account_' . $inv['account']] ?? (string) $inv['account'], (string) $inv['month'])]);

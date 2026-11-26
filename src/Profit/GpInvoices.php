@@ -30,20 +30,31 @@ final class GpInvoices
     public const NOTE_MAX = 500;
     private const SUPPLIERS_KEY = 'profit.gp_expense_suppliers';
 
+    /**
+     * Tests only: the clock an invoice service made without one reads (the month still running is refused, FA4: the tests that enter
+     * November's invoice read a day of December). Null: CW's clock.
+     */
+    public static ?\Closure $testClock = null;
+
     /** @var \Closure(): \DateTimeImmutable */
     private readonly \Closure $clock;
 
     /** @param (\Closure(): \DateTimeImmutable)|null $clock */
     public function __construct(private readonly Db $db, ?\Closure $clock = null)
     {
-        $this->clock = $clock ?? static fn (): \DateTimeImmutable => Clock::now();
+        $this->clock = $clock ?? self::$testClock ?? static fn (): \DateTimeImmutable => Clock::now();
+    }
+
+    /** Today's UK day as the invoice page reads it (the form's month and the running month it refuses). */
+    public static function today(): string
+    {
+        return \CW\Reports\ReportRefresh::ukDay(Clock::db(self::$testClock !== null ? (self::$testClock)() : Clock::now()));
     }
 
     /**
      * Adds an invoice. $in: account, month (YYYY-MM), merchant_no, invoice_date (YYYY-MM-DD), sales, net, vat, total (pounds as printed), note,
      * use_rate (true / '1' / 'on': set the account's estimate rate from it, when it is the newest month entered), gap_ok (the person checked
-     * figures that differ from CW's card takings of the month by more than profit.gp_takings_gap_pct), current_ok (the month still running is
-     * the one meant: F5).
+     * figures that differ from CW's card takings of the month by more than profit.gp_takings_gap_pct). The month still running is refused (FA4).
      *
      * @param array<string, mixed> $in
      * @return array{id: int, rate: string, rate_set: bool}
@@ -58,10 +69,10 @@ final class GpInvoices
                 : throw new CwException('gp_choose_account', 'choose the Global Payments account the invoice is for', 422, ['field' => 'account']);
             $month = trim((string) ($in['month'] ?? ''));
             $v = $this->fields($db, $cfg[$acct], $month, $in);
-            // the month still running (its invoice comes after it ends): only with its own tick (the final review of 7332729, F5)
-            if ($month === substr(\CW\Reports\ReportRefresh::ukDay(Clock::db(($this->clock)())), 0, 7) && !self::ticked($in['current_ok'] ?? null)) {
-                throw new CwException('gp_current_month', 'the month is still running: its invoice comes after it ends. Check the month, then tick that it is this '
-                    . 'month\'s invoice', 409, ['field' => 'current_ok']);
+            // the month still running is refused until it ends (the check of 513fa3d, FA4: Global Payments invoices a month after it ends, and an
+            // invoice of a running month would be spread again every time one of its orders changes); no tick lets it in
+            if ($month === substr(\CW\Reports\ReportRefresh::ukDay(Clock::db(($this->clock)())), 0, 7)) {
+                throw new CwException('gp_current_month', 'that month is still running: its invoice is entered once the month has ended', 409, ['field' => 'month']);
             }
             if (($live = $db->value('SELECT id FROM gp_invoice WHERE live_key = ? FOR UPDATE', [$acct . '|' . $month])) !== null) {
                 throw new CwException('gp_month_entered', "the {$month} invoice of this account is entered already: change that one", 409,
@@ -93,9 +104,11 @@ final class GpInvoices
     {
         $r = $this->db->transaction(function (Db $db) use ($caller, $id, $seen, $in, $reason): array {
             ExpenseAccess::mayEdit($db, $caller);
-            $reason = \CW\Admin\ConfigHistory::reason($reason);
             self::lockGuard($db);
+            // the version first, the reason after (the check of 513fa3d, M3): a page opened before a colleague's change is refused as changed meanwhile
+            // whatever else is wrong with it
             $row = $this->locked($db, $id, $seen);
+            $reason = \CW\Admin\ConfigHistory::reason($reason);
             $acct = (string) $row['account'];
             $month = (string) $row['month'];
             $cfg = GpFees::readConfig($db);
@@ -135,8 +148,8 @@ final class GpInvoices
     {
         $r = $this->db->transaction(function (Db $db) use ($caller, $id, $seen, $reason): array {
             ExpenseAccess::mayEdit($db, $caller);
-            $reason = \CW\Admin\ConfigHistory::reason($reason);
             $row = $this->locked($db, $id, $seen);
+            $reason = \CW\Admin\ConfigHistory::reason($reason);
             $before = self::state($db, $id);
             $version = (int) $row['version'] + 1;
             $now = Clock::db(($this->clock)());

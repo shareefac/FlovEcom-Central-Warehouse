@@ -212,22 +212,21 @@ final class GpFeesFinalTest extends StockTestCase
         $vpg = $this->site('vapeandgo', 'live');
         self::bigDay($vpg, '2026-11-11', 1541);
         $this->on();
-        $guarded = null;
-        self::hook(function (string $at) use (&$guarded): void {
-            if ($at === 'guarded') {
-                $guarded = microtime(true);
-            } elseif ($at === 'batch') {
-                usleep(1_200_000); // each write batch slow (a busy disk)
+        $n = 0;
+        self::hook(function (string $at) use (&$n): void {
+            if ($at === 'batch') {
+                $n++;
+                usleep($n === 3 ? 2_200_000 : 100_000); // the third batch past the hold (a busy disk)
             }
         });
         $s = (new GpFees(self::$db))->syncDay('vpg_online', '2026-11-11');
-        $held = microtime(true) - (float) $guarded;
-        self::assertTrue($s['busy'], 'past the hold limit before a batch: rolled back, left for the next run');
-        self::assertLessThan(GpFees::HOLD_SEC + 1.5, $held, sprintf('the guards held %.2f s: never long past the limit', $held));
-        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM gp_fee_order'), 'nothing of it kept');
-        self::assertSame([0, 0, 0], self::day($vpg, '2026-11-11'));
+        // each batch is a short transaction of its own (the check of 513fa3d, H2): the one past the hold rolled back alone, the two before it stay
+        self::assertTrue($s['busy'], 'past the hold limit: that batch rolled back, the rest left for the next run');
+        self::assertSame(2 * GpFees::BATCH, (int) self::$db->value('SELECT COUNT(*) FROM gp_fee_order'), 'the batches written before it stay written');
+        self::assertSame((int) self::$db->value('SELECT SUM(fee_pence) FROM gp_fee_order'), self::day($vpg, '2026-11-11')[0], 'with their day figures');
         self::hook(null);
-        self::assertFalse((new GpFees(self::$db))->syncDay('vpg_online', '2026-11-11')['busy'], 'the next run writes it');
+        self::assertFalse((new GpFees(self::$db))->syncDay('vpg_online', '2026-11-11')['busy'], 'the next run writes what is left');
+        self::assertSame(1541, (int) self::$db->value('SELECT COUNT(*) FROM gp_fee_order'));
         self::same($vpg, '2026-11-11');
     }
 

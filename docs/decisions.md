@@ -22729,3 +22729,19 @@ first: gp_run.from_day), and the next run goes on from there. **GPF30. The forms
 back with the invoice as it is now and its new version; the list's CW card takings are the invoice page's (GpInvoices::cwTakingsByMonth: the
 shops' card orders before their own first day too); the form offers last month, and the month still running needs its own tick
 (`current_ok`). **GPF31. Vape Big's note** (F9): a shop's card fees count from the later of its account's first day and its own.
+
+**The two checks of 513fa3d (Codex gpt-6.2-astra: H1, H2, M3-M12; Fable: FA1-FA7; the lead's decisions, 26 Nov 2026), each shown failing
+first (GpFeesLastTest, GpFeesScreensTest; the kit's negative trial).** **GPF32. A day is written in short batches** (H1, H2, FA3): a day
+pass and a spread's day are planned outside their guards (GPF26), then written in batches of 250, EACH IN A TRANSACTION OF ITS OWN under the
+guards of its shops' day with its own day figures, so a batch written stays written and a big day is finished over passes; each batch's own
+rows are checked against the plan by their keys (the fee rows locked FOR UPDATE, never the orders: a row changed since the plan is left out
+and the day planned again; in a spread it plans the spread again) and the hold is checked right after that check (past 2 s: that batch
+rolled back). The fingerprint of the whole day is gone. The days a run left (a guard held, its deadline) are kept in gp_run.left_days and
+gone over by the next run with the same settings: a busy day never holds the others back, and a nightly's day is never lost (M7). **GPF33.
+A card snapshot takes the first days before its guards** (M4): OrderSnapshots::apply holds Global Payments' first days (shared) before its day
+guards for a card order, so while it waits for a setting being saved it holds no guard of its day. **GPF34. The deadline everywhere** (M5, M6,
+FA7): a month going back to estimates stops before its next day at the deadline; the queue's and a spread's row waits are capped by the time
+left; a spread's queue is counted, never listed in one statement (66,000 queued changes are one spread). **GPF35. A parked invoice** (M8,
+FA2): GP4 leaves out an invoice whose month is outside its account's days and of which nothing counts (the health alert says it).
+**GPF36. The forms** (M3, FA4): a change is checked against its version before anything else, and a refusal keeps the typed figures with the
+version they were typed on; the month still running is refused until it ends (no tick).

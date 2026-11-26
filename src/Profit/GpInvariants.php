@@ -69,11 +69,19 @@ final class GpInvariants
         $cfg = GpFees::readConfig($db);
         // an invoice due since it was saved (a month queued is judged by its queue rows above: the job keeps them until the spread that covers them
         // is done; the final review of 7332729, F8)
-        foreach ($db->all("SELECT i.id, i.account, i.month FROM gp_invoice i WHERE i.deleted_at IS NULL AND i.spread_state = 'due' AND i.updated_at < {$stale} "
+        foreach ($db->all("SELECT i.id, i.account, i.month, i.other_pence, EXISTS (SELECT 1 FROM gp_fee_order g WHERE g.invoice_id = i.id AND g.state = 'actual') AS counted "
+            . "FROM gp_invoice i WHERE i.deleted_at IS NULL AND i.spread_state = 'due' AND i.updated_at < {$stale} "
             . 'AND NOT EXISTS (SELECT 1 FROM gp_due q WHERE q.account = i.account AND q.month = i.month) ORDER BY i.id LIMIT ' . self::MAX_PER_CHECK) as $r) {
-            if (($cfg[(string) $r['account']]['on'] ?? false) === true) { // an account switched off keeps its invoices due, counting nothing
-                $v[] = "GP4 card fee invoice {$r['id']} ({$r['account']} {$r['month']}): still waiting to be spread " . self::STALE_HOURS . ' hours after it was saved';
+            $c = $cfg[(string) $r['account']] ?? null;
+            if ($c === null || $c['on'] !== true) {
+                continue; // an account switched off keeps its invoices due, counting nothing
             }
+            // parked (its month outside the account's days, GPF28) and verified cleared (nothing of it counts): the health alert gp_invoice_outside
+            // says it, never a 6-hour wait here (the check of 513fa3d, M8, FA2); parked but still counting something is one
+            if (!GpFees::monthIn($c, (string) $r['month']) && (int) $r['other_pence'] === 0 && (int) $r['counted'] === 0) {
+                continue;
+            }
+            $v[] = "GP4 card fee invoice {$r['id']} ({$r['account']} {$r['month']}): still waiting to be spread " . self::STALE_HOURS . ' hours after it was saved';
         }
         foreach ($db->all("SELECT id, account FROM gp_run WHERE state = 'running' AND started_at < {$stale} ORDER BY id LIMIT " . self::MAX_PER_CHECK) as $r) {
             $v[] = "GP4 card fee run {$r['id']} ({$r['account']}): still running " . self::STALE_HOURS . ' hours after it started';

@@ -44,7 +44,7 @@ $acctName = $P['gp_account_' . $inv['account']] ?? (string) $inv['account'];
 <h2><?= $word('PROFIT', 'gp_change') ?></h2>
 <form class="record gp-invoice-change" method="post" action="<?= $e('/ui/profit/card-fees/' . (int) $inv['id'] . '/change') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-  <input type="hidden" name="seen" value="<?= $e((string) (int) $inv['version']) ?>">
+  <input type="hidden" name="seen" value="<?= $e((string) (int) $seen) ?>">
   <div class="ex-fields">
     <div class="ex-row">
       <div class="field"><label for="gpc-merchant"><?= $word('PROFIT', 'gp_f_merchant') ?></label><input id="gpc-merchant" type="text" name="merchant_no" value="<?= $e($t['merchant_no']) ?>" required></div>

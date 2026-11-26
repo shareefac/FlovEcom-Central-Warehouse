@@ -15,8 +15,8 @@
 --    so the days always add up to the rows (docs/decisions.md GPF4). Never deleted.
 --  * gp_due: a month of an account whose card orders changed (invoice or not): its invoice is spread again; a month with no invoice is dropped
 --    by bin/gp_fees.php.
---  * gp_run: each run of bin/gp_fees.php and each spread (what it did, ok, partial or failed in CW's words; a partial run of a settings change
---    keeps the first day it left in from_day: the next run goes on from there). Never deleted.
+--  * gp_run: each run of bin/gp_fees.php and each spread (what it did, ok, partial or failed in CW's words; a partial run keeps the days it
+--    left in left_days: the next run goes over them). Never deleted.
 --  * profit_day gets three figures (ADD COLUMN, ALGORITHM = INSTANT: no copy): gp_fee (the card fees on the day's orders), gp_fee_est (the
 --    part of gp_fee still estimated) and gp_other (an invoice's charge on no order).
 --  * The settings (Settings > Profit, each change kept with its history): per account (vpg_online: Vape and Go Online, which also takes Vape
@@ -145,6 +145,7 @@ CREATE TABLE IF NOT EXISTS gp_run (
   to_day        DATE            NULL,
   state         ENUM('running','ok','partial','failed') NOT NULL DEFAULT 'running' COMMENT 'partial: it left days or invoices for the next run (never a good run)',
   sig           CHAR(16)        NULL COMMENT 'the account''s first day, last day and shops it ran with (another later: its days are gone over again)',
+  left_days     JSON            NULL COMMENT 'the days it left (a guard held, its deadline): the next run with the same settings goes over them',
   orders_read   INT UNSIGNED    NOT NULL DEFAULT 0,
   rows_written  INT UNSIGNED    NOT NULL DEFAULT 0,
   pence_before  BIGINT          NOT NULL DEFAULT 0,
@@ -155,7 +156,8 @@ CREATE TABLE IF NOT EXISTS gp_run (
   finished_at   DATETIME(6)     NULL,
   PRIMARY KEY (id),
   KEY ix_gp_run_account (account, kind, state, id),
-  CONSTRAINT ck_gp_run_row CHECK ((state = 'running') = (finished_at IS NULL) AND (state = 'failed' OR error IS NULL))
+  CONSTRAINT ck_gp_run_row CHECK ((state = 'running') = (finished_at IS NULL) AND (state = 'failed' OR error IS NULL)
+    AND (left_days IS NULL OR JSON_TYPE(left_days) = 'ARRAY'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='a run of bin/gp_fees.php or a spread of an invoice (docs/decisions.md GPF): never deleted';
 

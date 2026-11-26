@@ -741,8 +741,14 @@ final class OrderSnapshots
         $override = array_change_key_case($override, CASE_LOWER);
         // The day guards first (ProfitDays::guard: before any row of the order, the lock order a rebuild keeps too): the day the order counted
         // on (only this order's writer, holding its guard, changes it) and the day it counts on now.
-        $oldDay = $db->value('SELECT day FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$channelId, $ref]);
+        $cur = $db->one('SELECT day, gateway FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$channelId, $ref]);
+        $oldDay = $cur['day'] ?? null;
         $newDay = $body['paid_at'] === null ? null : ReportRefresh::ukDay((string) $body['paid_at']);
+        // A card order (before or now): Global Payments' first days held before its day guards (0084; the check of 513fa3d, M4), so a snapshot that
+        // waits for one being saved holds no guard of its day meanwhile (the other orders of the day go on); the card fee reads them under it.
+        if (($body['gateway'] ?? null) === GpFees::GATEWAY || ($cur['gateway'] ?? null) === GpFees::GATEWAY) {
+            GpFees::holdFirstDays($db);
+        }
         ProfitDays::guard($db, $channelId, array_values(array_filter([$oldDay === null ? null : (string) $oldDay, $newDay], static fn (?string $d): bool => $d !== null)));
         $old = $db->one('SELECT * FROM sale_order WHERE channel_id = ? AND order_ref = ? FOR UPDATE', [$channelId, $ref]);
         if ($old !== null) {

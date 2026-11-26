@@ -11093,9 +11093,7 @@ final class Words
         'gp_f_note' => 'Note',
         'gp_f_use_rate' => 'Use its rate for the next estimates',
         'gp_f_gap_ok' => 'I checked: the figures are right',
-        'gp_f_current_ok' => 'Yes, it is this month\'s invoice (the month is still running)',
-        'gp_current_month' => 'That month is still running: Global Payments sends a month\'s invoice early the month after. Check the month, then tick that it is this '
-            . 'month\'s invoice.',
+        'gp_current_month' => 'That month is still running: Global Payments sends a month\'s invoice early the month after it ends. Enter it then.',
         'gp_gap' => 'CW\'s card takings of that month are %s; the invoice says %s. Check the month and the account, then tick that the figures are right.',
         'gp_hint_net' => 'What counts in the profit (its VAT, if any, can be claimed back).',
         'gp_save' => 'Save the invoice',

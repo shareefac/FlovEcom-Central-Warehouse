@@ -116,11 +116,8 @@ $today = \CW\Profit\ProfitViews::today();
   <p class="note" role="status"><?= $say('PROFIT', 'gp_gap', $gbp((int) $gap['cw']), $gbp((int) $gap['sales'])) ?></p>
   <label class="choice"><input type="checkbox" name="gap_ok" value="1" aria-invalid="true"> <?= $word('PROFIT', 'gp_f_gap_ok') ?></label>
 <?php endif; ?>
-<?php if ($current || $t['current_ok'] === '1'): ?>
 <?php if ($current): ?>
   <p class="note" role="status"><?= $word('PROFIT', 'gp_current_month') ?></p>
-<?php endif; ?>
-  <label class="choice"><input type="checkbox" name="current_ok" value="1"<?php if ($t['current_ok'] === '1'): ?> checked<?php endif; ?><?php if ($current): ?> aria-invalid="true"<?php endif; ?>> <?= $word('PROFIT', 'gp_f_current_ok') ?></label>
 <?php endif; ?>
   <p class="actions"><button type="submit" class="btn primary"><?= $word('PROFIT', 'gp_save') ?></button></p>
 </form>
