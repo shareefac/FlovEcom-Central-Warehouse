@@ -63,40 +63,14 @@ exit(Cli::main('item_owner_set', ['items:', 'from:', 'reason:', 'bill:', 'bill-l
         $bill = null;
         $bills = [];
         try {
-            $db->transaction(function () use ($db, $owners, $caller, $skus, $opts, $shop, $apply, $billLines, &$out, &$bill, &$bills): void {
-                $codes = [];
-                foreach (array_chunk($skus, 1000) as $chunk) {
-                    foreach ($db->all('SELECT id, code FROM sku WHERE id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')', $chunk) as $r) {
-                        $codes[(int) $r['id']] = (string) $r['code'];
-                    }
-                }
-                // The items' rows in id order (the final review of 2d13f32, Fable L16: every other reader locks them so; never a deadlock with a
-                // sale of two of them).
-                $sorted = $skus;
-                sort($sorted);
-                foreach ($sorted as $sku) {
-                    // An item already marked is "already" only when its open period is exactly the one asked for: this shop, from this very
-                    // start (the final review, M13): read under the item's row; another start (marked by hand meanwhile) refuses the whole run.
-                    $db->one('SELECT id FROM sku WHERE id = ? FOR UPDATE', [$sku]);
-                    $open = $db->one('SELECT channel_id, from_at FROM item_owner WHERE sku_id = ? AND to_at IS NULL', [$sku]);
-                    if ($open !== null) {
-                        if ((int) $open['channel_id'] !== $shop['id'] || substr((string) $open['from_at'], 0, 19) !== (string) $opts['from']) {
-                            throw new CwException('own_item_conflict', "{$codes[$sku]} is marked already from " . substr((string) $open['from_at'], 0, 19)
-                                . ($open['channel_id'] === null || (int) $open['channel_id'] === $shop['id'] ? '' : ' for another shop')
-                                . ", not from {$opts['from']}: nothing written (end that period on Settings > Own items, or run with its start)", 409);
-                        }
-                        $out['already']++;
-                        continue;
-                    }
-                    $owners->add($caller, $codes[$sku], (string) $opts['reason'], (string) $opts['from']);
-                    $out['added']++;
-                }
-                if (is_string($opts['bill'] ?? null)) {
-                    $bill = $owners->markBill($caller, (string) $opts['bill'], true, $billLines === null ? null : $skus, $billLines);
-                }
-                // Every OTHER final bill of these items made since the start (the final review, H2), under their rows: one of only their goods
-                // becomes the shop's own bill (with its credit notes); one that mixes them with ours refuses the whole run.
-                $bills = $owners->reconcileBills($caller, $skus, (string) $opts['from']);
+            $db->transaction(function () use ($owners, $caller, $skus, $opts, $apply, $billLines, &$out, &$bill, &$bills): void {
+                // the items' rows in id order, each marked or "already" at this very start, the bill, every other bill of them since
+                // (ItemOwners::markItems: the one marking the go-live kit's run makes too)
+                $r = $owners->markItems($caller, $skus, (string) $opts['from'], (string) $opts['reason'], is_string($opts['bill'] ?? null) ? (string) $opts['bill'] : null,
+                    $billLines);
+                $out = ['added' => $r['added'], 'already' => $r['already']];
+                $bill = $r['bill'];
+                $bills = $r['bills'];
                 if (!$apply) {
                     throw new ItemOwnerSetDryRun('dry run');
                 }

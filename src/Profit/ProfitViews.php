@@ -265,40 +265,102 @@ final class ProfitViews
             $where[] = 'o.channel_id = ?';
             $params[] = $store;
         }
-        // Counted on the first page only (the next pages carry no count: the Codex review of 57d98ad, c2); the lowest margin first counts the
-        // orders it can show, those with a margin (the second final review of 3c31d94, b-L1, c-L2, PR147: it counted the replacements too).
-        // CW-1153 (VB11): an order of nothing but the selling shop's own goods has no margin of ours: never in "the lowest margin first"
-        $ownOnly = ' AND NOT (o.own_units > 0 AND o.own_units = o.units)';
-        $total = $after === null ? (int) $this->db->value('SELECT COUNT(*) FROM sale_order o WHERE ' . implode(' AND ', $where) . ($lowest ? ' AND o.margin_bp IS NOT NULL' . $ownOnly : ''),
-            $params) : null;
-        $hint = '';
         if ($lowest) {
-            // The period's orders sorted (its paid-time index bounds them; the period is at most LOWEST_MAX_DAYS), never the whole history in
-            // margin order.
-            $hint = ' USE INDEX (ix_sale_order_paid, ix_sale_order_store_paid)';
-            $where[] = 'o.margin_bp IS NOT NULL';
-            $where[] = ltrim(substr($ownOnly, 5));
-            if ($after !== null) {
-                $where[] = '(o.margin_bp, o.channel_id, o.order_ref) > (?, ?, ?)';
-                array_push($params, (int) $after[0], $after[1], $after[2]);
-            }
-            $order = 'o.margin_bp, o.channel_id, o.order_ref';
-        } else {
-            if ($after !== null) {
-                $where[] = '(o.paid_at, o.channel_id, o.order_ref) < (?, ?, ?)';
-                array_push($params, $after[0], $after[1], $after[2]);
-            }
-            $order = 'o.paid_at DESC, o.channel_id DESC, o.order_ref DESC';
+            return $this->lowestMargin($cols, $where, $params, $after, $chain);
         }
+        // Counted on the first page only (the next pages carry no count: the Codex review of 57d98ad, c2).
+        $total = $after === null ? (int) $this->db->value('SELECT COUNT(*) FROM sale_order o WHERE ' . implode(' AND ', $where), $params) : null;
+        $hint = '';
+        if ($after !== null) {
+            $where[] = '(o.paid_at, o.channel_id, o.order_ref) < (?, ?, ?)';
+            array_push($params, $after[0], $after[1], $after[2]);
+        }
+        $order = 'o.paid_at DESC, o.channel_id DESC, o.order_ref DESC';
         $rows = $this->db->all("SELECT {$cols} FROM sale_order o{$hint} JOIN channel c ON c.id = o.channel_id WHERE " . implode(' AND ', $where) . " ORDER BY {$order} LIMIT "
             . (self::PAGE + 1), $params);
         $next = null;
         if (count($rows) > self::PAGE) {
             $rows = array_slice($rows, 0, self::PAGE);
             $last = $rows[self::PAGE - 1];
-            $next = [$lowest ? (string) $last['margin_bp'] : (string) $last['paid_at'], (int) $last['channel_id'], (string) $last['order_ref']];
+            $next = [(string) $last['paid_at'], (int) $last['channel_id'], (string) $last['order_ref']];
         }
         return ['rows' => array_map(self::orderRow(...), $chain($rows)), 'total' => $total, 'next' => $next];
+    }
+
+    /**
+     * "The lowest margin first" (CW-1153, the last Codex check of a46cc3d, M12): the orders listed, counted, ordered and paged by the margin each
+     * row SHOWS (orderRow(): ours when the order holds any of the selling shop's own goods, else the stored one, which is the same), never by the
+     * whole order's: an order with no margin of ours (nothing but the shop's own goods, a unit of ours with no price) is left out, an order whose
+     * own line has no price is in by ours. An order with no re-sends: that margin worked out in SQL from its own row (ours = the whole less the
+     * shop's own part, rounded as ProfitMath::marginBp), keyset-paged on the period's paid-time index (the period is at most LOWEST_MAX_DAYS);
+     * an order with re-sends (a few): by orderRow() itself from its chain; the two merged in (margin, store, ref) order.
+     *
+     * @param list<string> $where
+     * @param list<mixed> $params
+     * @param array{0: string, 1: int, 2: string}|null $after
+     * @return array{rows: list<array<string, mixed>>, total: ?int, next: ?array{0: string, 1: int, 2: string}}
+     */
+    private function lowestMargin(string $cols, array $where, array $params, ?array $after, \Closure $chain): array
+    {
+        $ownGoods = '(o.own_sale_ex - o.own_refund_ex)';
+        $any = "(o.own_units <> 0 OR {$ownGoods} <> 0 OR o.own_cost <> 0 OR o.own_no_cost <> 0)";
+        $goods = "(o.sale_ex - {$ownGoods})";
+        $profit = "({$goods} - (o.cost - o.own_cost) - o.resend_cost)";
+        $waiting = '(SELECT COUNT(*) FROM sale_line l WHERE l.channel_id = o.channel_id AND l.order_ref = o.order_ref AND l.cost_source IS NULL AND l.removed_at IS NULL '
+            . 'AND l.units > 0 AND l.restocked = 0 AND l.item_owner IS NULL)';
+        $shown = "CASE WHEN NOT {$any} THEN o.margin_bp WHEN o.units_no_cost - o.own_no_cost > 0 OR {$goods} <= 0 OR {$waiting} > 0 THEN NULL "
+            . "ELSE SIGN({$profit}) * ((ABS({$profit}) * 20000 + {$goods}) DIV (2 * {$goods})) END";
+        $hint = ' USE INDEX (ix_sale_order_paid, ix_sale_order_store_paid)';
+        $plain = implode(' AND ', [...$where, 'o.resends = 0']);
+        $total = $after === null ? (int) $this->db->value("SELECT COUNT(*) FROM (SELECT {$shown} AS shown_bp FROM sale_order o{$hint} WHERE {$plain}) t WHERE t.shown_bp IS NOT NULL",
+            $params) : null;
+        $having = 'shown_bp IS NOT NULL' . ($after === null ? '' : ' AND (shown_bp, channel_id, order_ref) > (?, ?, ?)');
+        $keys = $this->db->all("SELECT o.channel_id, o.order_ref, {$shown} AS shown_bp FROM sale_order o{$hint} WHERE {$plain} HAVING {$having} "
+            . 'ORDER BY shown_bp, o.channel_id, o.order_ref LIMIT ' . (self::PAGE + 1), [...$params, ...($after === null ? [] : [(int) $after[0], (int) $after[1], $after[2]])]);
+        $plainRows = [];
+        if ($keys !== []) {
+            $pairs = implode(', ', array_fill(0, count($keys), '(?, ?)'));
+            foreach ($this->db->all("SELECT {$cols} FROM sale_order o JOIN channel c ON c.id = o.channel_id WHERE (o.channel_id, o.order_ref) IN ({$pairs})",
+                array_merge(...array_map(static fn (array $k): array => [(int) $k['channel_id'], (string) $k['order_ref']], $keys))) as $r) {
+                $plainRows[$r['channel_id'] . ':' . strtolower((string) $r['order_ref'])] = $r;
+            }
+        }
+        // the orders with re-sends: their shown margin is orderRow()'s, read from their chain
+        $cmp = static fn (array $a, array $b): int => [$a[0], $a[1]] <=> [$b[0], $b[1]] ?: strcasecmp($a[2], $b[2]);
+        $resent = [];
+        foreach (array_map(self::orderRow(...), $chain($this->db->all("SELECT {$cols} FROM sale_order o{$hint} JOIN channel c ON c.id = o.channel_id WHERE "
+            . implode(' AND ', [...$where, 'o.resends > 0']), $params))) as $row) {
+            if ($row['margin_bp'] === null || ($after !== null && $cmp([$row['margin_bp'], $row['store_id'], $row['ref']], [(int) $after[0], (int) $after[1], $after[2]]) <= 0)) {
+                continue;
+            }
+            $resent[] = [$row['margin_bp'], $row['store_id'], $row['ref'], $row];
+        }
+        if ($total !== null) {
+            $total += count($resent);
+        }
+        $all = [];
+        foreach ($keys as $k) {
+            $r = $plainRows[$k['channel_id'] . ':' . strtolower((string) $k['order_ref'])] ?? null;
+            if ($r !== null) {
+                $all[] = [(int) $k['shown_bp'], (int) $k['channel_id'], (string) $k['order_ref'], $r];
+            }
+        }
+        $all = [...$all, ...$resent];
+        usort($all, $cmp);
+        $all = array_slice($all, 0, self::PAGE + 1);
+        $next = null;
+        if (count($all) > self::PAGE) {
+            $all = array_slice($all, 0, self::PAGE);
+            $last = $all[self::PAGE - 1];
+            $next = [(string) $last[0], $last[1], $last[2]];
+        }
+        $plainOut = array_map(self::orderRow(...), $chain(array_values(array_filter(array_column($all, 3), static fn (array $r): bool => !isset($r['store_id'])))));
+        $rows = [];
+        $i = 0;
+        foreach ($all as $x) {
+            $rows[] = isset($x[3]['store_id']) ? $x[3] : $plainOut[$i++];
+        }
+        return ['rows' => $rows, 'total' => $total, 'next' => $next];
     }
 
     /**

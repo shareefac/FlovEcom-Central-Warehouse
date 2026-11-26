@@ -40,7 +40,8 @@ final class RecostSales
     /**
      * @param list<string> $sources
      * @return array{orders: int, lines: int, moves: array<string, int>, deferred: int, pending: int} deferred: orders left because a newer
-     *         snapshot waits for the money job (run again after it); pending (CW-1153, the final review, H9): lines of these sources left because
+     *         snapshot waits for the money job (run again after it; with --apply also an order with nothing left to write, read under its guard:
+     *         the last Codex check of a46cc3d, H5); pending (CW-1153, the final review, H9): lines of these sources left because
      *         the cost job has not reached their paid time (a correction can move a fixed line's paid time past it): counted, never passed over
      *         silently (run the cost job, then this again)
      */
@@ -80,26 +81,32 @@ final class RecostSales
             // What would move, read now (the dry run's figures); written under the order's locks from what is stored THEN (a line an import
             // fixed meanwhile is no longer of these sources and is left alone: the Codex review of 92efa82, a11/b11).
             $p = $plan($this->db);
-            if ($p !== null && $p['override'] === [] && $p['pending'] > 0) {
-                $out['pending'] += $p['pending'];
+            if ($p === null) {
+                continue;
             }
-            if ($p === null || $p['override'] === []) {
+            if (!$apply && $p['override'] === []) {
+                $out['pending'] += $p['pending'];
                 continue;
             }
             if ($apply) {
                 // What was really written, worked out again under the order's locks (the Codex check of c48683e: never the plan read before).
+                // Also when nothing is left to write (the last Codex check of a46cc3d, H5): under the order's guard recompute() says a newer snapshot
+                // waiting in the queue (`deferred`: it could move the payment across a receipt, and its money work keeps a fixed cost), and the
+                // lines left for the cost job are those of the plan worked out THERE (a correction applied since the read above may leave only them).
                 $done = null;
+                $locked = null;
                 // With $skuIds every line it does not name keeps its stored row exactly (the Codex review of bd9104d, H4: never the replay's cost
                 // of an unlisted line whose paid time the cost job has reached since).
-                $wrote = $service->recompute($ch, $ref, static function (Db $db) use ($plan, &$done): ?array {
-                    $again = $plan($db);
-                    $done = $again === null || $again['override'] === [] ? null : $again;
-                    return $done === null ? null : $again['override'];
+                $wrote = $service->recompute($ch, $ref, static function (Db $db) use ($plan, &$done, &$locked): ?array {
+                    $locked = $plan($db);
+                    $done = $locked === null || $locked['override'] === [] ? null : $locked;
+                    return $done === null ? null : $locked['override'];
                 }, $skuIds !== null);
                 // Counted only when recompute() says it committed: a change rolled back at its commit (a snapshot of the order stored meanwhile)
                 // is left for later, `deferred`, whatever the function worked out (the second final review of 3c31d94, a-M6, b-M7, c-M4, PR136).
                 if (!$wrote || $done === null) {
                     $out['deferred'] += $service->deferred ? 1 : 0;
+                    $out['pending'] += !$service->deferred && $locked !== null ? $locked['pending'] : 0;
                     continue;
                 }
                 $p = $done;

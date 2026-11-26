@@ -419,6 +419,100 @@ final class ItemOwners
     }
 
     /**
+     * The go-live kit's marking (bin/item_owner_set.php, and the kit's one marking-and-prices run; docs/decisions.md VB4, VB7), in ONE
+     * transaction (the caller's when it has one): the items' rows FOR UPDATE in id order (every other reader locks them so: the final review of
+     * 2d13f32, Fable L16); each item marked as the setting's shop's own from $from, or "already" when its open period is exactly that (this shop,
+     * this very start: M13; any other start refuses the whole run, own_item_conflict); with $bill that final bill marked as the shop's own bill
+     * (markBill(), its goods lines pinned with $billLines: M16); then every OTHER final bill of these items made since $from (reconcileBills():
+     * one of only their goods becomes the shop's own, a mixed one refuses the whole run: H2). Nothing is refreshed here: the caller refreshes the
+     * reorder lines after its commit (refreshReorder()).
+     *
+     * @param list<int> $skus
+     * @return array{added: int, already: int, bill: array{document_id: int, number: string, channel_id: int, lines: int, changed: bool, credits: int}|null, bills: list<string>}
+     */
+    public function markItems(Caller $caller, array $skus, string $from, string $reason, ?string $bill = null, ?int $billLines = null): array
+    {
+        return $this->db->transaction(function (Db $db) use ($caller, $skus, $from, $reason, $bill, $billLines): array {
+            $shop = self::shop($db) ?? throw new CwException('no_own_items_shop', 'the setting "' . self::SETTING . '" names no shop', 409);
+            $sorted = array_values(array_unique(array_map('intval', $skus)));
+            sort($sorted);
+            $codes = [];
+            foreach (array_chunk($sorted, 1000) as $chunk) {
+                foreach ($db->all('SELECT id, code FROM sku WHERE id IN (' . self::marks($chunk) . ') ORDER BY id FOR UPDATE', $chunk) as $r) {
+                    $codes[(int) $r['id']] = (string) $r['code'];
+                }
+            }
+            $out = ['added' => 0, 'already' => 0, 'bill' => null, 'bills' => []];
+            foreach ($sorted as $sku) {
+                if (!isset($codes[$sku])) {
+                    throw new CwException('unknown_item', "there is no item {$sku}", 422);
+                }
+                $open = $db->one('SELECT channel_id, from_at FROM item_owner WHERE sku_id = ? AND to_at IS NULL', [$sku]);
+                if ($open !== null) {
+                    if ((int) $open['channel_id'] !== $shop['id'] || substr((string) $open['from_at'], 0, 19) !== substr($from, 0, 19)) {
+                        throw new CwException('own_item_conflict', "{$codes[$sku]} is marked already from " . substr((string) $open['from_at'], 0, 19)
+                            . ((int) $open['channel_id'] === $shop['id'] ? '' : ' for another shop')
+                            . ', not from ' . substr($from, 0, 19) . ': nothing written (end that period on Settings > Own items, or run with its start)', 409);
+                    }
+                    $out['already']++;
+                    continue;
+                }
+                $this->add($caller, $codes[$sku], $reason, $from);
+                $out['added']++;
+            }
+            if ($bill !== null) {
+                $out['bill'] = $this->markBill($caller, $bill, true, $billLines === null ? null : $sorted, $billLines);
+            }
+            $out['bills'] = $this->reconcileBills($caller, $sorted, $from);
+            return $out;
+        });
+    }
+
+    /**
+     * CW-1153 (the last Codex check of a46cc3d, H4): every way a sale of ANOTHER shop than $shopId could read these items' price history, counted
+     * before the go-live kit changes it (the owner's start prices): a change of the history must reach Vape Big's own sales only. A plain read:
+     * the caller holds the items' rows FOR UPDATE (a reservation, a link and a sale's owner read them FOR SHARE first, so none passes unseen).
+     *  lines         its sale lines of these items whose order was paid at or after $fromAt (the marks' start)
+     *  unpriced      its sale lines of these items with no cost fixed yet, whenever paid (the cost job would read the changed history)
+     *  queued        its orders waiting in the money job's queue whose snapshot names one of these items: a line whose listing is linked to one,
+     *                or a unit reserved of one (a shipped unit keeps its item after an unlink)
+     *  reservations  its units reserved of these items (held, allocated or shipped) whose line has no cost fixed yet
+     *  links         its listings linked to one of these items (O1)
+     *
+     * @param list<int> $skuIds
+     * @return array{lines: int, unpriced: int, queued: int, reservations: int, links: int}
+     */
+    public static function otherShopUse(Db $db, array $skuIds, int $shopId, string $fromAt): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $skuIds)));
+        $out = ['lines' => 0, 'unpriced' => 0, 'queued' => 0, 'reservations' => 0, 'links' => 0];
+        if ($ids === []) {
+            return $out;
+        }
+        $from = strlen($fromAt) === 19 ? $fromAt . '.000000' : $fromAt;
+        $in = self::marks($ids);
+        $out['lines'] = (int) $db->value('SELECT COUNT(*) FROM sale_line l JOIN sale_order o ON o.channel_id = l.channel_id AND o.order_ref = l.order_ref '
+            . "WHERE l.channel_id <> ? AND l.sku_id IN ({$in}) AND l.removed_at IS NULL AND o.paid_at >= ?", [$shopId, ...$ids, $from]);
+        $out['unpriced'] = (int) $db->value("SELECT COUNT(*) FROM sale_line WHERE channel_id <> ? AND sku_id IN ({$in}) AND removed_at IS NULL AND cost_source IS NULL",
+            [$shopId, ...$ids]);
+        $out['reservations'] = (int) $db->value('SELECT COUNT(*) FROM reservation_unit u WHERE u.channel_id <> ? AND u.sku_id IN (' . $in . ") AND u.state IN ('held', 'allocated', 'shipped') "
+            . 'AND NOT EXISTS (SELECT 1 FROM sale_line l WHERE l.channel_id = u.channel_id AND l.line_id = u.unit_id AND l.cost_source IS NOT NULL AND l.removed_at IS NULL)',
+            [$shopId, ...$ids]);
+        $out['links'] = (int) $db->value("SELECT COUNT(*) FROM channel_listing WHERE channel_id <> ? AND sku_id IN ({$in}) AND status IN ('mapped', 'quarantined')", [$shopId, ...$ids]);
+        $wanted = array_fill_keys($ids, true);
+        foreach ($db->all("SELECT q.channel_id, q.order_ref, JSON_EXTRACT(q.body, '$.lines[*].variant_id') AS variants FROM order_snapshot_queue q WHERE q.channel_id <> ?",
+            [$shopId]) as $q) {
+            $variants = array_values(array_unique(array_map('strval', (array) (json_decode((string) ($q['variants'] ?? 'null'), true) ?? []))));
+            $named = $variants !== [] && array_filter(array_map('intval', $db->column('SELECT sku_id FROM channel_listing WHERE channel_id = ? AND sku_id IS NOT NULL '
+                . 'AND external_variant_id IN (' . self::marks($variants) . ')', [(int) $q['channel_id'], ...$variants])), static fn (int $s): bool => isset($wanted[$s])) !== [];
+            $named = $named || $db->value('SELECT 1 FROM reservation r JOIN reservation_unit u ON u.reservation_id = r.id WHERE r.channel_id = ? AND r.order_ref = ? '
+                . "AND u.sku_id IN ({$in}) LIMIT 1", [(int) $q['channel_id'], (string) $q['order_ref'], ...$ids]) !== null;
+            $out['queued'] += $named ? 1 : 0;
+        }
+        return $out;
+    }
+
+    /**
      * The item's stored reorder line worked out again after its mark changed (VB16: a shop's own item is never suggested), after the mark's
      * commit and on its own. A failure here never undoes the mark: the reorder job of every night works every line out again.
      *
