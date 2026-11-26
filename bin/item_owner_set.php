@@ -9,7 +9,10 @@ declare(strict_types=1);
  * changes nothing). With --bill=<number> also marks that final supplier invoice as the shop's own bill (ItemOwners::markBill: every goods line's
  * item that shop's own at its posting time, else refused; its credit notes made final go with it). With --bill-lines=<n> (the go-live kit; the
  * Codex review of bd9104d, M16) the bill must have exactly n goods lines, each an item of --items, checked under the bill's row (else refused,
- * bill_not_pinned). Without --apply: everything is worked out and ROLLED BACK.
+ * bill_not_pinned). Every OTHER final bill holding any of these items made since --from is enumerated under their rows (the final review,
+ * H2): one of only their goods becomes the shop's own bill too (with its credit notes); one that mixes them with ours refuses the whole run
+ * (bills_mixed, named). An item already marked counts as "already" only when its open period is this shop's from this very --from (M13);
+ * else the whole run is refused (own_item_conflict). Without --apply: everything is worked out and ROLLED BACK.
  *
  *   php bin/item_owner_set.php --items=<file> --from='YYYY-MM-DD HH:MM:SS' --reason='...' [--bill=SINV-000627 [--bill-lines=8]] [--apply]
  *
@@ -58,17 +61,30 @@ exit(Cli::main('item_owner_set', ['items:', 'from:', 'reason:', 'bill:', 'bill-l
         $shop = ItemOwners::shop($db) ?? throw new InvalidArgumentException('the setting ' . ItemOwners::SETTING . ' names no shop');
         $out = ['added' => 0, 'already' => 0];
         $bill = null;
+        $bills = [];
         try {
-            $db->transaction(function () use ($db, $owners, $caller, $skus, $opts, $shop, $apply, $billLines, &$out, &$bill): void {
+            $db->transaction(function () use ($db, $owners, $caller, $skus, $opts, $shop, $apply, $billLines, &$out, &$bill, &$bills): void {
                 $codes = [];
                 foreach (array_chunk($skus, 1000) as $chunk) {
                     foreach ($db->all('SELECT id, code FROM sku WHERE id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')', $chunk) as $r) {
                         $codes[(int) $r['id']] = (string) $r['code'];
                     }
                 }
-                foreach ($skus as $sku) {
-                    $open = $db->one('SELECT channel_id, from_at FROM item_owner WHERE sku_id = ? AND to_at IS NULL', [$sku]); // add() checks again under the item's row
-                    if ($open !== null && (int) $open['channel_id'] === $shop['id']) {
+                // The items' rows in id order (the final review of 2d13f32, Fable L16: every other reader locks them so; never a deadlock with a
+                // sale of two of them).
+                $sorted = $skus;
+                sort($sorted);
+                foreach ($sorted as $sku) {
+                    // An item already marked is "already" only when its open period is exactly the one asked for: this shop, from this very
+                    // start (the final review, M13): read under the item's row; another start (marked by hand meanwhile) refuses the whole run.
+                    $db->one('SELECT id FROM sku WHERE id = ? FOR UPDATE', [$sku]);
+                    $open = $db->one('SELECT channel_id, from_at FROM item_owner WHERE sku_id = ? AND to_at IS NULL', [$sku]);
+                    if ($open !== null) {
+                        if ((int) $open['channel_id'] !== $shop['id'] || substr((string) $open['from_at'], 0, 19) !== (string) $opts['from']) {
+                            throw new CwException('own_item_conflict', "{$codes[$sku]} is marked already from " . substr((string) $open['from_at'], 0, 19)
+                                . ($open['channel_id'] === null || (int) $open['channel_id'] === $shop['id'] ? '' : ' for another shop')
+                                . ", not from {$opts['from']}: nothing written (end that period on Settings > Own items, or run with its start)", 409);
+                        }
                         $out['already']++;
                         continue;
                     }
@@ -78,13 +94,17 @@ exit(Cli::main('item_owner_set', ['items:', 'from:', 'reason:', 'bill:', 'bill-l
                 if (is_string($opts['bill'] ?? null)) {
                     $bill = $owners->markBill($caller, (string) $opts['bill'], true, $billLines === null ? null : $skus, $billLines);
                 }
+                // Every OTHER final bill of these items made since the start (the final review, H2), under their rows: one of only their goods
+                // becomes the shop's own bill (with its credit notes); one that mixes them with ours refuses the whole run.
+                $bills = $owners->reconcileBills($caller, $skus, (string) $opts['from']);
                 if (!$apply) {
                     throw new ItemOwnerSetDryRun('dry run');
                 }
             });
         } catch (ItemOwnerSetDryRun) {
             $cli->log(sprintf('DRY RUN (everything rolled back): %d items would be marked as %s\'s own from %s, %d are already', $out['added'], $shop['name'],
-                $opts['from'], $out['already']) . ($bill === null ? '' : "; bill {$bill['number']} ({$bill['lines']} goods lines) would be the shop's own bill, with {$bill['credits']} credit notes"));
+                $opts['from'], $out['already']) . ($bill === null ? '' : "; bill {$bill['number']} ({$bill['lines']} goods lines) would be the shop's own bill, with {$bill['credits']} credit notes")
+                . '; other bills of these items made since: ' . ($bills === [] ? 'none' : implode(', ', $bills) . ' would be the shop\'s own'));
             $cli->log('ok');
             return Cli::OK;
         } catch (CwException $e) {
@@ -94,7 +114,7 @@ exit(Cli::main('item_owner_set', ['items:', 'from:', 'reason:', 'bill:', 'bill-l
         ItemOwners::refreshReorder($db, $skus);
         $cli->log(sprintf('APPLIED: %d items marked as %s\'s own from %s, %d were already', $out['added'], $shop['name'], $opts['from'], $out['already'])
             . ($bill === null ? '' : "; bill {$bill['number']} ({$bill['lines']} goods lines) is the shop's own bill (" . ($bill['changed'] ? 'marked now' : 'it was already')
-                . "; {$bill['credits']} credit notes with it)"));
+                . "; {$bill['credits']} credit notes with it)") . '; other bills of these items made since: ' . ($bills === [] ? 'none' : implode(', ', $bills) . ' now the shop\'s own'));
         $cli->log('ok');
         return Cli::OK;
     }, true, true));

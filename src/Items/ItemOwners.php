@@ -155,9 +155,12 @@ final class ItemOwners
     {
         return array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'code' => (string) $r['code'], 'name' => (string) $r['name'], 'shop' => (string) $r['shop'],
             'from_at' => (string) $r['from_at'], 'to_at' => $r['to_at'] === null ? null : (string) $r['to_at'], 'add_reason' => (string) $r['add_reason'],
-            'added_by' => (string) ($r['added_name'] ?? $r['added_actor']), 'added_at' => (string) $r['added_at'],
+            // a system tool (the go-live kit) is CW, never its system name (the final review, Fable L11b)
+            'added_by' => (string) ($r['added_name'] ?? (str_starts_with((string) $r['added_actor'], 'system:') ? \CW\Ui\Words::RECORD['by_cw'] : $r['added_actor'])),
+            'added_at' => (string) $r['added_at'],
             'remove_reason' => $r['remove_reason'] === null ? null : (string) $r['remove_reason'],
-            'removed_by' => $r['to_at'] === null ? null : (string) ($r['removed_name'] ?? $r['removed_actor'])],
+            'removed_by' => $r['to_at'] === null ? null : (string) ($r['removed_name']
+                ?? (str_starts_with((string) $r['removed_actor'], 'system:') ? \CW\Ui\Words::RECORD['by_cw'] : $r['removed_actor']))],
             $this->db->all('SELECT p.*, s.code, s.name, c.name AS shop, a.display_name AS added_name, r.display_name AS removed_name FROM item_owner p '
                 . 'JOIN sku s ON s.id = p.sku_id JOIN channel c ON c.id = p.channel_id LEFT JOIN staff_user a ON a.id = p.added_by LEFT JOIN staff_user r ON r.id = p.removed_by '
                 . 'ORDER BY COALESCE(p.to_at, p.added_at) DESC, p.id DESC LIMIT ' . max(1, min(1000, $limit))));
@@ -189,6 +192,9 @@ final class ItemOwners
         }
         $r = $this->db->transaction(function (Db $db) use ($caller, $code, $reason, $fromAt): array {
             ConfigHistory::authorise($db, $caller);
+            // The setting's row FOR SHARE to the end of this transaction (the final review of 2d13f32, M17): a change of the shop being written is
+            // waited for, and none can start (it counts the open marks under that row, Settings::checkRule) before this mark commits.
+            $db->one('SELECT setting_key FROM app_setting WHERE setting_key = ? FOR SHARE', [self::SETTING]);
             $shop = self::shop($db) ?? throw new CwException('no_own_items_shop', 'the setting "' . self::SETTING . '" names no shop', 409);
             $sku = $db->one('SELECT id, code, merged_into_sku_id FROM sku WHERE code = ? FOR UPDATE', [$code])
                 ?? throw new CwException('unknown_item', 'there is no item ' . mb_substr($code, 0, 16), 422, ['field' => 'code']);
@@ -225,6 +231,10 @@ final class ItemOwners
             return ['period_id' => $pid, 'sku_id' => $id, 'code' => (string) $sku['code'], 'channel_id' => $shop['id'], 'from_at' => $from];
         });
         self::refreshReorder($this->db, [$r['sku_id']]);
+        if ($fromAt === null) {
+            // a mark from now (a backdated one is the go-live tool's, which refreshes every sale of its items itself)
+            self::reconcileSales($this->db, (int) $r['sku_id'], (string) $r['from_at']);
+        }
         return $r;
     }
 
@@ -256,7 +266,39 @@ final class ItemOwners
             return ['period_id' => (int) $open['id'], 'sku_id' => $id, 'code' => (string) $sku['code'], 'to_at' => $now];
         });
         self::refreshReorder($this->db, [$r['sku_id']]);
+        self::reconcileSales($this->db, (int) $r['sku_id'], (string) $r['to_at']);
         return $r;
+    }
+
+    /** At most this many orders are put right after one mark or removal (more: item_owner_refresh does it; the nightly O3 says which). */
+    public const RECONCILE_MAX_ORDERS = 200;
+
+    /**
+     * The sales of the item already worked out whose paid time is at or after $at (a mark's start, a removal's end), after that change's commit
+     * and on its own (the final review of 2d13f32, M16): a shop's clock may stamp a sale up to Clock::MAX_AHEAD_SEC ahead of CW's, so a sale
+     * worked out just before the mark committed can be paid "after" its start. Each order's owners and own figures written again from its stored
+     * lines (OrderSnapshots::reown: no cost moves). Skipped inside a caller's transaction (the go-live tool, which refreshes every sale of its
+     * items itself) and never fails the change: what is left the nightly O3 reports and bin/item_owner_refresh.php puts right (docs/ops.md).
+     */
+    public static function reconcileSales(Db $db, int $sku, string $at): void
+    {
+        if ($db->inTransaction()) {
+            return;
+        }
+        try {
+            $orders = $db->all('SELECT DISTINCT o.channel_id, o.order_ref FROM sale_line l JOIN sale_order o ON o.channel_id = l.channel_id AND o.order_ref = l.order_ref '
+                . 'WHERE l.sku_id = ? AND o.paid_at >= ? ORDER BY o.channel_id, o.order_ref LIMIT ' . self::RECONCILE_MAX_ORDERS, [$sku, $at]);
+            $service = new \CW\Profit\OrderSnapshots($db);
+            foreach ($orders as $o) {
+                try {
+                    $service->reown((int) $o['channel_id'], (string) $o['order_ref']);
+                } catch (\Throwable) {
+                    // another money writer holds it: its own work reads the periods again (apply()), or the refresh does
+                }
+            }
+        } catch (\Throwable) {
+            // left to item_owner_refresh / the nightly O3
+        }
     }
 
     /**
@@ -328,6 +370,51 @@ final class ItemOwners
             }
             return ['document_id' => (int) $d['id'], 'number' => (string) $d['number'], 'channel_id' => $ch, 'lines' => count($goods), 'changed' => $changed,
                 'credits' => count($credits)];
+        });
+    }
+
+    /**
+     * Every final bill holding any of $skus made at or after $fromAt (the final review of 2d13f32, H2: a backdated mark covers bills made since
+     * its start; until now only the pinned bill was marked and a second one stayed payable by us), read under the bills' rows and the items'
+     * rows (the caller's transaction holds the items' rows FOR UPDATE: the go-live tool): one whose goods were all one shop's own items at its
+     * posting time becomes that shop's own bill, its credit notes made final with it (markBill()); one that mixes them with ours is refused
+     * (409 bills_mixed, naming every such bill: nothing of the caller's transaction is written). A copy of an ERPNext invoice is none's.
+     *
+     * @param list<int> $skuIds
+     * @return list<string> the bills made the shop's own now
+     */
+    public function reconcileBills(Caller $caller, array $skuIds, string $fromAt): array
+    {
+        if ($skuIds === []) {
+            return [];
+        }
+        $from = strlen($fromAt) === 19 ? $fromAt . '.000000' : $fromAt;
+        return $this->db->transaction(function (Db $db) use ($caller, $skuIds, $from): array {
+            $numbers = array_map('strval', $db->column("SELECT DISTINCT d.number FROM document d JOIN supplier_invoice si ON si.document_id = d.id "
+                . "JOIN document_line dl ON dl.document_id = d.id JOIN sinv_line sl ON sl.document_id = dl.document_id AND sl.line_no = dl.line_no AND sl.kind = 'goods' "
+                . "WHERE d.doc_type = 'SINV' AND d.status = 'posted' AND si.kind = 'invoice' AND si.item_owner IS NULL AND COALESCE(si.origin, 'cw') <> 'erpnext' "
+                . 'AND d.posted_at >= ? AND dl.sku_id IN (' . self::marks($skuIds) . ') ORDER BY d.number', [$from, ...$skuIds]));
+            $marked = [];
+            $mixed = [];
+            foreach ($numbers as $n) {
+                try {
+                    $r = $this->markBill($caller, $n, true);
+                    if ($r['changed']) {
+                        $marked[] = $n;
+                    }
+                } catch (CwException $e) {
+                    if ($e->errorCode !== 'bill_not_own') {
+                        throw $e;
+                    }
+                    $mixed[] = $n;
+                }
+            }
+            if ($mixed !== []) {
+                throw new CwException('bills_mixed', 'these final bills hold these items together with our goods (or goods that were not the shop\'s own when they were '
+                    . 'made final): ' . implode(', ', $mixed) . '. A bill is either the shop\'s own or ours: decide each before the mark (nothing written)', 409,
+                    ['bills' => $mixed]);
+            }
+            return $marked;
         });
     }
 
