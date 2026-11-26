@@ -305,11 +305,11 @@ final class GpFeesR1Test extends StockTestCase
         self::assertSame(['failed', 'abandoned: its process stopped before it finished'], array_map('strval', array_values(self::$db->one("SELECT state, error FROM gp_run "
             . "WHERE kind = 'nightly'") ?? [])), 'the next run marks it failed');
         self::assertGreaterThan(0, $d['vpg_online']['left'], 'its deadline passed at once: the days are left for the next run');
-        // not finished: partial, with the first day left (the final review of 7332729, M7: the next run goes on from it)
-        self::assertSame(['partial', '2026-11-01'], array_map('strval', array_values(self::$db->one("SELECT state, from_day FROM gp_run WHERE kind = 'job' "
-            . "AND account = 'vpg_online' ORDER BY id DESC LIMIT 1") ?? [])), 'not finished: its settings\' days are gone over again');
+        // not finished: partial, with the days left (the final review of 7332729, M7; the check of 513fa3d, H2: the next run goes over them)
+        $r = self::$db->one("SELECT state, CAST(left_days AS CHAR) AS l FROM gp_run WHERE kind = 'job' AND account = 'vpg_online' ORDER BY id DESC LIMIT 1") ?? [];
+        self::assertSame(['partial', '2026-11-01'], [(string) $r['state'], json_decode((string) $r['l'], true)[0] ?? null], 'not finished: its settings\' days are gone over again');
         (new GpFees(self::$db))->run(self::sys());
-        self::assertSame(['ok', ''], array_map('strval', array_values(self::$db->one("SELECT state, from_day FROM gp_run WHERE kind = 'job' "
+        self::assertSame(['ok', ''], array_map('strval', array_values(self::$db->one("SELECT state, left_days FROM gp_run WHERE kind = 'job' "
             . "AND account = 'vpg_online' ORDER BY id DESC LIMIT 1") ?? [])));
     }
 

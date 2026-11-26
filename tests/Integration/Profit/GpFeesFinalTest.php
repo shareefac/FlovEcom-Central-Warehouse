@@ -344,14 +344,16 @@ final class GpFeesFinalTest extends StockTestCase
             $other->exec('ROLLBACK');
         }
         self::assertGreaterThan(0, $d1['left'], 'a held day and the deadline: days left');
-        $r1 = self::$db->one("SELECT state, from_day FROM gp_run WHERE account = 'vpg_online' ORDER BY id DESC LIMIT 1") ?? [];
-        self::assertSame(['partial', '2026-11-02'], [(string) $r1['state'], (string) $r1['from_day']],
-            'not a good run: it says from which day the days still wait (its busy day first)');
-        $today = (new GpFees(self::$db))->today();
+        $r1 = self::$db->one("SELECT state, CAST(left_days AS CHAR) AS l FROM gp_run WHERE account = 'vpg_online' ORDER BY id DESC LIMIT 1") ?? [];
+        $left = json_decode((string) ($r1['l'] ?? 'null'), true);
+        self::assertSame('partial', (string) $r1['state'], 'not a good run');
+        self::assertIsArray($left);
+        self::assertSame('2026-11-02', $left[0] ?? null, 'it keeps the days still to go over, its busy day among them (the check of 513fa3d, H2: apart from the others)');
+        self::assertNotContains('2026-11-01', $left, 'the day it went over is not gone over again');
         $d2 = (new GpFees(self::$db))->run(self::sys())['vpg_online'];
-        self::assertSame(count(GpFees::range('2026-11-02', $today)), $d2['days'], 'resumed at that day, not at the account\'s first day');
-        $r2 = self::$db->one("SELECT state, from_day FROM gp_run WHERE account = 'vpg_online' ORDER BY id DESC LIMIT 1") ?? [];
-        self::assertSame(['ok', null], [(string) $r2['state'], $r2['from_day']]);
+        self::assertSame(count($left), $d2['days'], 'the next run goes over exactly those days, not from the account\'s first day');
+        $r2 = self::$db->one("SELECT state, left_days FROM gp_run WHERE account = 'vpg_online' ORDER BY id DESC LIMIT 1") ?? [];
+        self::assertSame(['ok', null], [(string) $r2['state'], $r2['left_days']]);
         self::assertSame(0, (new GpFees(self::$db))->run(self::sys())['vpg_online']['days'], 'then nothing to go over again');
         self::assertSame(['off', 'off', 'estimate'], [(string) self::row($vpg, '9100001')['state'], (string) self::row($vpg, '9100003')['state'],
             (string) self::row($vpg, '9100002')['state']]);

@@ -124,7 +124,8 @@ final class GpFeesScreensTest extends KernelUiTestCase
     }
     /**
      * The final review of 7332729: Codex M15 (the list's CW card takings are the invoice page's: Vape Big's card orders before its own first day
-     * are in them too) and Fable F5 (the form offers last month; the month still running needs its own tick).
+     * are in them too) and Fable F5; the check of 513fa3d, Fable FA4: the form offers last month, and the month still running is refused until
+     * it ends (no tick lets it in: its invoice would be spread again and again while its orders come in).
      */
     public function testTheListShowsTheInvoicesTakingsAndOffersLastMonth(): void
     {
@@ -138,19 +139,42 @@ final class GpFeesScreensTest extends KernelUiTestCase
         $nov = array_values(array_filter(self::rows($page, 'card-fees'), static fn (array $r): bool => $r[0] === '2026-11'))[0] ?? [];
         self::assertSame('£100.00', $nov[1] ?? null, 'Vape and Go\'s £50.00 and Vape Big\'s £50.00 before its own first day: what the invoice holds');
         self::assertSame(10000, \CW\Profit\GpInvoices::cwTakings(self::$db, 'vpg_online', '2026-11'));
-        $today = \CW\Profit\ProfitViews::today();
+        $today = \CW\Profit\GpInvoices::today();
         $running = substr($today, 0, 7);
-        $last = substr((new \DateTimeImmutable(substr($today, 0, 7) . '-01'))->modify('-1 day')->format('Y-m-d'), 0, 7);
+        $last = substr((new \DateTimeImmutable($running . '-01'))->modify('-1 day')->format('Y-m-d'), 0, 7);
         self::assertSame($last, $page->form('/ui/profit/card-fees/new')['month'] ?? null, 'last month by default: its invoice comes early this month');
         $form = ['account' => 'vpg_online', 'month' => $running, 'merchant_no' => '55829291', 'invoice_date' => $running . '-01', 'sales' => '100.00',
-            'net' => '1.00', 'vat' => '0.00', 'total' => '1.00', 'gap_ok' => '1'] + $page->form('/ui/profit/card-fees/new');
+            'net' => '1.00', 'vat' => '0.00', 'total' => '1.00', 'gap_ok' => '1', 'current_ok' => '1'] + $page->form('/ui/profit/card-fees/new');
         $r = $job->post('/ui/profit/card-fees/new', $form);
         self::assertSame(409, $r->status, $r->describe());
         self::assertStringContainsString(Words::PROFIT['gp_current_month'], $r->text());
-        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM gp_invoice'));
-        $r = $job->post('/ui/profit/card-fees/new', ['current_ok' => '1'] + $form + $r->form('/ui/profit/card-fees/new'));
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM gp_invoice'), 'no tick lets the running month in');
+        $r = $job->post('/ui/profit/card-fees/new', ['month' => $last, 'invoice_date' => $last . '-28'] + $form + $r->form('/ui/profit/card-fees/new'));
         self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM gp_invoice'));
+    }
+
+    /**
+     * The check of 513fa3d (Codex M3): a change refused for another reason (a reason too short) from a page opened before a colleague's
+     * correction comes back with the version it was typed on (or the invoice as it is now), never the new version beside the old figures: the
+     * second press is refused as changed meanwhile and the colleague's figures stay.
+     */
+    public function testAStaleChangeWithAWrongReasonNeverOverwrites(): void
+    {
+        $job = $this->signIn($this->uiUser('expenses'));
+        $inv = ['account' => 'vpg_online', 'month' => '2026-11', 'merchant_no' => '55829291', 'invoice_date' => '2026-11-30', 'sales' => '50.00', 'net' => '1.00',
+            'vat' => '0', 'total' => '1.00', 'note' => ''];
+        $id = (new \CW\Profit\GpInvoices(self::$db))->add(Caller::system('test'), $inv)['id'];
+        $mine = $job->get("/ui/profit/card-fees/{$id}")->form("/ui/profit/card-fees/{$id}/change");
+        (new \CW\Profit\GpInvoices(self::$db))->change(Caller::system('test'), $id, 1, ['net' => '2.00', 'total' => '2.00'] + $inv, 'a colleague corrected it');
+        $r = $job->post("/ui/profit/card-fees/{$id}/change", ['net' => '3.00', 'total' => '3.00', 'reason' => 'x'] + $mine);
+        self::assertGreaterThanOrEqual(400, $r->status, $r->describe());
+        $again = $r->form("/ui/profit/card-fees/{$id}/change");
+        self::assertTrue(($again['seen'] ?? null) === '1' || (($again['seen'] ?? null) === '2' && ($again['net'] ?? null) === '2.00'),
+            'the typed figures with the version they were typed on, or the invoice as it is now: ' . json_encode([$again['seen'] ?? null, $again['net'] ?? null]));
+        $r = $job->post("/ui/profit/card-fees/{$id}/change", ['reason' => 'from my old page'] + $again);
+        self::assertSame(200, (int) self::$db->value("SELECT SUM(fee_pence) FROM gp_fee_order WHERE state = 'actual'"), 'the colleague\'s £2.00 stays');
+        self::assertSame(2, (int) self::$db->value('SELECT version FROM gp_invoice WHERE id = ?', [$id]));
     }
 
     /**

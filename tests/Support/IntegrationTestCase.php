@@ -41,6 +41,11 @@ abstract class IntegrationTestCase extends TestCase
             . "WHEN 'profit.gp_shop_from_vapeandgo' THEN CAST('\"2026-11-01\"' AS JSON) WHEN 'profit.gp_shop_from_vapebig' THEN CAST('\"2026-12-01\"' AS JSON) "
             . "WHEN 'profit.gp_shop_from_electrofag' THEN CAST('\"2026-12-01\"' AS JSON) "
             . "ELSE CAST('\"\"' AS JSON) END WHERE setting_key LIKE 'profit.gp\\_%'");
+        // The card fees' invoice page reads 5 Dec 2026 as today (the check of 513fa3d, FA4: the month still running is refused, so the tests that
+        // enter November's invoice see November ended); a test that needs another day passes its own clock (a schema or code before the round: none).
+        if (property_exists(\CW\Profit\GpInvoices::class, 'testClock')) {
+            \CW\Profit\GpInvoices::$testClock = static fn (): \DateTimeImmutable => new \DateTimeImmutable('2026-12-05 12:00:00', \CW\Clock::utc());
+        }
         // "Claude reads the upload" (0082, AI7) starts back at its seeded state after a test that set it: off, no key, the month's limit and
         // the prices as seeded (a schema before 0082 has none of these rows: nothing changes).
         self::$db->exec("UPDATE app_setting SET value_json = CASE setting_key WHEN 'ai.read_uploads' THEN CAST('false' AS JSON) "
