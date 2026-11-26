@@ -122,10 +122,11 @@ final class OwnItemsLastCheckTest extends InvoicesTestCase
         self::assertSame($is(['links' => 1, 'reservations' => 1, 'queued' => 1]), $this->use($h), 'its first paid snapshot waits in the queue');
         $snaps->applyQueued();
         self::assertSame($is(['links' => 1, 'lines' => 1]), $this->use($h), 'worked out: a sale line paid since the start, its cost fixed (no price: none)');
-        // a sale there paid BEFORE the start whose cost the cost job has not fixed yet: it would read the history being changed
+        // a sale there paid BEFORE the start whose cost the cost job has not fixed yet: it would read the history being changed (a fresh
+        // service: one reads the cost job's mark once)
         self::$db->exec("UPDATE profit_job SET mark_at = '2026-11-05 00:00:00' WHERE job = 'item_cost'");
         $this->ok($this->commit($vpg, '9812', [self::line('50501', '8812')]));
-        $snaps->store((int) $vpg->channelId, '9812', self::raw('9812', [self::sl('8812', '50501', 599)], ['placed_at' => '2026-11-10T09:59:00Z',
+        (new OrderSnapshots(self::$db))->store((int) $vpg->channelId, '9812', self::raw('9812', [self::sl('8812', '50501', 599)], ['placed_at' => '2026-11-10T09:59:00Z',
             'paid_at' => '2026-11-10T10:00:00Z']), 'api');
         self::assertNull(self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = '8812'"));
         self::assertSame($is(['links' => 1, 'lines' => 1, 'unpriced' => 1, 'reservations' => 1]), $this->use($h));
