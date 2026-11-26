@@ -238,6 +238,9 @@ final class Sections
                 'new' => ['perm' => 'expenses.edit', 'href' => '/ui/profit/expenses/new', 'label' => 'profit_expenses']]]],
             'profit_regular' => ['pages' => [['perm' => 'expenses.view', 'path' => '/ui/profit/regular', 'match' => ['/ui/profit/regular', '/ui/profit/regular/*'],
                 'new' => ['perm' => 'expenses.edit', 'href' => '/ui/profit/regular/new', 'label' => 'profit_regular']]]],
+            // CW-1174 (0084; docs/decisions.md GPF12): Global Payments' card fees per account and month, and their invoices (Finance and the Expenses
+            // job look; the job enters them on the page itself).
+            'profit_card_fees' => ['pages' => [['perm' => 'expenses.view', 'path' => '/ui/profit/card-fees', 'match' => ['/ui/profit/card-fees', '/ui/profit/card-fees/*']]]],
         ]],
         // Settings: ONE entry for every settings page (no sub-items); each page one of its choices, the audit log last (docs/decisions.md RD7).
         'settings' => ['tabs' => [

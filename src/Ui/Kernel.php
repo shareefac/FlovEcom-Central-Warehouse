@@ -43,6 +43,7 @@ use CW\Ui\Controller\ReorderController;
 use CW\Ui\Controller\ProfitController;
 use CW\Ui\Controller\DeliveryBillsController;
 use CW\Ui\Controller\ExpensesController;
+use CW\Ui\Controller\GpFeesController;
 use CW\Ui\Controller\ExpenseTypesController;
 use CW\Ui\Controller\OwnItemsController;
 use CW\Ui\Controller\RegularCostsController;
@@ -686,6 +687,13 @@ final class Kernel
         $r->add('POST', RegularCostsController::PATH . '/{id}/change', ExpensesController::PERM_EDIT, $reg->change(...));
         $r->add('POST', RegularCostsController::PATH . '/{id}/amount', ExpensesController::PERM_EDIT, $reg->amount(...));
         $r->add('POST', RegularCostsController::PATH . '/{id}/delete', ExpensesController::PERM_EDIT, $reg->delete(...));
+        // CW-1174 (0084; docs/decisions.md GPF12): Profit > Card fees: Finance and the Expenses job look; the job enters, changes and deletes invoices.
+        $gpf = new GpFeesController();
+        $r->add('GET', GpFeesController::PATH, GpFeesController::PERM_VIEW, $gpf->list(...));
+        $r->add('POST', GpFeesController::PATH . '/new', GpFeesController::PERM_EDIT, $gpf->add(...));
+        $r->add('GET', GpFeesController::PATH . '/{id}', GpFeesController::PERM_VIEW, $gpf->show(...));
+        $r->add('POST', GpFeesController::PATH . '/{id}/change', GpFeesController::PERM_EDIT, $gpf->change(...));
+        $r->add('POST', GpFeesController::PATH . '/{id}/delete', GpFeesController::PERM_EDIT, $gpf->delete(...));
         $types = new ExpenseTypesController();
         $r->add('GET', ExpenseTypesController::PATH, 'reference.view', $types->index(...));
         $r->add('POST', ExpenseTypesController::PATH . '/add', 'settings.manage', $types->add(...));

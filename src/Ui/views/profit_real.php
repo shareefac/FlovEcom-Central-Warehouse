@@ -13,6 +13,7 @@ $lines = [
     ['real_delivery', 'delivery_cost', 'delivery'],
     ['real_fees', 'fees', null], // PayPal's (0080, PPF17) for a shop switched on; 0 for the others (the note says which)
     ['real_fees_other', 'fees_other', null], // of which on no CW order (fix round 1, the lead's decision 8): a part of the line above, not taken off again
+    ['real_gp', 'gp', 'gp'], // Global Payments' card fees (CW-1174, GPF11): estimated until the month's invoice is in, then the invoice's real charge
     ['real_expenses', 'expenses', 'expenses'],
     ['real_regular', 'regular', 'regular'],
     ['real_profit', 'real', null],
@@ -28,6 +29,8 @@ $later = array_values(array_filter($shops, static fn (array $s): bool => $s['cou
 // The shops whose PayPal fees are read (0080, PPF17: their first fee day set and reached in these days): their fees line is a figure; the others
 // keep the "not built yet" note.
 $feesOn = array_values(array_filter($shops, static fn (array $s): bool => $s['started'] && ($s['fees_from'] ?? null) !== null));
+// The shops whose Global Payments account is switched on (CW-1174, GPF11): their card fees line is a figure; "estimated" while any part is.
+$gpOn = array_values(array_filter($shops, static fn (array $s): bool => $s['started'] && ($s['gp_on'] ?? false)));
 ?>
 <?= $head(\CW\Ui\Words::MENU['profit_real'], intro: 'profit_real', aside: $explain('expenses', \CW\Ui\Words::MENU['profit_real'], [$vatPct])) ?>
 <?= $partial('profit_options', ['period' => $period, 'periods' => $periods, 'from' => $from, 'to' => $to, 'stores' => $stores, 'storeId' => $storeId, 'warn' => $warn]) ?>
@@ -53,14 +56,14 @@ $feesOn = array_values(array_filter($shops, static fn (array $s): bool => $s['st
   </thead>
   <tbody>
 <?php foreach ($lines as [$key, $field, $link]): ?>
-    <tr<?php if ($key === 'real_profit'): ?> class="rp-total"<?php elseif (($key === 'real_fees' || $key === 'real_fees_other') && $feesOn === []): ?> class="off"<?php elseif ($key === 'real_fees_other'): ?> class="muted"<?php endif; ?>>
+    <tr<?php if ($key === 'real_profit'): ?> class="rp-total"<?php elseif ((($key === 'real_fees' || $key === 'real_fees_other') && $feesOn === []) || ($key === 'real_gp' && $gpOn === [])): ?> class="off"<?php elseif ($key === 'real_fees_other'): ?> class="muted"<?php endif; ?>>
       <th scope="row"><?= $word('PROFIT', $key) ?></th>
 <?php foreach ($shops as $s): ?>
 <?php if (!$s['started']): ?>
       <td class="num muted" data-label="<?= $e($s['shop']) ?>"><?= $e($notStarted($s['from'])) ?></td>
 <?php else: ?>
 <?php $href = $link === null ? null : ($links[$s['shop_id']][$link] ?? null); ?>
-      <td class="num" data-label="<?= $e($s['shop']) ?>"><?php if ($href !== null): ?><a href="<?= $e($href) ?>"><?php endif; ?><?= $e($gbp((int) $s[$field])) ?><?php if ($href !== null): ?></a><?php endif; ?><?php if ($key === 'real_profit' && $s['incomplete']): ?> <?= $chip('needs', \CW\Ui\Words::PROFIT['real_cell_incomplete']) ?><?php endif; ?></td>
+      <td class="num" data-label="<?= $e($s['shop']) ?>"><?php if ($href !== null): ?><a href="<?= $e($href) ?>"><?php endif; ?><?= $e($gbp((int) $s[$field])) ?><?php if ($href !== null): ?></a><?php endif; ?><?php if ($key === 'real_profit' && $s['incomplete']): ?> <?= $chip('needs', \CW\Ui\Words::PROFIT['real_cell_incomplete']) ?><?php endif; ?><?php if ($key === 'real_gp' && ($s['gp_on'] ?? false) && ((int) ($s['gp_est'] ?? 0) > 0 || ($s['gp_due'] ?? false))): ?> <?= $chip('waiting', \CW\Ui\Words::PROFIT['real_gp_estimated']) ?><?php endif; ?><?php if ($key === 'real_gp' && (int) ($s['gp_other'] ?? 0) !== 0): ?> <span class="muted"><?= $e(\CW\Ui\Words::say('PROFIT', 'real_gp_other', $gbp((int) $s['gp_other']))) ?></span><?php endif; ?></td>
 <?php endif; ?>
 <?php endforeach; ?>
     </tr>
@@ -83,6 +86,12 @@ $feesOn = array_values(array_filter($shops, static fn (array $s): bool => $s['st
 <?php if (count($feesOn) < count(array_filter($shops, static fn (array $s): bool => $s['started']))): ?>
 <p class="muted"><?= $word('PROFIT', 'real_fees_not_built') ?></p>
 <?php endif; ?>
+<?php foreach ($gpOn as $s): ?>
+<p class="muted"><?= $say('PROFIT', 'real_gp_note', (string) $s['shop'], \CW\Ui\Html::day((string) $s['gp_from'])) ?></p>
+<?php endforeach; ?>
+<?php foreach ($gpDoubt ?? [] as $d): ?>
+<p class="note" role="status"><?= $say('PROFIT', 'real_gp_doubt', $gbp((int) $d['net']), \CW\Ui\Html::day((string) $d['date']), (string) $d['month']) ?> <a href="<?= $e('/ui/profit/expenses/' . (int) $d['id']) ?>"><?= $word('PROFIT', 'real_gp_doubt_open') ?></a></p>
+<?php endforeach; ?>
 <?php if (array_filter($shops, static fn (array $s): bool => $s['started'] && ($s['own'] ?? null) !== null) !== []): ?>
 <p class="muted"><?= $word('PROFIT', 'real_hayati') ?></p>
 <?php endif; ?>

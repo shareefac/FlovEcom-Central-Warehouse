@@ -346,7 +346,7 @@ final class DeliveryBillsScreensTest extends KernelUiTestCase
         // The Delivery bills page is in Finance's Profit section, after the profit pages (0079, EX13-EX15: the real profit after the summary, the
         // expenses and the regular costs after the bills).
         self::assertSame([Words::MENU['profit_summary'], Words::MENU['profit_real'], Words::MENU['profit_periods'], Words::MENU['profit_breakdown'],
-            Words::MENU['profit_orders'], Words::MENU['profit_no_cost'], Words::MENU['profit_delivery'], Words::MENU['profit_expenses'], Words::MENU['profit_regular']],
-            array_column(self::sectionTabs($sum), 'label'));
+            Words::MENU['profit_orders'], Words::MENU['profit_no_cost'], Words::MENU['profit_delivery'], Words::MENU['profit_expenses'], Words::MENU['profit_regular'],
+            Words::MENU['profit_card_fees']], array_column(self::sectionTabs($sum), 'label')); // CW-1174 (GPF12): the card fees last
     }
 }

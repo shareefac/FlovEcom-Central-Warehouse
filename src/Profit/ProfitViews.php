@@ -35,6 +35,8 @@ final class ProfitViews
         . 'COALESCE(SUM(delivery_cost), 0) AS delivery_cost, COALESCE(SUM(delivery_other), 0) AS delivery_other, '
         // 0080 (docs/decisions.md PPF7): PayPal's money on the orders and not on an order.
         . 'COALESCE(SUM(fee_cost), 0) AS fee_cost, COALESCE(SUM(fee_other), 0) AS fee_other, '
+        // 0084 (docs/decisions.md GPF11): Global Payments' card fees on the orders (and the part still estimated) and on no order.
+        . 'COALESCE(SUM(gp_fee), 0) AS gp_fee, COALESCE(SUM(gp_fee_est), 0) AS gp_fee_est, COALESCE(SUM(gp_other), 0) AS gp_other, '
         // CW-1153 (0083, docs/decisions.md VB11): the selling shop's own goods inside those figures (figures() takes them off: ours = whole - own)
         . 'COALESCE(SUM(own_units), 0) AS own_units, COALESCE(SUM(own_sale_ex), 0) AS own_sale_ex, COALESCE(SUM(own_refund_ex), 0) AS own_refund_ex, '
         . 'COALESCE(SUM(own_cost), 0) AS own_cost, COALESCE(SUM(own_no_cost), 0) AS own_no_cost';
@@ -496,6 +498,8 @@ final class ProfitViews
             'order' => $o,
             // its PayPal money (0080, docs/decisions.md PPF16): a sale's fee, a refund's fee back, a chargeback's money and fees
             'paypal' => PaypalFees::orderLines($this->db, $store, (string) $o['order_ref']),
+            // its Global Payments card fee (0084, docs/decisions.md GPF11): estimated (base x rate) or its share of a month's invoice; null: none
+            'gp' => self::gpLine($this->db, $store, (string) $o['order_ref']),
             'clone_goods_inc' => $cloneGoods,
             'lines' => self::grouped($lines),
             'parcels' => $delivery['parcels'],
@@ -565,6 +569,20 @@ final class ProfitViews
     }
 
     /**
+     * An order's Global Payments card fee as its page shows it (0084, GPF11): what counts, whether estimated (at which rate, of which amount)
+     * or its share of which month's invoice; null when it has none (not a card order of an account switched on, or off now).
+     *
+     * @return array{state: string, fee: int, base: int, rate: ?string, month: ?string}|null
+     */
+    public static function gpLine(Db $db, int $store, string $ref): ?array
+    {
+        $r = $db->one("SELECT g.state, g.fee_pence, g.base_pence, g.rate_e4, i.month FROM gp_fee_order g LEFT JOIN gp_invoice i ON i.id = g.invoice_id "
+            . "WHERE g.channel_id = ? AND g.order_ref = ? AND g.state <> 'off'", [$store, $ref]);
+        return $r === null ? null : ['state' => (string) $r['state'], 'fee' => (int) $r['fee_pence'], 'base' => (int) $r['base_pence'],
+            'rate' => $r['rate_e4'] === null ? null : ProfitMath::ratePercent((int) $r['rate_e4']), 'month' => $r['month'] === null ? null : (string) $r['month']];
+    }
+
+    /**
      * Profit, margin and goods sold of summed figures.
      *
      * @param array<string, mixed> $r
@@ -593,6 +611,10 @@ final class ProfitViews
             'delivery_cost' => $deliveryCost, 'delivery_other' => $deliveryOther, 'delivery_result' => $delivery - $deliveryCost - $deliveryOther,
             // PayPal's money (0080, PPF7): on the orders, on no order, and both
             'fee_cost' => (int) ($r['fee_cost'] ?? 0), 'fee_other' => (int) ($r['fee_other'] ?? 0), 'fees' => (int) ($r['fee_cost'] ?? 0) + (int) ($r['fee_other'] ?? 0),
+            // Global Payments' card fees (0084, GPF11): on the orders, the part of them still estimated, on no order, and all of them; they stay
+            // the shop's (never split onto its own goods: VB10)
+            'gp_fee' => (int) ($r['gp_fee'] ?? 0), 'gp_fee_est' => (int) ($r['gp_fee_est'] ?? 0), 'gp_other' => (int) ($r['gp_other'] ?? 0),
+            'gp' => (int) ($r['gp_fee'] ?? 0) + (int) ($r['gp_other'] ?? 0),
             'no_cost' => (int) ($r['units_no_cost'] ?? 0), 'pending' => (int) ($r['pending'] ?? 0),
             'incomplete' => self::incomplete((int) ($r['units_no_cost'] ?? 0) + (int) ($r['pending'] ?? 0), (int) ($r['units'] ?? 0)),
             'own' => ['units' => $ownUnits, 'goods' => $ownGoods, 'cost' => $ownCost, 'profit' => $ownGoods - $ownCost,

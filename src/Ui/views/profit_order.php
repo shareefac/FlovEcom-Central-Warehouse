@@ -8,7 +8,8 @@
 // parcels' carrier bill lines and the collections on it cost, its re-sends' when it is a first order, and delivery after its cost; each
 // parcel with its bill lines or "not billed yet".
 // Its PayPal money (0080, docs/decisions.md PPF16): each PayPal row on it (a sale's fee, a refund's fee back, a chargeback's money and fees),
-// the day it counts on and what it costs; none: no table.
+// the day it counts on and what it costs; none: no table. Its Global Payments card fee (0084, GPF11): estimated at the rate of the amount the
+// card was charged, or its share of the month's invoice; none: nothing shown.
 // CW-1153 (the Codex review of bd9104d, M7 and M8): the goods, cost, re-send cost and profits above are OURS (ProfitViews::split(), the same
 // calculation as Profit by order's rows); the selling shop's own goods on the order (and its own goods re-sent) are in a table of their own.
 $o = $order;
@@ -166,6 +167,11 @@ $sourceWords = ['erp_at_sale' => \CW\Ui\Words::PROFIT['source_erp_at_sale'], 'cw
   </tbody>
 </table>
 </div>
+<?php endif; ?>
+<?php if (($gp ?? null) !== null): ?>
+
+<h2><?= $word('PROFIT', 'gp_table') ?></h2>
+<p class="gp-order-fee"><?= $money($gp['fee'] / 100) ?> <?php if ($gp['state'] === 'estimate'): ?><?= $chip('waiting', \CW\Ui\Words::PROFIT['real_gp_estimated']) ?> <span class="muted"><?= $e(\CW\Ui\Words::say('PROFIT', 'gp_order_estimate', (string) $gp['rate'], \CW\Expenses\ExpenseMoney::gbp($gp['base']))) ?></span><?php else: ?><span class="muted"><?= $e(\CW\Ui\Words::say('PROFIT', 'gp_order_actual', (string) $gp['month'], \CW\Expenses\ExpenseMoney::gbp($gp['base']))) ?></span><?php endif; ?></p>
 <?php endif; ?>
 
 <h2><?= $word('PROFIT', 'lines') ?></h2>

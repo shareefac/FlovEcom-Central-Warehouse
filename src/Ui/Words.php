@@ -328,6 +328,7 @@ final class Words
         'profit_real' => 'Real profit',
         'profit_expenses' => 'Expenses',
         'profit_regular' => 'Regular costs',
+        'profit_card_fees' => 'Card fees', // CW-1174 (0084, docs/decisions.md GPF12): Global Payments' card fees
     ];
 
     /** A Show choice: Sections::MAP `key` of a page in an entry of two or more pages => its name in the page's Show (RD2). */
@@ -482,6 +483,7 @@ final class Words
         'profit_real' => 'Each shop\'s profit after delivery, expenses and regular costs, for the days you choose.',
         'profit_expenses' => 'The invoices you add for each shop, with their PDF, month by month.',
         'profit_regular' => 'Costs with no invoice that go out every week, month or year, shared out per day.',
+        'profit_card_fees' => 'Global Payments\' card fees: estimated on every card order, replaced by each month\'s invoice.',
         'low_stock' => 'Products a store can sell only a few of, or none.',
         'stock_value' => 'What the stock is worth at its average cost, by product, brand and warehouse.',
         'slow_stock' => 'Products in stock that have not sold for a long time.',
@@ -826,6 +828,9 @@ final class Words
             . 'puts a share of its cost without VAT on every day until its end date.', ''],
         'profit_regular_one' => ['One regular cost: its share of each day, its history, and a new amount from a day.', ''],
         'profit_regular_new' => ['A cost with no invoice, for one shop, every week, month or year.', ''],
+        // CW-1174 (0084, docs/decisions.md GPF12)
+        'profit_card_fees' => ['Global Payments\' card fees, month by month: estimated on every card order, then the real invoice. All amounts without VAT.', ''],
+        'profit_card_fee' => ['One Global Payments invoice: how it was shared over the month\'s card orders, and every change made to it.', ''],
         'expense_types' => ['The types an expense is put under, and the groups of the regular costs.', ''],
         'own_items' => ['Items that are a shop\'s own goods: its own stock, bought with its own money, not ours.', ''], // CW-1153 (VB4)
         'low_stock' => ['Products the stores can sell only a few of, or none.',
@@ -3030,6 +3035,19 @@ final class Words
         'profit.paypal_form_hayati' => 'How a Hayati Vapes order number looks in a PayPal invoice',
         'profit.paypal_reread_days' => 'Days the nightly PayPal read goes back',
         'profit.paypal_not_on_order_alarm' => 'Alarm above this many pounds of PayPal money on no order in a day',
+        // 0084 (docs/decisions.md GPF2, GPF3, GPF6, GPF9): Global Payments' card fees in the profit
+        'profit.gp_from_vpg_online' => 'Vape and Go Online\'s card fees count from',
+        'profit.gp_until_vpg_online' => 'Vape and Go Online\'s card fees count until',
+        'profit.gp_shops_vpg_online' => 'Shops whose card payments go through Vape and Go Online (main shop first)',
+        'profit.gp_rate_vpg_online' => 'Vape and Go Online\'s estimated card fee (percent of a card order)',
+        'profit.gp_merchant_vpg_online' => 'Vape and Go Online\'s merchant number',
+        'profit.gp_from_ef_online' => 'Electrofag Online\'s card fees count from',
+        'profit.gp_until_ef_online' => 'Electrofag Online\'s card fees count until',
+        'profit.gp_shops_ef_online' => 'Shops whose card payments go through Electrofag Online (main shop first)',
+        'profit.gp_rate_ef_online' => 'Electrofag Online\'s estimated card fee (percent of a card order)',
+        'profit.gp_merchant_ef_online' => 'Electrofag Online\'s merchant number',
+        'profit.gp_expense_suppliers' => 'Expense suppliers that are Global Payments',
+        'profit.gp_takings_gap_pct' => 'Ask for a tick when an invoice\'s sales are this far from CW\'s card takings (percent)',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -4309,6 +4327,21 @@ final class Words
 
     /** app_setting key => what the setting does, in words (the migration's description is the fallback). */
     public const SETTING_HELP = [
+        // 0084 (docs/decisions.md GPF2, GPF3, GPF6, GPF9): Global Payments' card fees
+        'profit.gp_from_vpg_online' => 'The first day card orders get a Global Payments fee in the profit (the 1st of a month). Empty: not counted.',
+        'profit.gp_until_vpg_online' => 'The last day card orders get a fee from this account. Empty: no end.',
+        'profit.gp_shops_vpg_online' => 'The shops whose card, Apple Pay and Google Pay payments go through this account. Each order\'s fee stays on its own shop.',
+        'profit.gp_rate_vpg_online' => 'Each card order\'s fee is estimated at this percent of what the card was charged, until the month\'s invoice is entered. '
+            . 'Each invoice entered can set it.',
+        'profit.gp_merchant_vpg_online' => 'The merchant number printed on this account\'s invoices: an invoice with another number is refused.',
+        'profit.gp_from_ef_online' => 'The first day card orders get a Global Payments fee in the profit (the 1st of a month). Empty: not counted.',
+        'profit.gp_until_ef_online' => 'The last day card orders get a fee from this account (its contract ends). Empty: no end.',
+        'profit.gp_shops_ef_online' => 'The shops whose card, Apple Pay and Google Pay payments go through this account. Each order\'s fee stays on its own shop.',
+        'profit.gp_rate_ef_online' => 'Each card order\'s fee is estimated at this percent of what the card was charged, until the month\'s invoice is entered. '
+            . 'Each invoice entered can set it.',
+        'profit.gp_merchant_ef_online' => 'The merchant number printed on this account\'s invoices: an invoice with another number is refused.',
+        'profit.gp_expense_suppliers' => 'An expense from one of these suppliers that is a card fees invoice already entered is refused, so it is never counted twice.',
+        'profit.gp_takings_gap_pct' => 'When an invoice\'s sales are further than this from CW\'s card takings of the month, the page asks you to check and tick.',
         // "Claude reads the upload" (0082; docs/decisions.md AI7, AI8).
         'ai.read_uploads' => 'On: on Profit > Delivery bills (a Royal Mail bill) and Profit > Expenses (an invoice) staff may drop a PDF or a photo; CW sends it to '
             . 'Claude (Anthropic\'s API), fills the same check page or form, and a person still presses Store or Save. CW\'s own checks still decide. Off: '
@@ -11005,12 +11038,83 @@ final class Words
         'real_cost' => '− What the goods cost us',
         'real_delivery_charged' => '+ Delivery charged',
         'real_delivery' => '− Delivery (the carriers\' bills)',
-        'real_fees' => '− Payment fees',
+        'real_fees' => '− PayPal fees',
         'real_fees_other' => 'of which: PayPal money on no order',
-        'real_fees_not_built' => 'Payment fees are not built yet for the other shops: they show 0. A Global Payments invoice you add as an expense is in the expenses line.',
+        'real_fees_not_built' => 'PayPal fees are not built yet for the other shops: they show 0.',
+        // CW-1174 (0084, docs/decisions.md GPF11, GPF12): Global Payments' card fees
+        'real_gp' => '− Card fees (Global Payments)',
+        'real_gp_estimated' => 'estimated',
+        'real_gp_other' => '(%s on no order)',
+        'real_gp_note' => '%s\'s card fees (Global Payments, from %s) are estimated on each card order at the account\'s rate until the month\'s invoice is '
+            . 'entered on Profit > Card fees; then they are the invoice\'s real charge, shared over the month\'s card orders.',
+        'real_gp_doubt' => 'Check: the Global Payments expense of %s dated %s may be the %s invoice already entered on Profit > Card fees. If it is the same '
+            . 'invoice, delete the expense, so it is not counted twice.',
+        'real_gp_doubt_open' => 'Open the expense',
+        'gp_table' => 'Card fee (Global Payments)',
+        'gp_order_estimate' => 'estimated at %s%% of %s, what the card was charged',
+        'gp_order_actual' => 'its share of the %s invoice from Global Payments (by the %s the card was charged)',
+        'gp_how' => 'Every card order (card, Apple Pay, Google Pay) gets an estimated fee: what the card was charged times the account\'s rate. When Global '
+            . 'Payments\' invoice for a month comes (early the next month: My Account > Reporting > Statements), enter it here. Its total net charge then '
+            . 'replaces that month\'s estimates, shared over the month\'s card orders by amount, and its rate is used for the next estimates.',
+        'gp_period_note' => 'Global Payments\' invoice for a month covers its batches from about the 30th of the month before to the 29th. CW puts it on '
+            . 'the calendar month all the same, so each month equals its invoice to the penny; the two or three days at each end even out the next month.',
+        'gp_fixed_note' => 'A fixed monthly charge of an account that takes no card payments (the Vape and Go MOTO account) is a regular cost, not entered here.',
+        'gp_regular_link' => 'Regular costs',
+        'gp_account_vpg_online' => 'Vape and Go Online',
+        'gp_account_ef_online' => 'Electrofag Online',
+        'gp_off' => 'Not switched on: its card orders get no fee yet.',
+        'gp_on' => 'Counted from %s for %s, estimated at %s%%.',
+        'gp_until' => 'Until %s.',
+        'gp_merchant_missing' => 'Its merchant number is not set yet (Settings > Profit): its invoices cannot be entered until it is.',
+        'gp_month' => 'Month',
+        'gp_cw_takings' => 'CW card takings',
+        'gp_fees_counted' => 'Card fees counted',
+        'gp_invoice_col' => 'Invoice',
+        'gp_none' => 'not entered yet',
+        'gp_invoice_figures' => '%s on sales of %s (%s%%)',
+        'gp_state_due' => 'being applied',
+        'gp_add' => 'Enter a month\'s invoice',
+        'gp_f_account' => 'Which account',
+        'gp_f_month' => 'Month',
+        'gp_f_merchant' => 'Merchant number (as printed)',
+        'gp_f_date' => 'Invoice date',
+        'gp_f_sales' => 'Sales (as printed)',
+        'gp_f_net' => 'Total net charge',
+        'gp_f_vat' => 'VAT',
+        'gp_f_total' => 'Charge applied to account',
+        'gp_f_note' => 'Note',
+        'gp_f_use_rate' => 'Use its rate for the next estimates',
+        'gp_f_gap_ok' => 'I checked: the figures are right',
+        'gp_gap' => 'CW\'s card takings of that month are %s; the invoice says %s. Check the month and the account, then tick that the figures are right.',
+        'gp_hint_net' => 'What counts in the profit (its VAT, if any, can be claimed back).',
+        'gp_save' => 'Save the invoice',
+        'gp_one_title' => '%s invoice, %s',
+        'gp_back' => 'Card fees',
+        'gp_due_note' => 'Being applied to the month\'s card orders: this takes a minute or two.',
+        'gp_deleted_note' => 'Deleted (%s): its month is back to estimates.',
+        'gp_spread_line' => 'Shared over %s card orders (CW card takings %s): %s on orders, %s on no order.',
+        'gp_rate_col' => 'Its rate',
+        'gp_change' => 'Change the figures',
+        'gp_reason' => 'Why',
+        'gp_delete' => 'Delete this invoice',
+        'gp_delete_note' => 'Its month goes back to estimates.',
+        'gp_sure' => 'Yes, delete it',
+        'gp_not_sure' => 'Tick "Yes, delete it" to delete the invoice.',
+        'gp_history' => 'History',
+        'gp_h_when' => 'When',
+        'gp_h_what' => 'What',
+        'gp_h_who' => 'Who',
+        'gp_h_add' => 'Entered',
+        'gp_h_change' => 'Changed',
+        'gp_h_delete' => 'Deleted',
+        'gp_h_spread' => 'Shared over the month\'s orders',
+        'gp_notice_added' => 'Saved. It is shared over the month\'s card orders now.',
+        'gp_notice_changed' => 'Changed. The month is shared again.',
+        'gp_notice_unchanged' => 'Nothing was different: nothing changed.',
+        'gp_notice_deleted' => 'Deleted. Its month is back to estimates.',
         // 0080 (docs/decisions.md PPF17): a shop whose PayPal fees are read
         'real_fees_paypal' => '%s\'s payment fees are PayPal\'s, read from PayPal every night, from %s: each sale\'s fee on its order, a refund\'s fee back, a '
-            . 'chargeback\'s money and fees, and what is on no order. Global Payments\' are in the expenses line when you add their invoice.',
+            . 'chargeback\'s money and fees, and what is on no order. Card fees (Global Payments) are on their own line.',
         // 0080 (docs/decisions.md PPF16): an order's PayPal money on its page
         'paypal_table' => 'PayPal',
         'paypal_table_note' => 'What PayPal took on this order (a fee, money taken back) or gave back (part of a fee on a refund), as PayPal reports it. '

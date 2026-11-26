@@ -101,7 +101,8 @@ final class GpFeesScreensTest extends KernelUiTestCase
         $d = $job->get("/ui/profit/card-fees/{$id}")->form("/ui/profit/card-fees/{$id}/delete");
         $r = $job->post("/ui/profit/card-fees/{$id}/delete", ['reason' => 'the wrong statement', 'sure' => '1'] + $d);
         self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
-        self::assertSame(50, (int) self::$db->value("SELECT SUM(fee_pence) FROM gp_fee_order WHERE state = 'estimate'"));
+        self::assertSame(100, (int) self::$db->value("SELECT SUM(fee_pence) FROM gp_fee_order WHERE state = 'estimate'"),
+            'at the rate the invoice set (2%): 60p + 40p');
     }
 
     public function testARefusalComesBackWithTheFormAsTyped(): void

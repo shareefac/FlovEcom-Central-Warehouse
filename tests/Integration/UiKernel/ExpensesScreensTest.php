@@ -125,8 +125,8 @@ final class ExpensesScreensTest extends KernelUiTestCase
         $list = $job->get('/ui/profit/expenses');
         self::assertSame(200, $list->status, $list->describe() . ' ' . implode(' | ', self::$log));
         self::assertSame([Words::SECTION['profit'], Words::MENU['profit_expenses']], [self::currentSection($list), self::currentTab($list)]);
-        self::assertSame([Words::MENU['profit_expenses'], Words::MENU['profit_regular']], array_column(self::sectionTabs($list), 'label'),
-            'the job sees the expenses and the regular costs, never the profit');
+        self::assertSame([Words::MENU['profit_expenses'], Words::MENU['profit_regular'], Words::MENU['profit_card_fees']], array_column(self::sectionTabs($list), 'label'),
+            'the job sees the expenses, the regular costs and the card fees (CW-1174, GPF12), never the profit');
         self::assertContains('/ui/profit/expenses/new', $list->hrefs());
         self::assertSame(403, $job->get('/ui/profit')->status);
         self::assertSame(403, $job->get('/ui/profit/real')->status);

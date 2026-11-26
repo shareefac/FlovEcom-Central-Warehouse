@@ -224,6 +224,9 @@ final class Invariants
         array_push($v, ...Profit\PaypalInvariants::check($db));
         // CW-1153 (docs/decisions.md VB6): a shop's own items: linked on no other shop, every sale line and bill marked as the periods say (O1-O6).
         array_push($v, ...Items\ItemOwnerInvariants::check($db));
+        // Global Payments' card fees (0084, docs/decisions.md GPF14): each counted row of a paid card order on its day, the days holding exactly the
+        // rows, each spread invoice to the penny, nothing waiting long, no card order without its fee (GP1-GP5).
+        array_push($v, ...Profit\GpInvariants::check($db));
         return $v;
     }
 

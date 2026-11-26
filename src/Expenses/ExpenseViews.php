@@ -373,6 +373,13 @@ final class ExpenseViews
             if ($withExpenses) {
                 $this->guard();
             }
+            // each shop's Global Payments account switched on (0084, GPF11): the shop's card fees are a figure, with their first day
+            $gp = [];
+            foreach (\CW\Profit\GpFees::readConfig($this->db) as $acct => $c) {
+                foreach ($c['on'] ? $c['shops'] : [] as $ch) {
+                    $gp[$ch] ??= ['account' => (string) $acct, 'from' => (string) $c['from']];
+                }
+            }
             $out = [];
             foreach ($this->shops() as $s) {
                 if ($shop !== null && $s['id'] !== $shop) {
@@ -383,7 +390,7 @@ final class ExpenseViews
                 $row = ['shop_id' => $s['id'], 'shop' => $s['name'], 'code' => $s['code'], 'started' => $start !== null && $a <= $to, 'from' => $start,
                     'counted_from' => $start !== null && $start > $from && $start <= $to ? $start : null, 'goods' => null, 'cost' => null, 'delivery' => null,
                     'delivery_cost' => null, 'fees' => null, 'fees_other' => null, 'fees_from' => null, 'expenses' => null, 'expenses_count' => 0, 'regular' => null, 'real' => null, 'incomplete' => false,
-                    'no_cost' => 0, 'own' => null];
+                    'no_cost' => 0, 'own' => null, 'gp' => null, 'gp_est' => 0, 'gp_other' => 0, 'gp_on' => false, 'gp_due' => false, 'gp_from' => null];
                 if (!$row['started']) {
                     $out[] = $row;
                     continue;
@@ -401,17 +408,28 @@ final class ExpenseViews
                     // profit is an amount: the Codex check r3, H5).
                     'incomplete' => (int) $f['no_cost'] + (int) $f['pending'] > 0, 'no_cost' => (int) $f['no_cost'] + (int) $f['pending'],
                     // CW-1153 (docs/decisions.md VB11): the goods are OURS (the shop's own goods are not in them): its own goods on a line of their own
-                    'own' => $f['own']['any'] ? $f['own'] : null] + $row;
+                    'own' => $f['own']['any'] ? $f['own'] : null,
+                    // Global Payments' card fees (0084, docs/decisions.md GPF11): what the profit days hold of them on these days (the estimate, or a
+                    // month's invoice spread); "estimated" while any part of them is, or an invoice of these days is still being spread
+                    'gp' => (int) $f['gp'], 'gp_est' => (int) $f['gp_fee_est'], 'gp_other' => (int) $f['gp_other'],
+                    'gp_on' => isset($gp[$s['id']]) && $gp[$s['id']]['from'] <= $to, 'gp_from' => $gp[$s['id']]['from'] ?? null, 'gp_due' => isset($gp[$s['id']]) && self::gpDue($this->db, $gp[$s['id']]['account'], $a, $to)] + $row;
                 if ($withExpenses) {
                     $e = $this->expensesBy($a, $to, $s['id'])[$s['id']] ?? ['net' => 0, 'count' => 0];
                     $reg = $this->regularBy($a, $to, $s['id'])[$s['id']] ?? 0;
                     $row = ['expenses' => $e['net'], 'expenses_count' => $e['count'], 'regular' => $reg,
-                        'real' => $row['goods'] - $row['cost'] + $row['delivery'] - $deliveryCost - $row['fees'] - $e['net'] - $reg] + $row;
+                        'real' => $row['goods'] - $row['cost'] + $row['delivery'] - $deliveryCost - $row['fees'] - $row['gp'] - $e['net'] - $reg] + $row;
                 }
                 $out[] = $row;
             }
             return $out;
         });
+    }
+
+    /** Whether an invoice of the account for a month touching $from..$to is still being spread (GPF11: its days are "estimated" until it is done). */
+    private static function gpDue(Db $db, string $acct, string $from, string $to): bool
+    {
+        return $db->value("SELECT 1 FROM gp_invoice WHERE account = ? AND month BETWEEN ? AND ? AND deleted_at IS NULL AND spread_state = 'due' LIMIT 1",
+            [$acct, substr($from, 0, 7), substr($to, 0, 7)]) !== null;
     }
 
     /** @return array{0: string, 1: string} the first and last day of a month YYYY-MM */

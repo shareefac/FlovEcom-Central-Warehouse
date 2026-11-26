@@ -177,9 +177,13 @@ final class ProfitController
                 'delivery' => Html::url(self::PATH . '/by', $q + ['by' => 'shop', 'store' => $s['shop_id']]),
                 'expenses' => Html::url(ExpensesController::PATH, ['from' => $a, 'to' => $to, 'shop' => $s['shop_id']]),
                 'regular' => Html::url(RegularCostsController::PATH, ['from' => $a, 'to' => $to, 'shop' => $s['shop_id']]),
+                // CW-1174 (GPF11): the card fees line opens Profit > Card fees (for those who see it: expenses.view)
+                'gp' => $canExpenses ? GpFeesController::PATH : null,
             ];
         }
-        return $ctx->page('profit_real', ['shops' => $shops, 'links' => $links, 'canExpenses' => $canExpenses, 'vatPct' => ExpensesController::vatPct($ctx),
+        // CW-1174 (0084, docs/decisions.md GPF9): the expenses of a Global Payments supplier that may be an invoice entered on Card fees (flagged)
+        $gpDoubt = $canExpenses ? \CW\Profit\GpInvoices::doubtful($ctx->db, $from, $to, $store) : [];
+        return $ctx->page('profit_real', ['shops' => $shops, 'links' => $links, 'canExpenses' => $canExpenses, 'vatPct' => ExpensesController::vatPct($ctx), 'gpDoubt' => $gpDoubt,
             'period' => $period, 'periods' => ReportsController::PERIODS, 'from' => $from, 'to' => $to, 'warn' => $warn, 'stores' => $stores, 'storeId' => $store],
             200, ['title' => Words::MENU['profit_real']]);
     }

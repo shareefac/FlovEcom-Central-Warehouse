@@ -86,8 +86,8 @@ final class ProfitScreensTest extends KernelUiTestCase
         // 0077 (docs/decisions.md DL23): the carriers' bills, which Finance looks at too, last. 0079 (EX13-EX15): the real profit after the summary;
         // the expenses and the regular costs, which Finance looks at too, after the bills.
         self::assertSame([Words::MENU['profit_summary'], Words::MENU['profit_real'], Words::MENU['profit_periods'], Words::MENU['profit_breakdown'],
-            Words::MENU['profit_orders'], Words::MENU['profit_no_cost'], Words::MENU['profit_delivery'], Words::MENU['profit_expenses'], Words::MENU['profit_regular']],
-            array_column(self::sectionTabs($home), 'label'));
+            Words::MENU['profit_orders'], Words::MENU['profit_no_cost'], Words::MENU['profit_delivery'], Words::MENU['profit_expenses'], Words::MENU['profit_regular'],
+            Words::MENU['profit_card_fees']], array_column(self::sectionTabs($home), 'label')); // CW-1174 (GPF12): the card fees, which Finance looks at too, last
         $rev = $this->signIn($this->uiUser('reviewer'));
         foreach (['/ui/profit' => [], '/ui/profit/periods' => [], '/ui/profit/by' => [], '/ui/profit/orders' => [], '/ui/profit/no-cost' => [],
             '/ui/profit/orders/view' => ['store' => '1', 'ref' => '100']] as $path => $query) {

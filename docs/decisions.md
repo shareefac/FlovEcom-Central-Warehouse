@@ -22599,3 +22599,72 @@ covered by the link guards (a link decision and a sale's owner read the item's r
 names the item. The kit's one run holds the items' rows at most 3 s (Db::waitsUntil; past it, rolled back whole). **VB12** a batch tool's
 work on an order that has nothing left to write still takes the order's intake lock and reads the queue at its end (a correction stored
 meanwhile = deferred), and a re-cost counts an order whose guard or rows another money writer holds as deferred and goes on to the next.
+## Global Payments' card fees in Real profit (CW-1174, branch `gp-fees`, 26 Nov 2026; GPF1-GPF14; migration 0084)
+
+The owner (CW chat, 26 Nov 2026 ~14:10 UK), after the lead's proposal: "Yes, do that, estimate is fine." Global Payments gives no daily charge
+figure anywhere (RealControl and Funding show full takings; statements are monthly), so CW estimates every card order's fee and replaces a
+month's estimates with its invoice. Design note: `/root/cw_work/runs/GPFEES_STATE.md`; the lead's facts and decisions of 26 Nov (Electrofag
+counted 1-24 Dec at its own rate; each invoice on CW's calendar month; Vape Big's card payments go through Vape and Go Online).
+
+**GPF1. Which orders.** A paid order with gateway `globalpay` (the shops' Card / Apple Pay / Google Pay) of a shop an account takes, paid on a
+UK day from the account's first day to its last, with a base above 0; base = `sale_order.grand_inc` (what the card was charged). `pp` and
+`pphf` are PayPal's (CW-1172 counts their fees); office orders are not online card payments (the MOTO account takes none). **GPF2. The
+accounts and their settings** (Settings > Profit, history in config_change): `vpg_online` (Vape and Go Online; shops "vapeandgo,vapebig") and
+`ef_online` (Electrofag Online; shop "electrofag", last day 2026-12-24): first day (the 1st of a month; empty: not switched on; the go-live kit
+sets 2026-11-01 and 2026-12-01), last day, shops (main shop first), rate, merchant number (set by the kit, never in git). **GPF3. The
+estimate.** base x the account's rate (a percent with at most four decimals: 1.01% = 10,100 millionths), rounded half up per order (£29.99 ->
+30p; a £40,000 day ~ £404); a day is the sum of its orders, a month the sum of its days. The rate is a setting (October's invoices: Vape and
+Go £11,834.72 net / £1,171,857.98 = 1.0099% -> 1.01; Electrofag £56.74 / £2,491.35 -> 2.28); each invoice entered proposes its own (net /
+sales) and, the newest month's and ticked (by default), sets it as a version of the setting with the reason. Every estimate uses the CURRENT
+rate: after a change the job works every still-estimated order out again; actual rows never move. **Refunds**: Global Payments charges a
+refund too (October: "Merchandise Rtn" at the same 0.40-0.60% plus 0.25%, about £61 of £11,835) and never gives the sale's fee back; that
+cost is inside the effective rate, so a refund adds no fee, never lowers an order's fee, never makes it negative. Chargebacks (£25 each) are
+inside the invoice total the same way.
+
+**GPF4. Every penny once.** One row per card order (`gp_fee_order`: base, state estimate / actual / off, fee, rate or invoice); `profit_day`
+holds `gp_fee` (on the day's paid orders), `gp_fee_est` (the part still estimated) and `gp_other` (an invoice's charge on no order). A row and
+the day figures it counts in are only ever written together under the day's guard (ProfitDays::guard): by the snapshot (OrderSnapshots::apply
+holds the order's day guards; the row decided again from the order as written, its old share taken off its old day, its new one put on its
+day), by `syncDay()` (the job, the backfill, a setting changed) and by the spread. ProfitDays::compute reads GpFees::dayFigures, so a rebuild
+of a day gives the same figures. The fee stays the shop's: never split onto its own goods (VB10). **GPF5. The actual.** An invoice entered
+for an account and a CW calendar month replaces the month's estimates: its NET charge (its VAT, 70p on the PCI fee, is reclaimable: Expenses
+count without VAT too) shared over the month's counted card orders by base (ProfitMath::shareOut: each share rounded down, the pennies left to
+the largest remainders, ties by day, shop, order), written one day at a time, each day in one transaction under its guards with the day's
+orders and bases checked against the plan first (changed meanwhile: rolled back, the month planned again, at most 3 times; else left due);
+the invoice marked done only while it is the version planned. The month then equals the invoice to the penny. A correction (with a reason)
+spreads again; a delete (a mark with a reason) sends the month back to estimates at the current rate; a late order arriving in an applied
+month is estimated and queues the month (`gp_due`, in the snapshot's transaction), and the job spreads it again. Global Payments' period
+follows its batch dates (the "October" invoice holds 30 Sep - 29 Oct): it still goes on the calendar month (the lead, 26 Nov), and the page
+says so; the days at each end even out the next month.
+
+**GPF6. The invoice's form.** Account (switched on), month (from its first month to this month, not after its last day's), merchant number
+(must be the account's setting, leading zeros aside: MOTO's statement is never entered as Online's), invoice date (its month to two months
+after), sales, total net charge, VAT, charge applied (= net + VAT), a note; a credit (net below 0) is refused: it goes in Expenses as a credit
+note. When the sales differ from CW's card takings of the month by more than `profit.gp_takings_gap_pct` (10%) the page asks for a tick. One
+live invoice per account and month. **GPF7. No card order in the month.** The whole charge goes on `gp_other` of the account's main shop on
+the month's last counted day (never lost, never on another shop). **GPF8. The job** (`bin/gp_fees.php`, every 10 minutes; `--nightly` also
+goes over the last 62 days; `--backfill --account --from --to` for the kit; `--status` read only): the months queued taken (their invoice due
+again), an account's days gone over again when its first day, last day or shops changed since its last good run (switched off: its rows go
+off), estimates at an old rate worked out again, invoices due spread (one at a time: a named lock). Due work is durable before it is acted on
+(the invoice's spread_state, gp_due). **GPF9. The double count with Expenses.** `profit.gp_expense_suppliers` names the expense suppliers that
+are Global Payments. Refused both ways: an expense of theirs for a shop of an account, dated in an entered invoice's month or the next, with
+the same net or total ("it counts on the card orders there"); and an invoice when such an expense exists ("delete that expense first"). A
+credit note is never refused. Any other expense of theirs in those months is flagged on Real profit. Both saves take the same row lock (that
+setting's row).
+
+**GPF10. Who and history.** The page uses expenses.view (Finance and the Expenses job look) and expenses.edit (the job writes, checked again
+in the service: ExpenseAccess::mayEdit): no new permission (staff 1 and 2 hold the job). Every add, change, delete and spread is a line of
+`gp_invoice_history` (append-only); an invoice is never removed. **GPF11. What the pages show.** Real profit: the PayPal line ("− PayPal
+fees") and a new line "− Card fees (Global Payments)", both taken off; the card line carries "estimated" while any day in the range is (or an
+invoice of it is still being spread) and its part on no order; a note per shop switched on. The order's page: its card fee, "estimated at
+1.01% of £29.99" or "its share of the 2026-11 invoice". Margins elsewhere stay goods-only (as PayPal's fees). **GPF12. Profit > Card fees.**
+How it works in plain words, why an invoice goes on the calendar month, that a fixed monthly charge of an account with no card payments (the
+Vape and Go MOTO account, £28.50 a month) is a regular cost; per account its settings and months (CW card takings, fees counted, estimated
+or not, the invoice); the form; one invoice's page (its spread, change, delete, history). An account ENTERED here has its whole invoice
+spread, its minimum charge, PCI and reporting fees included, so they are never also a regular cost. **GPF13. Undo.** No undo release (CW is
+fixed forward); the release before never reads the new tables, and its rebuild of a day leaves the three new figures at 0 on that day. The
+quick stop: empty an account's first day and run the job (its rows go off, its charges on no order go). RollbackReleaseTest: the release
+before is CW-1153's (0083); the plain rollback source is its code with 0084 added, byte for byte. **GPF14. The nightly checks**
+(GpInvariants, in CW\Invariants::check): GP1 a counted row is of a paid card order, on its day, with its amount; GP2 the days hold exactly
+the rows (and the charges on no order); GP3 a spread invoice is on its orders and on no order to the penny; GP4 nothing queued, due or
+running, and no estimate at an old rate, for 6 hours; GP5 no paid card order of an account switched on without its fee for 6 hours.
