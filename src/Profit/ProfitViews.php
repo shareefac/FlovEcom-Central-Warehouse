@@ -34,9 +34,13 @@ final class ProfitViews
         // 0077 (docs/decisions.md DL11): what the carriers' bills say delivery cost, on the orders and not on an order.
         . 'COALESCE(SUM(delivery_cost), 0) AS delivery_cost, COALESCE(SUM(delivery_other), 0) AS delivery_other, '
         // 0080 (docs/decisions.md PPF7): PayPal's money on the orders and not on an order.
-        . 'COALESCE(SUM(fee_cost), 0) AS fee_cost, COALESCE(SUM(fee_other), 0) AS fee_other';
+        . 'COALESCE(SUM(fee_cost), 0) AS fee_cost, COALESCE(SUM(fee_other), 0) AS fee_other, '
+        // CW-1153 (0083, docs/decisions.md VB11): the selling shop's own goods inside those figures (figures() takes them off: ours = whole - own)
+        . 'COALESCE(SUM(own_units), 0) AS own_units, COALESCE(SUM(own_sale_ex), 0) AS own_sale_ex, COALESCE(SUM(own_refund_ex), 0) AS own_refund_ex, '
+        . 'COALESCE(SUM(own_cost), 0) AS own_cost, COALESCE(SUM(own_no_cost), 0) AS own_no_cost';
     private const ITEM_SUMS = 'COALESCE(SUM(p.units), 0) AS units, COALESCE(SUM(p.sale_ex), 0) AS sale_ex, COALESCE(SUM(p.cost), 0) AS cost, '
-        . 'COALESCE(SUM(p.units_no_cost), 0) AS units_no_cost';
+        . 'COALESCE(SUM(p.units_no_cost), 0) AS units_no_cost, COALESCE(SUM(p.own_units), 0) AS own_units, COALESCE(SUM(p.own_sale_ex), 0) AS own_sale_ex, '
+        . 'COALESCE(SUM(p.own_cost), 0) AS own_cost, COALESCE(SUM(p.own_no_cost), 0) AS own_no_cost';
 
     public function __construct(private readonly Db $db)
     {
@@ -87,7 +91,7 @@ final class ProfitViews
     {
         $r = $this->db->one('SELECT ' . self::SUMS . ' FROM profit_day WHERE day BETWEEN ? AND ?' . ($store === null ? '' : ' AND channel_id = ?'),
             [$from, $to, ...($store === null ? [] : [$store])]) ?? [];
-        return self::figures($r + ['pending' => array_sum($this->pending($from, $to, $store))]);
+        return self::figures($r + ['pending' => array_sum($this->pending($from, $to, $store)), 'own_pending' => array_sum($this->pending($from, $to, $store, true))]);
     }
 
     /**
@@ -96,10 +100,12 @@ final class ProfitViews
      *
      * @return array<string, int> day => units
      */
-    public function pending(string $from, string $to, ?int $store): array
+    public function pending(string $from, string $to, ?int $store, bool $own = false): array
     {
         $out = [];
+        // CW-1153 (VB11): ours, or ($own) the selling shop's own goods' (the line's owner is fixed at payment, before its cost)
         foreach ($this->db->all('SELECT day, SUM(units) AS u FROM sale_line WHERE cost_source IS NULL AND day BETWEEN ? AND ? AND removed_at IS NULL AND restocked = 0'
+            . ' AND item_owner IS ' . ($own ? 'NOT ' : '') . 'NULL'
             . ($store === null ? '' : ' AND channel_id = ?') . ' GROUP BY day', [$from, $to, ...($store === null ? [] : [$store])]) as $r) {
             if ((int) $r['u'] > 0) {
                 $out[(string) $r['day']] = (int) $r['u'];
@@ -123,9 +129,11 @@ final class ProfitViews
     {
         $groups = [];
         $pending = $this->pending($from, $to, $store);
+        $ownPending = $this->pending($from, $to, $store, true);
         foreach ($this->db->all('SELECT day, ' . self::SUMS . ' FROM profit_day WHERE day BETWEEN ? AND ?' . ($store === null ? '' : ' AND channel_id = ?')
             . ' GROUP BY day ORDER BY day', [$from, $to, ...($store === null ? [] : [$store])]) as $r) {
             $r['pending'] = $pending[(string) $r['day']] ?? 0;
+            $r['own_pending'] = $ownPending[(string) $r['day']] ?? 0;
             $d = new \DateTimeImmutable((string) $r['day']);
             [$gFrom, $gTo] = match ($by) {
                 'week' => [$d->modify('monday this week')->format('Y-m-d'), $d->modify('sunday this week')->format('Y-m-d')],
@@ -152,25 +160,30 @@ final class ProfitViews
     {
         // Goods sold as the rows show them (figures()): by shop, the lines less the refunds kept at order level (the Codex review of 92efa82,
         // c4); by product, brand or supplier, the lines (those refunds are on no product: the page says how much they are, c7).
-        $goods = $by === 'shop' ? '(SUM(p.sale_ex) - SUM(p.order_refund_ex))' : 'SUM(p.sale_ex)';
-        $margin = "IF({$goods} > 0, ({$goods} - SUM(p.cost)) / {$goods}, NULL)";
+        // CW-1153 (VB11): OUR figures: the selling shop's own goods taken off every one, in SQL, so the sort and the cut at ROW_LIMIT are on ours
+        $goods = $by === 'shop' ? '(SUM(p.sale_ex) - SUM(p.own_sale_ex) - SUM(p.order_refund_ex) + SUM(p.own_refund_ex))' : '(SUM(p.sale_ex) - SUM(p.own_sale_ex))';
+        $cost = '(SUM(p.cost) - SUM(p.own_cost))';
+        $unitsOurs = '(SUM(p.units) - SUM(p.own_units))';
+        $margin = "IF({$goods} > 0, ({$goods} - {$cost}) / {$goods}, NULL)";
         // Units waiting for their cost (minutes at most), per row, joined in SQL: their rows are incomplete too, and a list by margin puts every
         // incomplete row after the rows whose margin is known BEFORE the list is cut at ROW_LIMIT (the Codex re-checks of 37a2cf0 and 6b8a7ee,
         // c6); a brand's waiting units are matched by the database's own comparison, the one its rows are grouped by (case does not matter).
         $pending = 'COALESCE(MAX(w.u), 0)';
         // Incomplete as figures() says it (PR85): more than 0.5% of the row's units without a known cost.
-        $incomplete = '((SUM(p.units_no_cost) + ' . $pending . ') * ' . self::INCOMPLETE_PER . ' > SUM(p.units))';
+        $incomplete = '((SUM(p.units_no_cost) - SUM(p.own_no_cost) + ' . $pending . ') * ' . self::INCOMPLETE_PER . " > {$unitsOurs})";
         $order = match ($sort) {
             'sale' => "{$goods} DESC",
-            'cost' => 'SUM(p.cost) DESC',
-            'units' => 'SUM(p.units) DESC',
+            'cost' => "{$cost} DESC",
+            'units' => "{$unitsOurs} DESC",
             'margin' => "{$incomplete}, {$margin} IS NULL, {$margin} DESC",
             'margin_low' => "{$incomplete}, {$margin} IS NULL, {$margin} ASC",
-            default => "{$goods} - SUM(p.cost) DESC",
+            default => "{$goods} - {$cost} DESC",
         };
+        // A product, brand or supplier row with nothing of ours (only the shop's own goods) is not a row of our lists.
+        $having = $by === 'shop' ? '' : " HAVING {$unitsOurs} <> 0 OR {$goods} <> 0 OR {$cost} <> 0";
         $where = 'p.day BETWEEN ? AND ?' . ($store === null ? '' : ' AND p.channel_id = ?');
         $params = [$from, $to, ...($store === null ? [] : [$store])];
-        $lw = 'l.cost_source IS NULL AND l.removed_at IS NULL AND l.restocked = 0 AND l.day BETWEEN ? AND ?' . ($store === null ? '' : ' AND l.channel_id = ?');
+        $lw = 'l.cost_source IS NULL AND l.removed_at IS NULL AND l.restocked = 0 AND l.item_owner IS NULL AND l.day BETWEEN ? AND ?' . ($store === null ? '' : ' AND l.channel_id = ?');
         $waiting = static fn (string $key, string $from, string $on): string => "LEFT JOIN (SELECT {$key} AS k, SUM(l.units) AS u FROM {$from} WHERE {$lw} GROUP BY k) w ON {$on}";
         $limit = self::ROW_LIMIT + 1;
         $rows = match ($by) {
@@ -180,14 +193,14 @@ final class ProfitViews
             'brand' => $this->db->all('SELECT COALESCE(NULLIF(s.brand, \'\'), \'\') AS label, NULL AS id, NULL AS code, ' . self::ITEM_SUMS . ", {$pending} AS pending "
                 . 'FROM profit_item_day p LEFT JOIN sku s ON s.id = p.sku_id '
                 . $waiting("COALESCE(NULLIF(s.brand, ''), '')", 'sale_line l LEFT JOIN sku s ON s.id = l.sku_id', "w.k = COALESCE(NULLIF(s.brand, ''), '')")
-                . " WHERE {$where} GROUP BY label ORDER BY {$order}, label LIMIT {$limit}", [...$params, ...$params]),
+                . " WHERE {$where} GROUP BY label{$having} ORDER BY {$order}, label LIMIT {$limit}", [...$params, ...$params]),
             'supplier' => $this->db->all('SELECT si.supplier_id AS id, COALESCE(sp.name, \'\') AS label, NULL AS code, ' . self::ITEM_SUMS . ", {$pending} AS pending "
                 . 'FROM profit_item_day p LEFT JOIN supplier_item si ON si.preferred_sku_id = p.sku_id LEFT JOIN supplier sp ON sp.id = si.supplier_id '
                 . $waiting('si.supplier_id', 'sale_line l LEFT JOIN supplier_item si ON si.preferred_sku_id = l.sku_id', 'w.k <=> si.supplier_id')
-                . " WHERE {$where} GROUP BY si.supplier_id, sp.name ORDER BY {$order}, label LIMIT {$limit}", [...$params, ...$params]),
+                . " WHERE {$where} GROUP BY si.supplier_id, sp.name{$having} ORDER BY {$order}, label LIMIT {$limit}", [...$params, ...$params]),
             default => $this->db->all('SELECT p.sku_id AS id, COALESCE(s.name, \'\') AS label, s.code, ' . self::ITEM_SUMS . ", {$pending} AS pending FROM profit_item_day p "
                 . 'LEFT JOIN sku s ON s.id = p.sku_id ' . $waiting('COALESCE(l.sku_id, 0)', 'sale_line l', 'w.k = p.sku_id')
-                . " WHERE {$where} GROUP BY p.sku_id, s.name, s.code ORDER BY {$order}, p.sku_id LIMIT {$limit}", [...$params, ...$params]),
+                . " WHERE {$where} GROUP BY p.sku_id, s.name, s.code{$having} ORDER BY {$order}, p.sku_id LIMIT {$limit}", [...$params, ...$params]),
         };
         $more = count($rows) > self::ROW_LIMIT;
         $out = [];
@@ -213,8 +226,12 @@ final class ProfitViews
         // not known is never printed as a number (the final review of 6d59eda, c-M10, PR102).
         $cols = 'o.channel_id, o.order_ref, o.order_no, o.status, o.paid_at, o.gateway, o.parent_ref, o.units, o.sale_ex, o.cost, o.resend_cost, o.resends, '
             . 'o.delivery_ex, o.margin_bp, o.units_no_cost, c.name AS store, '
+            // CW-1153 (VB11): the selling shop's own goods of the order (each row shows ours and them apart)
+            . 'o.own_units, o.own_sale_ex, o.own_refund_ex, o.own_cost, o.own_no_cost, '
             . '(SELECT COUNT(*) FROM sale_line l WHERE l.channel_id = o.channel_id AND l.order_ref = o.order_ref AND l.cost_source IS NULL AND l.removed_at IS NULL '
-            . 'AND l.units > 0 AND l.restocked = 0) AS pending';
+            . 'AND l.units > 0 AND l.restocked = 0 AND l.item_owner IS NULL) AS pending, '
+            . '(SELECT COUNT(*) FROM sale_line l WHERE l.channel_id = o.channel_id AND l.order_ref = o.order_ref AND l.cost_source IS NULL AND l.removed_at IS NULL '
+            . 'AND l.units > 0 AND l.restocked = 0 AND l.item_owner IS NOT NULL) AS own_pending';
         // Its re-sends' units with no price or waiting for one are those of its whole chain (a replacement of a replacement too: the second
         // final review of 3c31d94, a-M9, c-M6, PR143), read for the rows that have re-sends (a few on a page).
         $chain = function (array $rows): array {
@@ -251,7 +268,9 @@ final class ProfitViews
         }
         // Counted on the first page only (the next pages carry no count: the Codex review of 57d98ad, c2); the lowest margin first counts the
         // orders it can show, those with a margin (the second final review of 3c31d94, b-L1, c-L2, PR147: it counted the replacements too).
-        $total = $after === null ? (int) $this->db->value('SELECT COUNT(*) FROM sale_order o WHERE ' . implode(' AND ', $where) . ($lowest ? ' AND o.margin_bp IS NOT NULL' : ''),
+        // CW-1153 (VB11): an order of nothing but the selling shop's own goods has no margin of ours: never in "the lowest margin first"
+        $ownOnly = ' AND NOT (o.own_units > 0 AND o.own_units = o.units)';
+        $total = $after === null ? (int) $this->db->value('SELECT COUNT(*) FROM sale_order o WHERE ' . implode(' AND ', $where) . ($lowest ? ' AND o.margin_bp IS NOT NULL' . $ownOnly : ''),
             $params) : null;
         $hint = '';
         if ($lowest) {
@@ -259,6 +278,7 @@ final class ProfitViews
             // margin order.
             $hint = ' USE INDEX (ix_sale_order_paid, ix_sale_order_store_paid)';
             $where[] = 'o.margin_bp IS NOT NULL';
+            $where[] = ltrim(substr($ownOnly, 5));
             if ($after !== null) {
                 $where[] = '(o.margin_bp, o.channel_id, o.order_ref) > (?, ?, ?)';
                 array_push($params, (int) $after[0], $after[1], $after[2]);
@@ -293,9 +313,19 @@ final class ProfitViews
      */
     private static function orderRow(array $r): array
     {
-        $sale = (int) $r['sale_ex'];
-        $cost = (int) $r['cost'];
+        // CW-1153 (VB11): the row's goods, cost, units and units with no price are OURS (the selling shop's own goods taken off: they are on the
+        // row's own line); its margin is ours too when it sold any of them (else the stored one, the same).
+        $ownGoods = (int) ($r['own_sale_ex'] ?? 0) - (int) ($r['own_refund_ex'] ?? 0);
+        $ownCost = (int) ($r['own_cost'] ?? 0);
+        $hasOwn = (int) ($r['own_units'] ?? 0) !== 0 || $ownGoods !== 0 || $ownCost !== 0;
+        $r['units'] = (int) $r['units'] - (int) ($r['own_units'] ?? 0);
+        $r['units_no_cost'] = (int) $r['units_no_cost'] - (int) ($r['own_no_cost'] ?? 0);
+        $sale = (int) $r['sale_ex'] - $ownGoods;
+        $cost = (int) $r['cost'] - $ownCost;
         $resendCost = (int) $r['resend_cost'];
+        if ($hasOwn && $r['margin_bp'] !== null) {
+            $r['margin_bp'] = ProfitMath::marginBp($sale - $cost - $resendCost, $sale);
+        }
         // An order not paid (any more) shows no profit and no margin, whatever its rows still hold (the Codex check of the fix round, F18 PARTLY,
         // PR152: a sale paid with its cost fixed and then unpaid showed £7, 70%).
         $unpaid = $r['paid_at'] === null;
@@ -310,7 +340,9 @@ final class ProfitViews
             'delivery' => (int) $r['delivery_ex'], 'no_cost' => (int) $r['units_no_cost'], 'pending' => (int) ($r['pending'] ?? 0),
             'own_unknown' => $ownUnknown, 'resend_unknown' => $resendUnknown,
             // Incomplete: some unit it counts, its own or a paid re-send's, has no price or waits for it.
-            'incomplete' => $ownUnknown || $resendUnknown];
+            'incomplete' => $ownUnknown || $resendUnknown,
+            'shop_own' => $hasOwn ? ['units' => (int) $r['own_units'], 'goods' => $ownGoods, 'cost' => $ownCost,
+                'profit' => (int) ($r['own_no_cost'] ?? 0) > 0 || (int) ($r['own_pending'] ?? 0) > 0 ? null : $ownGoods - $ownCost] : null];
     }
 
     /**
@@ -382,7 +414,8 @@ final class ProfitViews
         $out = [];
         foreach ($lines as $l) {
             $key = implode('|', [$l['sku_id'] === null ? 'v' . $l['variant_id'] : 's' . $l['sku_id'], $l['unit_cost_e4'] ?? '-', $l['cost_source'] ?? '-',
-                (int) $l['cancelled'], (int) $l['is_free'], (int) $l['restocked'], (int) $l['refund_inc'] > 0 ? 1 : 0, $l['removed_at'] === null ? 0 : 1]);
+                (int) $l['cancelled'], (int) $l['is_free'], (int) $l['restocked'], (int) $l['refund_inc'] > 0 ? 1 : 0, $l['removed_at'] === null ? 0 : 1,
+                $l['item_owner'] ?? '-']); // CW-1153 (VB11): the shop's own goods never grouped with ours
             if (!isset($out[$key])) {
                 $out[$key] = $l + ['lines' => 0];
                 $out[$key]['units'] = 0;
@@ -403,13 +436,14 @@ final class ProfitViews
      *
      * @return list<array{sku_id: ?int, code: ?string, name: string, variant: ?string, units: int, sale: int, lines: int}>
      */
-    public function noCost(string $from, string $to, ?int $store): array
+    public function noCost(string $from, string $to, ?int $store, bool $own = false): array
     {
         // A website product with no CW item is its store's own (two stores' variant 123 are not the same product: the Codex review of 92efa82,
         // c5); a CW item is one row whatever store sold it.
         $rows = $this->db->all("SELECT l.sku_id, IF(l.sku_id IS NULL, l.variant_id, NULL) AS variant, IF(l.sku_id IS NULL, l.channel_id, NULL) AS ch, s.code, s.name, "
             . "SUM(l.units) AS units, SUM(l.sale_ex) AS sale, COUNT(*) AS n FROM sale_line l LEFT JOIN sku s ON s.id = l.sku_id "
             . "WHERE l.cost_source = 'none' AND l.day BETWEEN ? AND ? AND l.units > 0 AND l.restocked = 0 AND l.removed_at IS NULL" . ($store === null ? '' : ' AND l.channel_id = ?')
+            . ' AND l.item_owner IS ' . ($own ? 'NOT ' : '') . 'NULL' // CW-1153 (VB11): ours, or the selling shop's own goods' list
             . ' GROUP BY l.sku_id, variant, ch, s.code, s.name ORDER BY units DESC, l.sku_id, ch, variant LIMIT ' . self::ROW_LIMIT, [$from, $to, ...($store === null ? [] : [$store])]);
         $names = array_column($this->stores(), 'name', 'id');
         return array_map(static fn (array $r): array => ['sku_id' => $r['sku_id'] === null ? null : (int) $r['sku_id'], 'code' => $r['code'] === null ? null : (string) $r['code'],
@@ -420,7 +454,7 @@ final class ProfitViews
     /** The refunds the shops kept at order level in these days (ex VAT): on no product, so the lists by product, brand and supplier leave them out. */
     public function orderRefunds(string $from, string $to, ?int $store): int
     {
-        return (int) $this->db->value('SELECT COALESCE(SUM(order_refund_ex), 0) FROM profit_day WHERE day BETWEEN ? AND ?' . ($store === null ? '' : ' AND channel_id = ?'),
+        return (int) $this->db->value('SELECT COALESCE(SUM(order_refund_ex) - SUM(own_refund_ex), 0) FROM profit_day WHERE day BETWEEN ? AND ?' . ($store === null ? '' : ' AND channel_id = ?'),
             [$from, $to, ...($store === null ? [] : [$store])]);
     }
 
@@ -432,8 +466,17 @@ final class ProfitViews
      */
     public static function figures(array $r): array
     {
-        $goods = (int) ($r['sale_ex'] ?? 0) - (int) ($r['order_refund_ex'] ?? 0);
-        $cost = (int) ($r['cost'] ?? 0);
+        // CW-1153 (docs/decisions.md VB11): every figure here is OURS: the selling shop's own goods (own_*, inside the stored figures) are taken
+        // off, and shown apart in `own` (goods, cost, profit, margin, units, no price, waiting). Orders, delivery and PayPal stay the shop's.
+        $ownGoods = (int) ($r['own_sale_ex'] ?? 0) - (int) ($r['own_refund_ex'] ?? 0);
+        $ownCost = (int) ($r['own_cost'] ?? 0);
+        $ownUnits = (int) ($r['own_units'] ?? 0);
+        $ownNoCost = (int) ($r['own_no_cost'] ?? 0);
+        $ownPending = (int) ($r['own_pending'] ?? 0);
+        $r['units'] = (int) ($r['units'] ?? 0) - $ownUnits;
+        $r['units_no_cost'] = (int) ($r['units_no_cost'] ?? 0) - $ownNoCost;
+        $goods = (int) ($r['sale_ex'] ?? 0) - (int) ($r['order_refund_ex'] ?? 0) - $ownGoods;
+        $cost = (int) ($r['cost'] ?? 0) - $ownCost;
         $delivery = (int) ($r['delivery_ex'] ?? 0);
         $deliveryCost = (int) ($r['delivery_cost'] ?? 0);
         $deliveryOther = (int) ($r['delivery_other'] ?? 0);
@@ -445,7 +488,11 @@ final class ProfitViews
             // PayPal's money (0080, PPF7): on the orders, on no order, and both
             'fee_cost' => (int) ($r['fee_cost'] ?? 0), 'fee_other' => (int) ($r['fee_other'] ?? 0), 'fees' => (int) ($r['fee_cost'] ?? 0) + (int) ($r['fee_other'] ?? 0),
             'no_cost' => (int) ($r['units_no_cost'] ?? 0), 'pending' => (int) ($r['pending'] ?? 0),
-            'incomplete' => self::incomplete((int) ($r['units_no_cost'] ?? 0) + (int) ($r['pending'] ?? 0), (int) ($r['units'] ?? 0))];
+            'incomplete' => self::incomplete((int) ($r['units_no_cost'] ?? 0) + (int) ($r['pending'] ?? 0), (int) ($r['units'] ?? 0)),
+            'own' => ['units' => $ownUnits, 'goods' => $ownGoods, 'cost' => $ownCost, 'profit' => $ownGoods - $ownCost,
+                'margin_bp' => ProfitMath::marginBp($ownGoods - $ownCost, $ownGoods), 'no_cost' => $ownNoCost, 'pending' => $ownPending,
+                'any' => $ownUnits !== 0 || $ownGoods !== 0 || $ownCost !== 0 || $ownNoCost !== 0 || $ownPending !== 0,
+                'incomplete' => self::incomplete($ownNoCost + $ownPending, $ownUnits)]];
     }
 
     /**

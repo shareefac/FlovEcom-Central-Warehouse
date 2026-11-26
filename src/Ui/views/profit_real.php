@@ -68,6 +68,10 @@ $feesOn = array_values(array_filter($shops, static fn (array $s): bool => $s['st
   </tbody>
 </table>
 </div>
+<?php foreach (array_filter($shops, static fn (array $s): bool => $s['started'] && ($s['own'] ?? null) !== null) as $s): ?>
+<p class="own-goods-line" role="note"><?= $e(\CW\Ui\Words::say('PROFIT', 'own_goods_line', (string) $s['shop'], $gbp((int) $s['own']['goods']), $gbp((int) $s['own']['cost']),
+    $gbp((int) $s['own']['profit']), \CW\Ui\Html::int((int) $s['own']['units']))) ?></p>
+<?php endforeach; ?>
 <?php foreach ($feesOn as $s): ?>
 <p class="muted"><?= $say('PROFIT', 'real_fees_paypal', (string) $s['shop'], \CW\Ui\Html::day((string) $s['fees_from'])) ?></p>
 <?php endforeach; ?>

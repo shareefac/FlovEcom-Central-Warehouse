@@ -118,6 +118,9 @@ final class ItemOwners
         if ($sku === null || $at === null) {
             return null;
         }
+        if (strlen($at) === 19) {
+            $at .= '.000000'; // a time stored without its microseconds compares as the same moment
+        }
         foreach ($periods[$sku] ?? [] as [$channel, $from, $to]) {
             if ($at >= $from && ($to === null || $at < $to)) {
                 return $channel;

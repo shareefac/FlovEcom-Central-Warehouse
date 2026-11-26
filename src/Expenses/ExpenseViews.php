@@ -383,7 +383,7 @@ final class ExpenseViews
                 $row = ['shop_id' => $s['id'], 'shop' => $s['name'], 'code' => $s['code'], 'started' => $start !== null && $a <= $to, 'from' => $start,
                     'counted_from' => $start !== null && $start > $from && $start <= $to ? $start : null, 'goods' => null, 'cost' => null, 'delivery' => null,
                     'delivery_cost' => null, 'fees' => null, 'fees_other' => null, 'fees_from' => null, 'expenses' => null, 'expenses_count' => 0, 'regular' => null, 'real' => null, 'incomplete' => false,
-                    'no_cost' => 0];
+                    'no_cost' => 0, 'own' => null];
                 if (!$row['started']) {
                     $out[] = $row;
                     continue;
@@ -399,7 +399,9 @@ final class ExpenseViews
                     'fees_other' => (int) $f['fee_other'], 'fees_from' => $feesFrom !== null && $feesFrom <= $to ? $feesFrom : null,
                     // Not complete while ANY unit counted has no buying price or waits for it (the margin pages' 0.5% rule is for a margin; a real
                     // profit is an amount: the Codex check r3, H5).
-                    'incomplete' => (int) $f['no_cost'] + (int) $f['pending'] > 0, 'no_cost' => (int) $f['no_cost'] + (int) $f['pending']] + $row;
+                    'incomplete' => (int) $f['no_cost'] + (int) $f['pending'] > 0, 'no_cost' => (int) $f['no_cost'] + (int) $f['pending'],
+                    // CW-1153 (docs/decisions.md VB11): the goods are OURS (the shop's own goods are not in them): its own goods on a line of their own
+                    'own' => $f['own']['any'] ? $f['own'] : null] + $row;
                 if ($withExpenses) {
                     $e = $this->expensesBy($a, $to, $s['id'])[$s['id']] ?? ['net' => 0, 'count' => 0];
                     $reg = $this->regularBy($a, $to, $s['id'])[$s['id']] ?? 0;

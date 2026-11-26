@@ -34,8 +34,11 @@ use CW\Db;
 final class ProfitDays
 {
     public const DAY_FIELDS = ['orders', 'resends', 'units', 'sale_ex', 'order_refund_ex', 'cost', 'units_no_cost', 'delivery_ex', 'delivery_cost', 'delivery_other',
-        'fee_cost', 'fee_other'];
-    public const ITEM_FIELDS = ['units', 'sale_ex', 'cost', 'units_no_cost'];
+        'fee_cost', 'fee_other',
+        // CW-1153 (0083, docs/decisions.md VB10): the selling shop's own goods' part of units, sale_ex, order_refund_ex, cost and units_no_cost
+        // (inside them: the whole figures never change; ours = whole - own)
+        'own_units', 'own_sale_ex', 'own_refund_ex', 'own_cost', 'own_no_cost'];
+    public const ITEM_FIELDS = ['units', 'sale_ex', 'cost', 'units_no_cost', 'own_units', 'own_sale_ex', 'own_cost', 'own_no_cost'];
     /** bin/rebuild_profit_days.php --apply waits at most this long for a store-day's row held elsewhere, then names it and goes on (PR132). */
     public const REBUILD_LOCK_WAIT_SEC = 10;
 
@@ -58,7 +61,9 @@ final class ProfitDays
         $days = [$day => ['orders' => !$resend && $units > 0 ? 1 : 0, 'resends' => $resend && $units > 0 ? 1 : 0, 'units' => $units,
             'sale_ex' => (int) $order['sale_ex'] + $refundEx, 'order_refund_ex' => $refundEx, 'cost' => (int) $order['cost'],
             'units_no_cost' => (int) $order['units_no_cost'], 'delivery_ex' => (int) $order['delivery_ex'], 'delivery_cost' => $deliveryCost, 'delivery_other' => 0,
-            'fee_cost' => $feeCost, 'fee_other' => 0]];
+            'fee_cost' => $feeCost, 'fee_other' => 0,
+            'own_units' => (int) ($order['own_units'] ?? 0), 'own_sale_ex' => (int) ($order['own_sale_ex'] ?? 0), 'own_refund_ex' => (int) ($order['own_refund_ex'] ?? 0),
+            'own_cost' => (int) ($order['own_cost'] ?? 0), 'own_no_cost' => (int) ($order['own_no_cost'] ?? 0)]];
         $items = [];
         foreach ($lines as $r) {
             if ($r['removed_at'] !== null) {
@@ -68,6 +73,10 @@ final class ProfitDays
             if ($f === ['units' => 0, 'sale_ex' => 0, 'cost' => 0, 'units_no_cost' => 0]) {
                 continue;
             }
+            // CW-1153 (VB10): a line of the shop's own goods counts in its item's own figures too
+            $own = ($r['item_owner'] ?? null) !== null;
+            $f += ['own_units' => $own ? $f['units'] : 0, 'own_sale_ex' => $own ? $f['sale_ex'] : 0, 'own_cost' => $own ? $f['cost'] : 0,
+                'own_no_cost' => $own ? $f['units_no_cost'] : 0];
             $k = $day . '|' . (int) ($r['sku_id'] ?? 0);
             $items[$k] ??= array_fill_keys(self::ITEM_FIELDS, 0);
             foreach ($f as $field => $v) {

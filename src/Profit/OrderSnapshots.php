@@ -704,6 +704,11 @@ final class OrderSnapshots
             }
         }
         $costs = $paid === null || $toCost === [] ? [] : $this->costs->at($toCost, (string) $paid);
+        // CW-1153 (docs/decisions.md VB9): whose goods each line sold, fixed from the periods at the order's PAID time (never today's list): the
+        // shop's own when its item was that shop's own then and the shop sold it; ours otherwise. Read again with every snapshot and re-cost, so
+        // it always says what the periods say (they are never rewritten).
+        $owners = $paid === null ? [] : \CW\Items\ItemOwners::periods($db, array_values(array_filter([...array_column($lines, 'sku'),
+            ...array_map(static fn (array $r): ?int => $r['sku_id'] === null ? null : (int) $r['sku_id'], $oldLines)], static fn ($s): bool => $s !== null)));
 
         $newLines = [];
         foreach ($lines as $key => $x) {
@@ -751,6 +756,7 @@ final class OrderSnapshots
                 'restocked' => $x['restocked'] ? 1 : 0, 'sale_inc' => $m['sale_inc'], 'sale_ex' => $m['sale_ex'], 'unit_cost_e4' => $e4,
                 'cost' => ProfitMath::lineCost($m['counts'], $m['units'], $e4, $x['restocked']), 'cost_source' => $source, 'costed_by' => $by,
                 'cost_at' => $costAt, 'day' => $day, 'removed_at' => null, 'updated_at' => $now,
+                'item_owner' => ($o = \CW\Items\ItemOwners::ownerAt($owners, $x['sku'], $paid === null ? null : (string) $paid)) === $channelId ? $o : null,
             ];
         }
         // A line gone from this snapshot: kept, counts nothing.
@@ -759,7 +765,9 @@ final class OrderSnapshots
                 continue;
             }
             $newLines[$id] = ['units' => 0, 'sale_inc' => 0, 'sale_ex' => 0, 'cost' => 0, 'day' => $day, 'updated_at' => $now,
-                'removed_at' => $r['removed_at'] ?? $now] + $r;
+                'removed_at' => $r['removed_at'] ?? $now,
+                'item_owner' => ($o = \CW\Items\ItemOwners::ownerAt($owners, $r['sku_id'] === null ? null : (int) $r['sku_id'], $paid === null ? null : (string) $paid))
+                    === $channelId ? $o : null] + $r;
         }
 
         $order = self::totals($body, $newLines, $vatBp) + [
@@ -884,6 +892,7 @@ final class OrderSnapshots
         $refund = (int) $body['order_refund_inc'];
         $within = $t['sale_inc'] > 0 ? min($refund, $t['sale_inc']) : 0;
         $refundEx = $clone ? 0 : ($within > 0 ? ProfitMath::mulDivRound($t['sale_ex'], $within, $t['sale_inc']) : 0) + ProfitMath::exVat($refund - $within, $vatBp);
+        $t += self::ownShare($lines, $refundEx);
         $t['sale_inc'] -= $clone ? 0 : $refund;
         $t['sale_ex'] -= $refundEx;
         $d = $body['delivery'];
@@ -897,6 +906,49 @@ final class OrderSnapshots
             'delivery_ex' => $clone ? 0 : ProfitMath::exVat((int) $d['charged_inc'] - (int) $d['refund_inc'], $vatBp),
             'grand_inc' => (int) $body['grand_inc'],
         ];
+    }
+
+    /**
+     * CW-1153 (docs/decisions.md VB10, the money table): the part of an order's figures that is the selling shop's OWN goods (its lines with
+     * item_owner), beside the whole figures, which stay as they were: units, the lines' sale ex VAT (before the order-level refund), buying
+     * cost and units with no price, each from its own lines; and its share of the order-level refund ex VAT, by the lines' sale inc VAT:
+     * mulDivRound(refund, own lines' sale, all lines' sale), so ours (the rest) and the shop's own add up to the refund to the penny. A refund on
+     * an order of one owner's goods is wholly that owner's; when the lines sold nothing (all free) it is the shop's own only if every line is.
+     *
+     * @param array<string, array<string, mixed>> $lines
+     * @return array{own_units: int, own_sale_ex: int, own_refund_ex: int, own_cost: int, own_no_cost: int}
+     */
+    public static function ownShare(array $lines, int $refundEx): array
+    {
+        $o = ['own_units' => 0, 'own_sale_ex' => 0, 'own_refund_ex' => 0, 'own_cost' => 0, 'own_no_cost' => 0];
+        $allInc = 0;
+        $ownInc = 0;
+        $counting = 0;
+        $ownLines = 0;
+        foreach ($lines as $r) {
+            if ($r['removed_at'] !== null) {
+                continue;
+            }
+            $counting++;
+            $allInc += (int) $r['sale_inc'];
+            if (($r['item_owner'] ?? null) === null) {
+                continue;
+            }
+            $ownLines++;
+            $ownInc += (int) $r['sale_inc'];
+            $o['own_units'] += (int) $r['units'];
+            $o['own_sale_ex'] += (int) $r['sale_ex'];
+            $o['own_cost'] += (int) $r['cost'];
+            $o['own_no_cost'] += self::unitsNoCost($r);
+        }
+        if ($refundEx !== 0 && $ownLines > 0) {
+            $o['own_refund_ex'] = match (true) {
+                $ownLines === $counting => $refundEx,
+                $allInc > 0 => ProfitMath::mulDivRound($refundEx, $ownInc, $allInc),
+                default => 0,
+            };
+        }
+        return $o;
     }
 
     /** Units of a line that count and have no buying price (a unit back in stock has none by rule: not missing). */
@@ -1028,7 +1080,8 @@ final class OrderSnapshots
     private static function lineRow(array $r): array
     {
         $cols = ['channel_id', 'line_id', 'order_ref', 'variant_id', 'listing_id', 'sku_id', 'units_per_item', 'qty', 'units', 'price_inc', 'discount_inc', 'refund_inc',
-            'cancelled', 'is_free', 'restocked', 'sale_inc', 'sale_ex', 'unit_cost_e4', 'cost', 'cost_source', 'costed_by', 'cost_at', 'day', 'removed_at', 'updated_at'];
+            'cancelled', 'is_free', 'restocked', 'sale_inc', 'sale_ex', 'unit_cost_e4', 'cost', 'cost_source', 'costed_by', 'cost_at', 'day', 'removed_at', 'updated_at',
+            'item_owner']; // CW-1153 (VB9)
         $out = [];
         foreach ($cols as $c) {
             $out[$c] = $r[$c] ?? null;

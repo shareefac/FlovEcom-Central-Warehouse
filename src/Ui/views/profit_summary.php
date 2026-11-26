@@ -41,6 +41,37 @@
 </table>
 </div>
 
+<?php if (array_filter($rows, static fn (array $r): bool => $r['f']['own']['any']) !== []): ?>
+<h2><?= $word('PROFIT', 'own_goods_table') ?></h2>
+<p class="muted"><?= $word('PROFIT', 'own_goods_note') ?></p>
+<div class="table-wrap">
+<table class="stack rp-table profit-own-goods">
+  <thead>
+    <tr>
+      <th scope="col"><?= $word('PROFIT', 'period') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'own_units') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'goods') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'cost') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'profit') ?></th>
+      <th scope="col" class="num"><?= $word('PROFIT', 'no_cost') ?></th>
+    </tr>
+  </thead>
+  <tbody>
+<?php foreach ($rows as $r): ?>
+    <tr>
+      <th scope="row"><?= $e($r['label']) ?></th>
+      <td class="num" data-label="<?= $word('PROFIT', 'own_units') ?>"><?= $n($r['f']['own']['units']) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'goods') ?>"><?= $money($r['f']['own']['goods'] / 100) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'cost') ?>"><?= $money($r['f']['own']['cost'] / 100) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'profit') ?>"><?= $money($r['f']['own']['profit'] / 100) ?></td>
+      <td class="num" data-label="<?= $word('PROFIT', 'no_cost') ?>"><?= $n($r['f']['own']['no_cost']) ?><?php if ($r['f']['own']['pending'] > 0): ?> <span class="muted"><?= $say('PROFIT', 'waiting_count', (string) $r['f']['own']['pending']) ?></span><?php endif; ?></td>
+    </tr>
+<?php endforeach; ?>
+  </tbody>
+</table>
+</div>
+<?php endif; ?>
+
 <h2><?= $word('PROFIT', 'delivery_table') ?></h2>
 <div class="table-wrap">
 <table class="stack rp-table profit-delivery-summary">

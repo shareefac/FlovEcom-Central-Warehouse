@@ -42,8 +42,14 @@ final class RecostSales
      * @return array{orders: int, lines: int, moves: array<string, int>, deferred: int} deferred: orders left because a newer snapshot waits for
      *         the money job (run again after it)
      */
-    public function run(string $from, string $to, array $sources, ?string $channelCode, bool $apply): array
+    public function run(string $from, string $to, array $sources, ?string $channelCode, bool $apply, ?array $skuIds = null): array
     {
+        // CW-1153 (docs/decisions.md VB12): with $skuIds only the lines of those items are re-costed, in the choice of orders AND in each order's
+        // plan under its locks: every other line of a mixed order keeps its cost, its source and its time to the penny.
+        $skuIds = $skuIds === null ? null : array_values(array_unique(array_map('intval', $skuIds)));
+        if ($skuIds === []) {
+            throw new \InvalidArgumentException('an empty list of items');
+        }
         foreach ($sources as $s) {
             if (!in_array($s, self::SOURCES, true)) {
                 throw new \InvalidArgumentException("unknown cost source {$s}");
@@ -57,8 +63,10 @@ final class RecostSales
             }
         }
         $in = implode(', ', array_fill(0, count($sources), '?'));
+        $items = $skuIds === null ? '' : ' AND sku_id IN (' . implode(', ', array_fill(0, count($skuIds), '?')) . ')';
         $orders = $this->db->all("SELECT DISTINCT channel_id, order_ref FROM sale_line WHERE day BETWEEN ? AND ? AND cost_source IN ({$in}) AND removed_at IS NULL"
-            . ($channel === null ? '' : ' AND channel_id = ?') . ' ORDER BY channel_id, order_ref', [$from, $to, ...$sources, ...($channel === null ? [] : [(int) $channel])]);
+            . ($channel === null ? '' : ' AND channel_id = ?') . $items . ' ORDER BY channel_id, order_ref',
+            [$from, $to, ...$sources, ...($channel === null ? [] : [(int) $channel]), ...($skuIds ?? [])]);
         $settings = new ProfitSettings($this->db);
         $costs = new ItemCosts($this->db, $settings);
         $service = new OrderSnapshots($this->db, $this->clock, $settings);
@@ -66,7 +74,7 @@ final class RecostSales
         foreach ($orders as $o) {
             $ch = (int) $o['channel_id'];
             $ref = (string) $o['order_ref'];
-            $plan = static fn (Db $db): ?array => self::plan($db, $costs, $ch, $ref, $sources, $from, $to);
+            $plan = static fn (Db $db): ?array => self::plan($db, $costs, $ch, $ref, $sources, $from, $to, $skuIds);
             // What would move, read now (the dry run's figures); written under the order's locks from what is stored THEN (a line an import
             // fixed meanwhile is no longer of these sources and is left alone: the Codex review of 92efa82, a11/b11).
             $p = $plan($this->db);
@@ -105,7 +113,7 @@ final class RecostSales
      * @param list<string> $sources
      * @return array{override: array<string, array<string, mixed>>, moves: array<string, int>}|null
      */
-    private static function plan(Db $db, ItemCosts $costs, int $ch, string $ref, array $sources, string $from, string $to): ?array
+    private static function plan(Db $db, ItemCosts $costs, int $ch, string $ref, array $sources, string $from, string $to, ?array $skuIds = null): ?array
     {
         // Still paid on one of the days asked for, read again under the order's locks when it is written (a newer snapshot may have moved its
         // payment to another day meanwhile: the final review of 6d59eda, c-M8, PR110).
@@ -117,7 +125,8 @@ final class RecostSales
         $in = implode(', ', array_fill(0, count($sources), '?'));
         $lines = $db->all("SELECT l.line_id, l.sku_id, l.cost_source, l.costed_by, l.unit_cost_e4, l.variant_id, c.sku_id AS now_sku, c.units_per_item AS now_upi, c.status FROM sale_line l "
             . 'LEFT JOIN channel_listing c ON c.channel_id = l.channel_id AND c.external_variant_id = l.variant_id '
-            . "WHERE l.channel_id = ? AND l.order_ref = ? AND l.removed_at IS NULL AND l.cost_source IN ({$in})", [$ch, $ref, ...$sources]);
+            . "WHERE l.channel_id = ? AND l.order_ref = ? AND l.removed_at IS NULL AND l.cost_source IN ({$in})"
+            . ($skuIds === null ? '' : ' AND l.sku_id IN (' . implode(', ', array_fill(0, count($skuIds), '?')) . ')'), [$ch, $ref, ...$sources, ...($skuIds ?? [])]);
         if ($lines === []) {
             return null;
         }
