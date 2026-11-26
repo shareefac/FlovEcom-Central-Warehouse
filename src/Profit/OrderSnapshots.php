@@ -538,16 +538,18 @@ final class OrderSnapshots
      *
      * @param array<string, array{e4: ?int, source: string, by: string}>|\Closure(Db, array<string, mixed>): ?array<string, array<string, mixed>> $override
      *        line id => the cost to fix on it now; or a function that works it out under the locks from the stored body
+     * @param bool $keepOthers CW-1153 (the Codex review of bd9104d, H4): every stored line NOT in the override keeps its stored row exactly (its
+     *        cost, source, time, units, owner): a scoped re-cost changes the lines it names and nothing else (apply()).
      */
-    public function recompute(int $channelId, string $ref, array|\Closure $override = []): bool
+    public function recompute(int $channelId, string $ref, array|\Closure $override = [], bool $keepOthers = false): bool
     {
         $this->deferred = false;
         $intake = null;
         $this->paypalOrders = [];
         $done = false;
         try {
-            $done = $this->guarded($channelId, $ref, null, function () use ($channelId, $ref, $override, &$intake): bool {
-                return $this->db->transaction(function (Db $db) use ($channelId, $ref, $override, &$intake): bool {
+            $done = $this->guarded($channelId, $ref, null, function () use ($channelId, $ref, $override, $keepOthers, &$intake): bool {
+                return $this->db->transaction(function (Db $db) use ($channelId, $ref, $override, $keepOthers, &$intake): bool {
                     // The snapshot worked out last (the one the order's rows say): a batch tool checks and writes against the same version (a newer one
                     // waiting in the queue is worked out after it by the money job; the Codex check of c48683e). Only money writers, each holding the
                     // order's guards, write order_snapshot; the API never touches it.
@@ -569,7 +571,7 @@ final class OrderSnapshots
                     if ($o === null) {
                         return false;
                     }
-                    $this->apply($db, $channelId, $ref, $body, Clock::db(($this->clock)()), $o);
+                    $this->apply($db, $channelId, $ref, $body, Clock::db(($this->clock)()), $o, $keepOthers);
                     // The commit boundary of a batch tool's costs (the Codex check of 2b718e7): the order's intake lock taken without a wait
                     // (the API storing a snapshot of it right now: left for later) and the queue read again under it, so a correction the API
                     // stored while the tool worked is seen, and one it stores from now waits for this commit only (never for the work).
@@ -612,13 +614,122 @@ final class OrderSnapshots
     }
 
     /**
+     * CW-1153 (the Codex review of bd9104d, M6 and H1): the owners of an order's STORED lines read again from the periods at its paid time
+     * (ownerPlan()), and only its lines' item_owner, its own_* figures and its day summaries (by the same difference, ProfitDays::change) written.
+     * Nothing is replayed: no snapshot, cost, unit or reservation is read, so no cost, unit, sale or refund moves, only the split of the stored
+     * figures between ours and the shop's own (a refund the release before stored without its own share is split again here too). Under the
+     * order's guards, in a transaction of its own (or the caller's). A lock wait (another money writer on the order) is thrown, `busy`.
+     *
+     * @return bool true when something was written (false: nothing to do, or no such order)
+     */
+    public function reown(int $channelId, string $ref): bool
+    {
+        return $this->guarded($channelId, $ref, null, function () use ($channelId, $ref): bool {
+            return $this->db->transaction(function (Db $db) use ($channelId, $ref): bool {
+                $day = $db->value('SELECT day FROM sale_order WHERE channel_id = ? AND order_ref = ?', [$channelId, $ref]);
+                // the day guard first, as apply() (ProfitDays::guard: before any row of the order); only this order's writer, holding its guards,
+                // moves its day
+                ProfitDays::guard($db, $channelId, $day === null ? [] : [(string) $day]);
+                $p = self::ownerPlan($db, $channelId, $ref, true);
+                if ($p === null || !$p['due']) {
+                    return false;
+                }
+                $old = $p['order'];
+                $ref = (string) $old['order_ref'];
+                foreach ([0, $channelId] as $owner) {
+                    $ids = array_keys(array_filter($p['moves'], static fn (?int $o): bool => ($o ?? 0) === $owner));
+                    foreach (array_chunk($ids, 500) as $chunk) {
+                        $db->exec('UPDATE sale_line SET item_owner = ? WHERE channel_id = ? AND order_ref = ? AND line_id IN (' . self::marks($chunk) . ')',
+                            [$owner === 0 ? null : $owner, $channelId, $ref, ...array_map('strval', $chunk)]);
+                    }
+                }
+                $sh = $p['share'];
+                $db->exec('UPDATE sale_order SET own_units = ?, own_sale_ex = ?, own_refund_ex = ?, own_cost = ?, own_no_cost = ? WHERE channel_id = ? AND order_ref = ?',
+                    [$sh['own_units'], $sh['own_sale_ex'], $sh['own_refund_ex'], $sh['own_cost'], $sh['own_no_cost'], $channelId, $ref]);
+                $delivery = DeliveryBills::orderCost($db, $channelId, $ref);
+                $fee = PaypalFees::orderFee($db, $channelId, $ref);
+                ProfitDays::change($db, $channelId, ProfitDays::orderShare($old, $p['lines'], $delivery, $fee),
+                    ProfitDays::orderShare(array_merge($old, $sh), $p['new_lines'], $delivery, $fee));
+                return true;
+            });
+        });
+    }
+
+    /**
+     * What the periods say an order's stored lines' owners are (at its paid time; none while it is not paid) and the own figures that follow from
+     * its stored lines and its stored order-level refund (ownShare()); `due` when a line's owner or a stored own figure differs. With $lock: the
+     * order's rows FOR UPDATE and its items' rows FOR SHARE (lockItems(), M11) first, as reown() writes them; without: a read only (a dry run).
+     *
+     * @return array{order: array<string, mixed>, lines: array<string, array<string, mixed>>, new_lines: array<string, array<string, mixed>>,
+     *         moves: array<string, ?int>, share: array<string, int>, due: bool, waiting: bool}|null moves: line id => its owner now
+     */
+    public static function ownerPlan(Db $db, int $channelId, string $ref, bool $lock): ?array
+    {
+        $for = $lock ? ' FOR UPDATE' : '';
+        $old = $db->one('SELECT * FROM sale_order WHERE channel_id = ? AND order_ref = ?' . $for, [$channelId, $ref]);
+        if ($old === null) {
+            return null;
+        }
+        $ref = (string) $old['order_ref'];
+        $lines = [];
+        foreach ($db->all('SELECT * FROM sale_line WHERE channel_id = ? AND order_ref = ?' . $for, [$channelId, $ref]) as $r) {
+            $lines[strtolower((string) $r['line_id'])] = $r;
+        }
+        $paid = $old['paid_at'] === null ? null : (string) $old['paid_at'];
+        $skus = array_values(array_unique(array_map('intval', array_filter(array_column($lines, 'sku_id'), static fn ($s): bool => $s !== null))));
+        if ($lock && $paid !== null) {
+            self::lockItems($db, $skus);
+        }
+        $periods = $paid === null ? [] : \CW\Items\ItemOwners::periods($db, $skus);
+        $new = [];
+        $moves = [];
+        $waiting = false;
+        foreach ($lines as $k => $r) {
+            $o = \CW\Items\ItemOwners::ownerAt($periods, $r['sku_id'] === null ? null : (int) $r['sku_id'], $paid);
+            $want = $o === $channelId ? $o : null;
+            $has = $r['item_owner'] === null ? null : (int) $r['item_owner'];
+            if ($want !== $has) {
+                $moves[(string) $r['line_id']] = $want;
+            }
+            $new[$k] = array_merge($r, ['item_owner' => $want]);
+            if ($paid !== null && $r['removed_at'] === null && $r['cost_source'] === null && (int) $r['units'] > 0 && (int) $r['restocked'] === 0) {
+                $waiting = true;
+            }
+        }
+        $share = self::ownShare($new, (int) $old['order_refund_ex']);
+        $stale = false;
+        foreach ($share as $f => $v) {
+            $stale = $stale || (int) $old[$f] !== $v;
+        }
+        return ['order' => $old, 'lines' => $lines, 'new_lines' => $new, 'moves' => $moves, 'share' => $share, 'due' => $moves !== [] || $stale, 'waiting' => $waiting];
+    }
+
+    /**
+     * CW-1153 (the Codex review of bd9104d, M11): the items' rows FOR SHARE in id order, before their periods are read for a sale: a mark or a
+     * removal (ItemOwners, the row FOR UPDATE, its time read under it) being written is waited for. Shared with the reservations' own reads of
+     * those rows (Reservations::lockSkus, FOR SHARE); no writer that holds an item's row FOR UPDATE waits for an order's rows.
+     *
+     * @param list<int> $skuIds
+     */
+    public static function lockItems(Db $db, array $skuIds): void
+    {
+        $skuIds = array_values(array_unique(array_map('intval', $skuIds)));
+        sort($skuIds);
+        foreach (array_chunk($skuIds, 500) as $chunk) {
+            $db->all('SELECT id FROM sku WHERE id IN (' . self::marks($chunk) . ') ORDER BY id FOR SHARE', $chunk);
+        }
+    }
+
+    /**
      * Works one order out from its (normalised) snapshot, inside the caller's transaction, with the order_snapshot row locked.
      *
      * @param array<string, mixed> $body SnapshotBody::parse()'s shape
      * @param array<string, array{e4: ?int, source: string, by: string, sku?: int, upi?: int}> $override line id => the cost to fix on it now
      *        (and, for a line that had no item, the item it is costed as)
+     * @param bool $keepOthers a stored line not in $override keeps its stored row as it is (recompute(); H4): the order's totals and day
+     *        summaries then follow from the lines as they end up
      */
-    public function apply(Db $db, int $channelId, string $ref, array $body, string $now, array $override = []): void
+    public function apply(Db $db, int $channelId, string $ref, array $body, string $now, array $override = [], bool $keepOthers = false): void
     {
         // A batch tool's costs by line id without case (as the line's key compares).
         $override = array_change_key_case($override, CASE_LOWER);
@@ -707,11 +818,21 @@ final class OrderSnapshots
         // CW-1153 (docs/decisions.md VB9): whose goods each line sold, fixed from the periods at the order's PAID time (never today's list): the
         // shop's own when its item was that shop's own then and the shop sold it; ours otherwise. Read again with every snapshot and re-cost, so
         // it always says what the periods say (they are never rewritten).
-        $owners = $paid === null ? [] : \CW\Items\ItemOwners::periods($db, array_values(array_filter([...array_column($lines, 'sku'),
+        // Read under the items' rows (the Codex review of bd9104d, M11): a mark or removal being written on one of them (ItemOwners, FOR UPDATE,
+        // its time taken under that row) is waited for, so this sale is either before it or sees it.
+        $ownerSkus = array_values(array_unique(array_filter([...array_column($lines, 'sku'),
             ...array_map(static fn (array $r): ?int => $r['sku_id'] === null ? null : (int) $r['sku_id'], $oldLines)], static fn ($s): bool => $s !== null)));
+        if ($paid !== null) {
+            self::lockItems($db, $ownerSkus);
+        }
+        $owners = $paid === null ? [] : \CW\Items\ItemOwners::periods($db, $ownerSkus);
 
         $newLines = [];
         foreach ($lines as $key => $x) {
+            if ($keepOthers && $x['prev'] !== null && !isset($override[$key])) {
+                $newLines[$key] = $x['prev']; // a scoped re-cost (H4): a line it does not name stays exactly as stored
+                continue;
+            }
             $l = $x['l'];
             $id = (string) $l['line_id'];
             $m = ProfitMath::line($l, $x['upi'], $x['restocked'], $vatBp);
@@ -762,6 +883,10 @@ final class OrderSnapshots
         // A line gone from this snapshot: kept, counts nothing.
         foreach ($oldLines as $id => $r) {
             if (isset($newLines[$id])) {
+                continue;
+            }
+            if ($keepOthers) {
+                $newLines[$id] = $r; // H4: as stored
                 continue;
             }
             $newLines[$id] = ['units' => 0, 'sale_inc' => 0, 'sale_ex' => 0, 'cost' => 0, 'day' => $day, 'updated_at' => $now,
@@ -912,8 +1037,13 @@ final class OrderSnapshots
      * CW-1153 (docs/decisions.md VB10, the money table): the part of an order's figures that is the selling shop's OWN goods (its lines with
      * item_owner), beside the whole figures, which stay as they were: units, the lines' sale ex VAT (before the order-level refund), buying
      * cost and units with no price, each from its own lines; and its share of the order-level refund ex VAT, by the lines' sale inc VAT:
-     * mulDivRound(refund, own lines' sale, all lines' sale), so ours (the rest) and the shop's own add up to the refund to the penny. A refund on
-     * an order of one owner's goods is wholly that owner's; when the lines sold nothing (all free) it is the shop's own only if every line is.
+     * mulDivRound(refund, own lines' weight, all lines' weight), so ours (the rest: the whole refund less this share, the rounding remainder
+     * included) and the shop's own add up to the refund to the penny.
+     *
+     * The weights (the Codex review of bd9104d, M13): a line's sale inc VAT, never below 0 (a negative line, a correction, takes no share and
+     * gives none: no owner's share is ever below 0 or above the whole), of the lines that count (not removed, not cancelled). A refund on an
+     * order whose counting lines are all one owner's is wholly that owner's (a cancelled line of the other is no owner); when no line weighs
+     * anything (all free) it is the shop's own only if every counting line is.
      *
      * @param array<string, array<string, mixed>> $lines
      * @return array{own_units: int, own_sale_ex: int, own_refund_ex: int, own_cost: int, own_no_cost: int}
@@ -921,30 +1051,36 @@ final class OrderSnapshots
     public static function ownShare(array $lines, int $refundEx): array
     {
         $o = ['own_units' => 0, 'own_sale_ex' => 0, 'own_refund_ex' => 0, 'own_cost' => 0, 'own_no_cost' => 0];
-        $allInc = 0;
-        $ownInc = 0;
+        $allW = 0;
+        $ownW = 0;
         $counting = 0;
-        $ownLines = 0;
+        $ownCounting = 0;
         foreach ($lines as $r) {
             if ($r['removed_at'] !== null) {
                 continue;
             }
-            $counting++;
-            $allInc += (int) $r['sale_inc'];
-            if (($r['item_owner'] ?? null) === null) {
-                continue;
+            $own = ($r['item_owner'] ?? null) !== null;
+            if ($own) {
+                $o['own_units'] += (int) $r['units'];
+                $o['own_sale_ex'] += (int) $r['sale_ex'];
+                $o['own_cost'] += (int) $r['cost'];
+                $o['own_no_cost'] += self::unitsNoCost($r);
             }
-            $ownLines++;
-            $ownInc += (int) $r['sale_inc'];
-            $o['own_units'] += (int) $r['units'];
-            $o['own_sale_ex'] += (int) $r['sale_ex'];
-            $o['own_cost'] += (int) $r['cost'];
-            $o['own_no_cost'] += self::unitsNoCost($r);
+            if ((int) ($r['cancelled'] ?? 0) !== 0) {
+                continue; // no owner of the refund (M13)
+            }
+            $w = max(0, (int) $r['sale_inc']);
+            $counting++;
+            $allW += $w;
+            if ($own) {
+                $ownCounting++;
+                $ownW += $w;
+            }
         }
-        if ($refundEx !== 0 && $ownLines > 0) {
+        if ($refundEx !== 0 && $ownCounting > 0) {
             $o['own_refund_ex'] = match (true) {
-                $ownLines === $counting => $refundEx,
-                $allInc > 0 => ProfitMath::mulDivRound($refundEx, $ownInc, $allInc),
+                $ownCounting === $counting => $refundEx,
+                $allW > 0 => ProfitMath::mulDivRound($refundEx, $ownW, $allW),
                 default => 0,
             };
         }
@@ -1029,23 +1165,32 @@ final class OrderSnapshots
      * The paid re-sends of $parent's chain as stored now (descendants(): a replacement of a replacement too, PR143): how many, their cost,
      * their units with no price and their lines waiting for a cost.
      *
-     * @return array{n: int|string, c: int|string, nc: int|string, open: int|string}
+     * CW-1153 (the Codex review of bd9104d, M8): the part of each that is the selling shop's own goods re-sent (c_own, nc_own, open_own; from
+     * the re-sends' own lines, sale_order.own_*), so the first order's "with re-sends" of ours never pays for them (ProfitViews::split()).
+     *
+     * @return array{n: int|string, c: int|string, nc: int|string, open: int|string, c_own: int, nc_own: int, open_own: int}
      */
     public static function resendFigures(Db $db, int $channelId, string $parent): array
     {
         $refs = self::descendants($db, $channelId, $parent);
-        $r = ['n' => 0, 'c' => 0, 'nc' => 0, 'open' => 0];
+        $r = ['n' => 0, 'c' => 0, 'nc' => 0, 'open' => 0, 'c_own' => 0, 'nc_own' => 0, 'open_own' => 0];
         foreach (array_chunk($refs, 500) as $chunk) {
             // Counted as the day counts a re-send (ProfitDays::orderShare): only with units that count (a re-send whose every line was cancelled is
             // none on its first order either: the third final review, c-L1, PR154); the chain is still followed through it (descendants()).
-            $f = $db->one('SELECT COALESCE(SUM(o.units > 0), 0) AS n, COALESCE(SUM(o.cost), 0) AS c, COALESCE(SUM(o.units_no_cost), 0) AS nc FROM sale_order o '
+            $f = $db->one('SELECT COALESCE(SUM(o.units > 0), 0) AS n, COALESCE(SUM(o.cost), 0) AS c, COALESCE(SUM(o.units_no_cost), 0) AS nc, '
+                . 'COALESCE(SUM(o.own_cost), 0) AS c_own, COALESCE(SUM(o.own_no_cost), 0) AS nc_own FROM sale_order o '
                 . 'WHERE o.channel_id = ? AND o.order_ref IN (' . self::marks($chunk) . ') AND o.paid_at IS NOT NULL', [$channelId, ...$chunk]) ?? [];
             $r['n'] += (int) ($f['n'] ?? 0);
             $r['c'] += (int) ($f['c'] ?? 0);
             $r['nc'] += (int) ($f['nc'] ?? 0);
-            $r['open'] += (int) ($db->value('SELECT COUNT(*) FROM sale_line l JOIN sale_order o ON o.channel_id = l.channel_id AND o.order_ref = l.order_ref '
+            $r['c_own'] += (int) ($f['c_own'] ?? 0);
+            $r['nc_own'] += (int) ($f['nc_own'] ?? 0);
+            $open = $db->one('SELECT COUNT(*) AS open, COALESCE(SUM(l.item_owner IS NOT NULL), 0) AS open_own FROM sale_line l JOIN sale_order o '
+                . 'ON o.channel_id = l.channel_id AND o.order_ref = l.order_ref '
                 . 'WHERE o.channel_id = ? AND o.order_ref IN (' . self::marks($chunk) . ') AND o.paid_at IS NOT NULL AND l.cost_source IS NULL AND l.removed_at IS NULL '
-                . 'AND l.units > 0 AND l.restocked = 0', [$channelId, ...$chunk]) ?? 0);
+                . 'AND l.units > 0 AND l.restocked = 0', [$channelId, ...$chunk]) ?? [];
+            $r['open'] += (int) ($open['open'] ?? 0);
+            $r['open_own'] += (int) ($open['open_own'] ?? 0);
         }
         return $r;
     }

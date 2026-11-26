@@ -180,19 +180,24 @@ final class ItemOwners
         if ($fromAt !== null && ($caller->staffUserId !== null || $caller->isChannel())) {
             throw new CwException('backdate_system_only', 'a person marks an item from now; an earlier start is the go-live tool\'s', 403);
         }
-        $now = Clock::db(($this->clock)());
         if ($fromAt !== null) {
             $d = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s.u', strlen($fromAt) === 19 ? $fromAt . '.000000' : $fromAt, Clock::utc());
-            if ($d === false || Clock::db($d) > $now) {
+            if ($d === false) {
                 throw new CwException('bad_from', 'the start is a UTC moment like 2026-11-16 09:00:00, not in the future', 400, ['field' => 'from']);
             }
             $fromAt = Clock::db($d);
         }
-        $r = $this->db->transaction(function (Db $db) use ($caller, $code, $reason, $fromAt, $now): array {
+        $r = $this->db->transaction(function (Db $db) use ($caller, $code, $reason, $fromAt): array {
             ConfigHistory::authorise($db, $caller);
             $shop = self::shop($db) ?? throw new CwException('no_own_items_shop', 'the setting "' . self::SETTING . '" names no shop', 409);
             $sku = $db->one('SELECT id, code, merged_into_sku_id FROM sku WHERE code = ? FOR UPDATE', [$code])
                 ?? throw new CwException('unknown_item', 'there is no item ' . mb_substr($code, 0, 16), 422, ['field' => 'code']);
+            // The period's time read only now, under the item's row (the Codex review of bd9104d, M11): a sale worked out meanwhile reads the
+            // periods under the same row (OrderSnapshots::lockItems), so it is either before this mark (its paid time is earlier) or sees it.
+            $now = Clock::db(($this->clock)());
+            if ($fromAt !== null && $fromAt > $now) {
+                throw new CwException('bad_from', 'the start is a UTC moment like 2026-11-16 09:00:00, not in the future', 400, ['field' => 'from']);
+            }
             $id = (int) $sku['id'];
             if ($sku['merged_into_sku_id'] !== null) {
                 throw new CwException('merged_item', "{$sku['code']} was merged into another item: mark that one", 409, ['field' => 'code']);
@@ -233,11 +238,11 @@ final class ItemOwners
     {
         $reason = ConfigHistory::reason($reason);
         $code = strtoupper(trim($code));
-        $now = Clock::db(($this->clock)());
-        $r = $this->db->transaction(function (Db $db) use ($caller, $code, $reason, $now): array {
+        $r = $this->db->transaction(function (Db $db) use ($caller, $code, $reason): array {
             ConfigHistory::authorise($db, $caller);
             $sku = $db->one('SELECT id, code FROM sku WHERE code = ? FOR UPDATE', [$code])
                 ?? throw new CwException('unknown_item', 'there is no item ' . mb_substr($code, 0, 16), 422, ['field' => 'code']);
+            $now = Clock::db(($this->clock)()); // under the item's row, as add() (M11)
             $id = (int) $sku['id'];
             $open = $db->one('SELECT id, from_at FROM item_owner WHERE sku_id = ? AND to_at IS NULL', [$id])
                 ?? throw new CwException('not_own_item', "{$sku['code']} is not marked as a shop's own item", 409, ['field' => 'code']);

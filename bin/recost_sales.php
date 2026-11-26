@@ -13,8 +13,11 @@ declare(strict_types=1);
  *   --items   (CW-1153, docs/decisions.md VB12) a file of CW codes, one a line: only the lines of those items are re-costed (every other line of
  *             a mixed order keeps its cost). The whole file is refused when one line is not a known item's code (named by its line number).
  *   --apply   write; without it a dry run that prints what would move
+ *   --fail-deferred  (CW-1153, the Codex review of bd9104d, H5: a go-live kit) exit 1 when an order was left because a newer snapshot of it
+ *             waits for the money job (the kit applies the queue and runs this again until none is left)
  *
- * Exit codes: 0 done · 2 usage · 3 cannot run · 4 not run: another re-cost holds the job's lock: nothing done (PR135).
+ * Exit codes: 0 done · 1 (--fail-deferred) orders left · 2 usage · 3 cannot run · 4 not run: another re-cost holds the job's lock: nothing
+ * done (PR135).
  */
 
 use CW\Ops\Cli;
@@ -22,8 +25,8 @@ use CW\Profit\RecostSales;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-exit(Cli::main('recost_sales', ['from:', 'to:', 'source:', 'channel:', 'items:', 'apply'],
-    'usage: php bin/recost_sales.php --from=YYYY-MM-DD --to=YYYY-MM-DD [--source=none,estimate,cw_cost,erp_at_sale|all] [--channel=<code>] [--items=<file>] [--apply]',
+exit(Cli::main('recost_sales', ['from:', 'to:', 'source:', 'channel:', 'items:', 'apply', 'fail-deferred'],
+    'usage: php bin/recost_sales.php --from=YYYY-MM-DD --to=YYYY-MM-DD [--source=none,estimate,cw_cost,erp_at_sale|all] [--channel=<code>] [--items=<file>] [--apply] [--fail-deferred]',
     static function (Cli $cli, array $opts): int {
         // One run at a time (the job's lock): held by another run (the cost job of every ten minutes, a second copy of this tool), nothing is done
         // and it says so with its own exit code, never 0 (the second final review of 3c31d94, a-M5, b-M1, c-M8; docs/decisions.md PR135).
@@ -54,6 +57,10 @@ exit(Cli::main('recost_sales', ['from:', 'to:', 'source:', 'channel:', 'items:',
         $cli->log(sprintf('%d orders, %d lines %s', $r['orders'], $r['lines'], $apply ? 're-costed' : 'would be re-costed (dry run: add --apply)'));
         if ($r['deferred'] > 0) {
             $cli->log("{$r['deferred']} orders left: a newer snapshot of each waits for the money job (bin/apply_order_snapshots.php); run this again after it");
+            if (array_key_exists('fail-deferred', $opts)) {
+                $cli->error("deferred={$r['deferred']}");
+                return Cli::PROBLEM;
+            }
         }
         return Cli::OK;
     }, false, true));
