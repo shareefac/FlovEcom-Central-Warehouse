@@ -6,6 +6,7 @@ namespace CW\Tests\Unit;
 
 use CW\CwException;
 use CW\Profit\P2gInvoice;
+use CW\Profit\PdftotextText;
 use CW\Tests\Support\P2gFixtures;
 use PHPUnit\Framework\TestCase;
 
@@ -92,5 +93,50 @@ final class P2gInvoiceTest extends TestCase
         self::assertSame([123456, -150, 293], [P2gInvoice::pence('£1,234.56'), P2gInvoice::pence('-£1.50'), P2gInvoice::pence('£2.93')]);
         self::assertSame([64, 65, 50, -64], [P2gInvoice::vatOf(319, 2000), P2gInvoice::vatOf(324, 2000), P2gInvoice::vatOf(249, 2000), P2gInvoice::vatOf(-319, 2000)]);
         self::assertSame(['2026-11-26', null, null], [P2gInvoice::day('26/11/2026'), P2gInvoice::day('31/02/2026'), P2gInvoice::day('26-11-2026')]);
+    }
+    /**
+     * A real PDF in the sample's layout (made up here with FPDF: made-up names and prices) read through pdftotext as the job reads it
+     * (PdftotextText: -layout, as nobody when root). Skipped where poppler-utils is not installed (production needs it: the kit's prepare step).
+     */
+    public function testARealPdfIsReadThroughPdftotext(): void
+    {
+        if (!PdftotextText::available()) {
+            self::markTestSkipped('no pdftotext here (poppler-utils)');
+        }
+        $pdf = new \FPDF('P', 'mm', 'A4');
+        $pdf->AddPage();
+        $pdf->SetFont('Helvetica', '', 9);
+        $cell = static function (float $x, float $y, string $t) use ($pdf): void {
+            $pdf->Text($x, $y, (string) iconv('UTF-8', 'windows-1252', $t));
+        };
+        $cell(10, 15, 'Parcel2Go.com Ltd');
+        $cell(170, 15, 'Page 1 of 1');
+        $cell(120, 40, 'Invoice No.');
+        $cell(165, 40, 'TX-95792472');
+        $cell(10, 48, 'VAT No. GB000000000');
+        $cell(120, 48, 'Date');
+        $cell(165, 48, '26/11/2026');
+        $cell(120, 56, 'Payment Method');
+        $cell(165, 56, 'PrePay');
+        $cell(10, 80, 'Details');
+        $cell(140, 80, 'Parcels');
+        $cell(160, 80, 'Net');
+        $cell(182, 80, 'VAT');
+        $y = 90;
+        foreach (self::ROWS as [$olid, $desc, $parcels, $net, $vat]) {
+            $cell(10, $y, "P2G{$olid} - {$desc}");
+            $cell(143, $y, (string) $parcels);
+            $cell(158, $y, '£' . number_format($net / 100, 2));
+            $cell(180, $y, '£' . number_format($vat / 100, 2));
+            $cell(10, $y + 5, P2gFixtures::PERSON . ' ' . P2gFixtures::ADDRESS);
+            $y += 14;
+        }
+        foreach ([['Net', '£23.11'], ['VAT', '£0.00'], ['Invoice Total', '£23.11']] as $i => [$label, $amount]) {
+            $cell(120, 150 + 8 * $i, $label);
+            $cell(178, 150 + 8 * $i, $amount);
+        }
+        $inv = P2gInvoice::read((new PdftotextText())->text($pdf->Output('S')), 150278180, 95792472);
+        self::assertSame(['TX-95792472', 2311, [293, 1132, 886], ['surcharge', 'price', 'price']], [$inv['invoice_no'], $inv['net'], array_column($inv['rows'], 'net'),
+            array_column($inv['rows'], 'kind')]);
     }
 }
