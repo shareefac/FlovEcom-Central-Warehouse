@@ -113,13 +113,39 @@ final class ReorderLines
                 $by[(int) $r['sku_id']] = (array) json_decode((string) $r['line'], true, 64, JSON_THROW_ON_ERROR);
             }
         }
+        // CW-1153 (the final review of 2d13f32, M20): an item that is a shop's own NOW is never suggested on any line (the All view, its export,
+        // Buy for N days), whatever its stored line says (its refresh after the mark may have failed): read from the open marks at every read.
+        $own = [];
+        foreach (array_chunk(array_keys($by), 1000) as $chunk) {
+            foreach ($this->db->all('SELECT p.sku_id, c.name FROM item_owner p JOIN channel c ON c.id = p.channel_id WHERE p.open_sku IN ('
+                . implode(', ', array_fill(0, count($chunk), '?')) . ')', $chunk) as $r) {
+                $own[(int) $r['sku_id']] = (string) $r['name'];
+            }
+        }
         $out = [];
         foreach ($ids as $id) {
             if (isset($by[$id])) {
-                $out[] = $days === null ? $by[$id] : ReorderList::forDays($by[$id], $days);
+                $line = $days === null ? $by[$id] : ReorderList::forDays($by[$id], $days);
+                $out[] = isset($own[$id]) ? self::ownNow($line, $own[$id]) : $line;
             }
         }
         return $out;
+    }
+
+    /**
+     * A stored line of an item that is a shop's own now: nothing to buy, never urgent, "never suggested" in the words ReorderList gives it.
+     *
+     * @param array<string, mixed> $l
+     * @return array<string, mixed>
+     */
+    private static function ownNow(array $l, string $shop): array
+    {
+        $flags = array_values(array_filter((array) ($l['flags'] ?? []), static fn ($f): bool => $f !== 'urgent'));
+        if (!in_array('own_item', $flags, true)) {
+            $flags[] = 'own_item';
+        }
+        return array_merge($l, ['never' => $l['never'] ?? ($shop . '\'s own item (its own purchases, not ours)'), 'packs' => 0, 'units' => 0,
+            'value_e4' => ($l['value_e4'] ?? null) === null ? null : 0, 'urgent' => false, 'below_safety' => false, 'flags' => $flags]);
     }
 
     /**

@@ -179,8 +179,9 @@ final class ProfitViews
             'margin_low' => "{$incomplete}, {$margin} IS NULL, {$margin} ASC",
             default => "{$goods} - {$cost} DESC",
         };
-        // A product, brand or supplier row with nothing of ours (only the shop's own goods) is not a row of our lists.
-        $having = $by === 'shop' ? '' : " HAVING {$unitsOurs} <> 0 OR {$goods} <> 0 OR {$cost} <> 0";
+        // A product, brand or supplier row with nothing of ours (only the shop's own goods) is not a row of our lists; a row that holds no own
+        // goods is shown as before, whatever its figures (the final review, Fable L12).
+        $having = $by === 'shop' ? '' : " HAVING {$unitsOurs} <> 0 OR {$goods} <> 0 OR {$cost} <> 0 OR (SUM(p.own_units) = 0 AND SUM(p.own_sale_ex) = 0 AND SUM(p.own_cost) = 0)";
         $where = 'p.day BETWEEN ? AND ?' . ($store === null ? '' : ' AND p.channel_id = ?');
         $params = [$from, $to, ...($store === null ? [] : [$store])];
         $lw = 'l.cost_source IS NULL AND l.removed_at IS NULL AND l.restocked = 0 AND l.item_owner IS NULL AND l.day BETWEEN ? AND ?' . ($store === null ? '' : ' AND l.channel_id = ?');
@@ -319,8 +320,10 @@ final class ProfitViews
         $own = $sp['own'];
         $unpaid = $r['paid_at'] === null;
         $margin = $r['margin_bp'];
-        if ($sp['any_own'] && $margin !== null) {
-            $margin = ProfitMath::marginBp($ours['goods'] - $ours['cost'] - $ours['resend_cost'], $ours['goods']);
+        if ($sp['any_own']) {
+            // ours from our goods whenever ours is known (the final review of 2d13f32, M18): the shop's own line waiting for a price (which
+            // empties the stored whole-order margin) never hides it
+            $margin = $ours['unknown'] || $ours['resend_unknown'] ? null : ProfitMath::marginBp($ours['goods'] - $ours['cost'] - $ours['resend_cost'], $ours['goods']);
         }
         return ['store_id' => (int) $r['channel_id'], 'store' => (string) $r['store'], 'ref' => (string) $r['order_ref'], 'no' => (string) $r['order_no'],
             'status' => (string) $r['status'], 'paid_at' => $r['paid_at'] === null ? null : (string) $r['paid_at'], 'gateway' => (string) $r['gateway'],

@@ -2927,6 +2927,18 @@ write-once storage), so the way back does not need CW on the day. It is set up w
 - **Alerts (AI17):** while reading is on, `bin/health_alert.php` says `AI_WAITING` (a document waiting more than 10 minutes: is the cron line
   there, is a run stuck?) and `AI_READER_FAILED` (the reader's last run failed: read `/var/log/cw/ai_read.log` and `SELECT * FROM ai_reader`).
 
+## A shop's own items (CW-1153; `docs/decisions.md` VB1-VB16)
+- Settings > Own items marks an item as a shop's own (Vape Big's Hayati 4000 / Elux ranges) from now; ending the mark makes it ours again
+  from now. Every figure uses the period of the event's own time (an order's paid time, a bill's posting).
+- The nightly check (bin/invariants.php) says O1-O6. **O3** ("line ... is marked a shop's own but its item was not at the paid time", or
+  "... sold its shop's own item but is not marked"): a sale worked out at the very moment a mark started or ended (a shop's clock may stamp a
+  sale up to 5 minutes ahead of CW's). Put right with
+  `php bin/item_owner_refresh.php --items=<file of its CW code> --from=<its day> --to=<its day> --apply` (owners and own figures only, never a
+  cost), then the check again. **O5** (an order's own figures not the sum of its own lines): the same command. **O6** (a bill marked own
+  holding an item that was not): the lead decides (a bill is either the shop's own or ours).
+- A bill made final with these items before their mark: `php bin/item_owner_set.php --items=<codes> --from=<the mark's start> --apply`
+  marks every bill of only their goods made since as the shop's own (a mixed bill refuses the whole run: decide it first).
+
 ## The production server (`deploy/production/`; go-live plan "Ops and security for I-Day")
 
 | What | Where |

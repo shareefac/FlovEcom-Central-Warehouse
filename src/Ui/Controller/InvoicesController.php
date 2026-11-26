@@ -1122,6 +1122,9 @@ final class InvoicesController
                 'href' => $kind === 'credit_note' && $rec['credits_document_id'] !== null ? '/ui/purchasing/invoices/' . (int) $rec['credits_document_id'] : null],
             ['label' => Words::INVOICES['debit_note'], 'value' => $kind === 'credit_note' && $rec['debit_note_number'] !== null ? (string) $rec['debit_note_number'] : null,
                 'href' => $kind === 'credit_note' && $rec['debit_note_document_id'] !== null ? '/ui/purchasing/returns/' . (int) $rec['debit_note_document_id'] : null],
+            // CW-1153 (VB7; the final review, Fable M5): whose bill it is, on the final bill's own page (an owner is given when it is made final)
+            ['label' => Words::INVOICES['own_bill_label'], 'value' => ($rec['item_owner'] ?? null) !== null
+                ? Words::say('INVOICES', 'own_bill', (string) ($rec['item_owner_name'] ?? '')) : null],
             ['label' => Words::RECORD['cancels'], 'value' => $doc->isReversal() ? (string) ($rec['reverses_number'] ?? '') : null,
                 'href' => $doc->isReversal() ? $base . '/' . (int) $doc->reversesId : null],
             ['label' => Words::STOCK_OPS['cancelled_by'], 'value' => $rec['reversed_by_id'] === null ? null : (string) ($rec['reversed_by_number'] ?? Words::STOCK_OPS['cancel_waiting']),

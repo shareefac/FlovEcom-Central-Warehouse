@@ -298,7 +298,10 @@ final class ReportViews
             return [];
         }
         $skus = array_values(array_unique(array_map(static fn (array $r): int => (int) $r['sku_id'], $rows)));
-        $then = (new \CW\Profit\ItemCosts($this->db, new \CW\Profit\ProfitSettings($this->db)))->at($skus, (string) $this->end);
+        // the price in force BEFORE the cut-off, which is exclusive for the units and the periods too (the final review of 2d13f32, M19: an event
+        // at exactly the next midnight is the next day's)
+        $cut = \CW\Clock::db(\CW\Clock::fromDb((string) $this->end)->modify('-1 microsecond'));
+        $then = (new \CW\Profit\ItemCosts($this->db, new \CW\Profit\ProfitSettings($this->db)))->at($skus, $cut);
         $now = [];
         foreach (array_chunk($skus, 500) as $chunk) {
             foreach ($this->db->all('SELECT sku_id, unit_cost_e4 FROM item_cost WHERE sku_id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')', $chunk) as $r) {

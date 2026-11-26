@@ -83,4 +83,6 @@ $feesOn = array_values(array_filter($shops, static fn (array $s): bool => $s['st
 <?php if (count($feesOn) < count(array_filter($shops, static fn (array $s): bool => $s['started']))): ?>
 <p class="muted"><?= $word('PROFIT', 'real_fees_not_built') ?></p>
 <?php endif; ?>
+<?php if (array_filter($shops, static fn (array $s): bool => $s['started'] && ($s['own'] ?? null) !== null) !== []): ?>
 <p class="muted"><?= $word('PROFIT', 'real_hayati') ?></p>
+<?php endif; ?>

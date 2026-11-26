@@ -105,7 +105,7 @@
 <?php if ($kind === 'invoice'): ?>
         <td data-label="<?= $word('DOC_LIST', 'due') ?>"<?php if ($r['late']): ?> class="late"<?php endif; ?>><?php if ($r['due'] !== ''): ?><?= $e($r['due']) ?><?php if ($r['late_line'] !== null): ?> · <?= $e($r['late_line']) ?><?php endif; ?><?php else: ?><span class="muted"><?= $word('DOC_LIST', 'none') ?></span><?php endif; ?></td>
 <?php else: ?>
-        <td data-label="<?= $word('INVOICES', 'credits') ?>"><?= $e($r['credits'] ?? '') ?></td>
+        <td data-label="<?= $word('INVOICES', 'credits') ?>"><?= $e($r['credits'] ?? '') ?><?php if (($r['own'] ?? null) !== null): ?><span class="o-sub"><?= $e($r['own']) ?></span><?php endif; ?></td>
 <?php endif; ?>
         <td class="num" data-label="<?= $word('DOC_LIST', 'total') ?>"><?php if ($r['gross'] !== null): ?><?= $money($r['gross']) ?><?php endif; ?><?php if ($kind === 'invoice' && $r['owed_line'] !== null): ?><span class="o-sub"><?= $e($r['owed_line']) ?></span><?php endif; ?></td>
       </tr>
