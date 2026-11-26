@@ -111,23 +111,24 @@ final class OwnItemsLastCheckTest extends InvoicesTestCase
         $h = $this->item('legacy', 0, 'Hayati 4000 LC');
         self::price($h, null);
         $zero = ['lines' => 0, 'unpriced' => 0, 'queued' => 0, 'reservations' => 0, 'links' => 0];
+        $is = static fn (array $over): array => array_merge($zero, $over);
         self::assertSame($zero, $this->use($h));
         $this->listing($vpg, '50501', $h);
-        self::assertSame(['links' => 1] + $zero, $this->use($h), 'linked on another shop');
+        self::assertSame($is(['links' => 1]), $this->use($h), 'linked on another shop');
         $this->ok($this->commit($vpg, '9811', [self::line('50501', '8811')]));
-        self::assertSame(['links' => 1, 'reservations' => 1] + $zero, $this->use($h), 'a unit reserved there with no cost fixed yet');
+        self::assertSame($is(['links' => 1, 'reservations' => 1]), $this->use($h), 'a unit reserved there with no cost fixed yet');
         $snaps = new OrderSnapshots(self::$db);
         $snaps->accept((int) $vpg->channelId, '9811', self::raw('9811', [self::sl('8811', '50501', 599)]), 'api');
-        self::assertSame(['links' => 1, 'reservations' => 1, 'queued' => 1] + $zero, $this->use($h), 'its first paid snapshot waits in the queue');
+        self::assertSame($is(['links' => 1, 'reservations' => 1, 'queued' => 1]), $this->use($h), 'its first paid snapshot waits in the queue');
         $snaps->applyQueued();
-        self::assertSame(['links' => 1, 'lines' => 1] + $zero, $this->use($h), 'worked out: a sale line paid since the start, its cost fixed (no price: none)');
+        self::assertSame($is(['links' => 1, 'lines' => 1]), $this->use($h), 'worked out: a sale line paid since the start, its cost fixed (no price: none)');
         // a sale there paid BEFORE the start whose cost the cost job has not fixed yet: it would read the history being changed
         self::$db->exec("UPDATE profit_job SET mark_at = '2026-11-05 00:00:00' WHERE job = 'item_cost'");
         $this->ok($this->commit($vpg, '9812', [self::line('50501', '8812')]));
         $snaps->store((int) $vpg->channelId, '9812', self::raw('9812', [self::sl('8812', '50501', 599)], ['placed_at' => '2026-11-10T09:59:00Z',
             'paid_at' => '2026-11-10T10:00:00Z']), 'api');
         self::assertNull(self::$db->value("SELECT cost_source FROM sale_line WHERE line_id = '8812'"));
-        self::assertSame(['links' => 1, 'lines' => 1, 'unpriced' => 1, 'reservations' => 1] + $zero, $this->use($h));
+        self::assertSame($is(['links' => 1, 'lines' => 1, 'unpriced' => 1, 'reservations' => 1]), $this->use($h));
         self::assertSame($zero, ItemOwners::otherShopUse(self::$db, [$h], (int) $vpg->channelId, self::FROM), 'the shop itself is not another shop');
     }
 
