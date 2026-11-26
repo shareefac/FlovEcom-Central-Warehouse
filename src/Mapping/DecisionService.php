@@ -860,6 +860,20 @@ final class DecisionService
             default => null,
         };
         $skus = $this->lockSkus($ids, $exclusive);
+        // CW-1153 (docs/decisions.md VB5): a shop's own item (Vape Big's own goods) is sold on that shop alone and stays one item: linked only
+        // on its shop's listings, never merged or split. Read after the items' rows are held: a mark is added or ended under the same row
+        // (ItemOwners), so a link and a mark never both pass on what the other has not committed.
+        $owners = \CW\Items\ItemOwners::open($this->db, array_values(array_filter($ids, static fn ($v): bool => $v !== null)));
+        if ($action === 'link' && $r['sku_id'] !== null && isset($owners[(int) $r['sku_id']]) && $owners[(int) $r['sku_id']] !== $l['channel_id']) {
+            $shop = (string) $this->db->value('SELECT name FROM channel WHERE id = ?', [$owners[(int) $r['sku_id']]]);
+            throw new CwException('own_item_other_shop', "this is {$shop}'s own item: only {$shop} sells it, so it cannot be linked to this website's product", 422,
+                ['shop' => $shop]);
+        }
+        if (in_array($action, ['merge_skus', 'split'], true) && $owners !== []) {
+            $shop = (string) $this->db->value('SELECT name FROM channel WHERE id = ?', [reset($owners)]);
+            throw new CwException('own_item_merge', "{$shop}'s own items are never joined with another item or split: remove the mark on Settings > Own items first", 409,
+                ['shop' => $shop]);
+        }
         $current = $l['linked'] ? ($skus[$l['sku_id']] ?? null) : null;
         $needs = [];
         $target = null;

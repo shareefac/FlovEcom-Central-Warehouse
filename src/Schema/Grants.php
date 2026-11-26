@@ -169,6 +169,9 @@ final class Grants
         // removed.
         'ai_read' => ['context', 'state', 'reason', 'detail', 'answer', 'started_at', 'finished_at', 'taken_at', 'spool_name', 'file_used_at'],
         'ai_reader' => ['started_at', 'ended_at', 'ok_at', 'failed_at', 'error'],
+        // CW-1153 (0083, docs/decisions.md VB1): a period an item is a shop's own is added once and only ended later (when, who, why); its item,
+        // shop, start and why it was added never change, and it is never removed: every past figure reads the period of its own time.
+        'item_owner' => ['to_at', 'remove_reason', 'removed_by', 'removed_actor'],
     ];
     /**
      * Tables the app login may INSERT into naming only the listed columns (column-level INSERT instead of a table-level one; the

@@ -976,7 +976,10 @@ final class InvoicesController
     {
         $status = (string) $r['status'];
         $reversal = $r['reverses_id'] !== null;
-        $owedE2 = $kind === 'invoice' && !$reversal && $status === 'posted' && $r['gross_total'] !== null ? InvoiceMath::e2((string) $r['gross_total']) - $creditedE2 : null;
+        // CW-1153 (VB7): a shop's own bill (its goods all that shop's own items) is never owed by us: no balance, never late.
+        $own = ($r['item_owner'] ?? null) !== null ? Words::say('INVOICES', 'own_bill', (string) ($r['item_owner_name'] ?? '')) : null;
+        $owedE2 = $own === null && $kind === 'invoice' && !$reversal && $status === 'posted' && $r['gross_total'] !== null
+            ? InvoiceMath::e2((string) $r['gross_total']) - $creditedE2 : null;
         $owed = $owedE2 === null ? null : Html::money(InvoiceMath::fromE2($owedE2));
         $look = !$reversal && $status === 'posted' && $r['match_state'] === 'needs_review';
         // The board (PV18): its group, the status cell's words and colour, the match as a soft tag, a due date passed with money owed.
@@ -1030,7 +1033,8 @@ final class InvoicesController
             'due' => ($r['due_date'] ?? null) === null || $reversal ? '' : Html::day((string) $r['due_date']),
             'balance' => $owed,
             // What is still owed, under the total only when a credit note took some off (RD-B2: the old Balance column; CW does not know payments).
-            'owed_line' => $owed !== null && $owedE2 !== InvoiceMath::e2((string) $r['gross_total']) ? Words::say('INVOICES', 'owed_line', $owed) : null,
+            'owed_line' => $own ?? ($owed !== null && $owedE2 !== InvoiceMath::e2((string) $r['gross_total']) ? Words::say('INVOICES', 'owed_line', $owed) : null),
+            'own' => $own,
         ];
     }
 
@@ -1055,6 +1059,8 @@ final class InvoicesController
             [Words::INVOICES['debit_note'], $kind === 'credit_note' && $rec['debit_note_number'] !== null ? (string) $rec['debit_note_number'] : null],
             [Words::INVOICES['credited'], $kind === 'invoice' && $rec['credited_e2'] > 0 ? Html::money(InvoiceMath::fromE2((int) $rec['credited_e2'])) : null],
             [Words::INVOICES['owed'], $kind === 'invoice' && $rec['owed_e2'] !== null && $doc->status === 'posted' ? Html::money(InvoiceMath::fromE2((int) $rec['owed_e2'])) : null],
+            // CW-1153 (VB7): whose bill it is when it is a shop's own
+            [Words::INVOICES['own_bill_label'], ($rec['item_owner'] ?? null) !== null ? Words::say('INVOICES', 'own_bill', (string) ($rec['item_owner_name'] ?? '')) : null],
             [Words::STOCK_OPS['note_short'], $doc->note],
             [Words::STOCK_OPS['made'], $by($doc->createdAt, $rec['created_by_name'] === null ? null : (string) $rec['created_by_name'])],
             [Words::STOCK_OPS['asked'], $by($doc->submittedAt, $rec['submitted_by_name'] === null ? null : (string) $rec['submitted_by_name'])],

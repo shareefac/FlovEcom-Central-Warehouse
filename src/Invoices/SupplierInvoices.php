@@ -1124,8 +1124,10 @@ final class SupplierInvoices
             . 'si.receive_mode, si.submit_at, si.submit_by, si.submit_failed_at, si.submit_error, si.submit_receipt_id, si.origin, tb.display_name AS submit_by_name, '
             . 'ci.number AS credits_number, dn.number AS debit_note_number, ab.display_name AS accepted_by_name, '
             . 'cb.display_name AS created_by_name, sb.display_name AS submitted_by_name, pb.display_name AS posted_by_name, xb.display_name AS cancelled_by_name, '
-            . 'od.number AS reverses_number, rv.id AS reversed_by_id, rv.number AS reversed_by_number, rv.status AS reversed_by_status '
+            . 'od.number AS reverses_number, rv.id AS reversed_by_id, rv.number AS reversed_by_number, rv.status AS reversed_by_status, '
+            . 'si.item_owner, io.name AS item_owner_name ' // CW-1153 (VB7): a shop's own bill
             . 'FROM document d LEFT JOIN supplier_invoice si ON si.document_id = COALESCE(d.reverses_id, d.id) LEFT JOIN supplier s ON s.id = si.supplier_id '
+            . 'LEFT JOIN channel io ON io.id = si.item_owner '
             . 'LEFT JOIN document ci ON ci.id = si.credits_document_id LEFT JOIN document dn ON dn.id = si.debit_note_document_id '
             . 'LEFT JOIN staff_user ab ON ab.id = si.accepted_by LEFT JOIN staff_user cb ON cb.id = d.created_by LEFT JOIN staff_user sb ON sb.id = d.submitted_by '
             . 'LEFT JOIN staff_user tb ON tb.id = si.submit_by '
@@ -1148,7 +1150,8 @@ final class SupplierInvoices
                 }
             }
         }
-        $r['owed_e2'] = $r['gross_total'] === null ? null : InvoiceMath::e2((string) $r['gross_total']) - $r['credited_e2'];
+        // CW-1153 (VB7): a shop's own bill is never owed by us.
+        $r['owed_e2'] = $r['gross_total'] === null || $r['item_owner'] !== null ? null : InvoiceMath::e2((string) $r['gross_total']) - $r['credited_e2'];
         return $r;
     }
 
@@ -1266,9 +1269,10 @@ final class SupplierInvoices
         return $this->db->all(
             'SELECT d.id, d.number, d.status, d.doc_date, d.created_at, d.posted_at, d.reverses_id, d.external_ref, si.supplier_id, s.name AS supplier_name, '
             . 'si.net_total, si.vat_total, si.gross_total, si.match_state, si.match_lines_off, si.match_difference, si.due_date, si.origin, ci.number AS credits_number, '
-            . 'cb.display_name AS created_by_name, od.number AS reverses_number, '
+            . 'cb.display_name AS created_by_name, od.number AS reverses_number, si.item_owner, io.name AS item_owner_name, '
             . "(SELECT t.kind FROM review_task t WHERE t.subject_type = 'document' AND t.subject_id = d.id AND t.state = 'open' ORDER BY t.id LIMIT 1) AS open_task "
             . 'FROM document d LEFT JOIN supplier_invoice si ON si.document_id = COALESCE(d.reverses_id, d.id) LEFT JOIN supplier s ON s.id = si.supplier_id '
+            . 'LEFT JOIN channel io ON io.id = si.item_owner '
             . 'LEFT JOIN document ci ON ci.id = si.credits_document_id LEFT JOIN staff_user cb ON cb.id = d.created_by LEFT JOIN document od ON od.id = d.reverses_id '
             . 'WHERE ' . implode(' AND ', $where) . ' ORDER BY d.id DESC LIMIT ' . self::LIST_LIMIT,
             $params,

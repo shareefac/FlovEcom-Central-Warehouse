@@ -1540,6 +1540,10 @@ final class PurchaseOrders
             $out[] = 'The net total ' . PoMath::money(PoMath::e2((string) $po['net_total'])) . " is below {$s['code']}'s minimum order of "
                 . PoMath::money(PoMath::e2((string) $s['min_order_value'])) . '.';
         }
+        // CW-1153 (docs/decisions.md VB8): a shop's own items are not bought on our order (the approval refuses them).
+        foreach (PurchaseOrderHandler::ownItemLines($this->db, $id) as $o) {
+            $out[] = PurchaseOrderHandler::ownItemWords($o['code'], $o['shop']);
+        }
         $cardOf = [];
         foreach ($this->db->all(
             'SELECT pl.line_no, pl.kind, pl.pack_price, dl.sku_id, s.code, s.merged_into_sku_id, m.code AS merged_code, si.is_active AS si_active FROM po_line pl '

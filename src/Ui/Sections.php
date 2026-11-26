@@ -257,6 +257,9 @@ final class Sections
                 // CW-1150 (0079; docs/decisions.md EX10): the expense types and the regular costs' groups.
                 ['key' => 'expense_types', 'perm' => 'reference.view', 'path' => '/ui/reference/expense-types', 'match' => ['/ui/reference/expense-types*'],
                     'new' => ['perm' => 'settings.manage', 'href' => '/ui/reference/expense-types#new', 'label' => 'expense_types']],
+                // CW-1153 (0083; docs/decisions.md VB4): a shop's own items.
+                ['key' => 'own_items', 'perm' => 'reference.view', 'path' => '/ui/reference/own-items', 'match' => ['/ui/reference/own-items*'],
+                    'new' => ['perm' => 'settings.manage', 'href' => '/ui/reference/own-items#new', 'label' => 'own_items']],
                 ['key' => 'settings', 'perm' => 'reference.view', 'path' => '/ui/reference/settings', 'match' => ['/ui/reference/settings*']],
                 ['key' => 'series', 'perm' => 'reference.view', 'path' => '/ui/reference/series', 'match' => ['/ui/reference/series*']],
                 ['key' => 'integrity', 'perm' => 'system.view', 'path' => '/ui/system/checks', 'match' => ['/ui/system/checks*']],

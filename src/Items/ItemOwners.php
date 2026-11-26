@@ -1,0 +1,255 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CW\Items;
+
+use CW\Admin\ConfigHistory;
+use CW\Audit;
+use CW\Caller;
+use CW\Clock;
+use CW\CwException;
+use CW\Db;
+use CW\Settings;
+
+/**
+ * A shop's OWN items (CW-1153; docs/decisions.md VB1-VB6): items whose stock is the selling shop's own goods, bought with its own money,
+ * not ours (Vape Big's Hayati 4000 and Elux ranges). Their stock stays in MAIN and sells exactly as today: CW only MARKS them, so that our
+ * figures (profit, stock value, purchasing, reorder) leave them out and the shop's page shows them on their own line.
+ *
+ * The mark has a history by PERIOD (item_owner: from_at .. to_at): every figure uses the period of the event's own time (an order's paid
+ * time, a bill's posting), never today's list. Re-adding an item after a removal is a new period; periods never overlap. Each add and
+ * remove has a reason and an audit row; nothing is rewritten.
+ *
+ * Who: an admin or a reviewer (settings.manage, ConfigHistory::authorise), on Settings > Own items; a system caller (the go-live kit's tool)
+ * may start a period at a moment in the past (the one explicit exception: the items sold since 17 Nov 2026 were the shop's own from the
+ * count that brought them in), a person only now.
+ *
+ * Locks: the item's row FOR UPDATE, the same row every link decision reads FOR SHARE before it checks the mark (DecisionService), and every
+ * bill reads FOR SHARE when it is made final (SupplierInvoiceHandler): a mark and a link (or a bill) never both pass on what the other has
+ * not committed yet.
+ */
+final class ItemOwners
+{
+    public const SETTING = 'stock.own_items_shop';
+    public const HISTORY_LIMIT = 200;
+
+    /** @var \Closure(): \DateTimeImmutable */
+    private readonly \Closure $clock;
+
+    /** @param (\Closure(): \DateTimeImmutable)|null $clock */
+    public function __construct(private readonly Db $db, ?\Closure $clock = null)
+    {
+        $this->clock = $clock ?? static fn (): \DateTimeImmutable => Clock::now();
+    }
+
+    // ---- reading ----------------------------------------------------------------------------------------------------------------
+
+    /**
+     * The shop whose own items the screen adds (the setting), or null when it names no shop.
+     *
+     * @return array{id: int, code: string, name: string}|null
+     */
+    public static function shop(Db $db): ?array
+    {
+        $settings = new Settings($db);
+        $code = $settings->has(self::SETTING) ? (string) $settings->get(self::SETTING) : '';
+        if ($code === '') {
+            return null;
+        }
+        $r = $db->one('SELECT id, code, name FROM channel WHERE code = ?', [$code]);
+        return $r === null ? null : ['id' => (int) $r['id'], 'code' => (string) $r['code'], 'name' => (string) $r['name']];
+    }
+
+    /**
+     * The items among $skuIds that are some shop's own NOW (an open period): sku => that shop's channel id. A plain read: a caller that
+     * must be exact holds the items' rows (FOR SHARE or FOR UPDATE) first.
+     *
+     * @param list<int> $skuIds
+     * @return array<int, int>
+     */
+    public static function open(Db $db, array $skuIds): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $skuIds)));
+        $out = [];
+        foreach (array_chunk($ids, 1000) as $chunk) {
+            foreach ($db->all('SELECT sku_id, channel_id FROM item_owner WHERE to_at IS NULL AND sku_id IN (' . self::marks($chunk) . ')', $chunk) as $r) {
+                $out[(int) $r['sku_id']] = (int) $r['channel_id'];
+            }
+        }
+        return $out;
+    }
+
+    /** Every item that is some shop's own now: sku => channel id. @return array<int, int> */
+    public static function allOpen(Db $db): array
+    {
+        $out = [];
+        foreach ($db->all('SELECT sku_id, channel_id FROM item_owner WHERE to_at IS NULL') as $r) {
+            $out[(int) $r['sku_id']] = (int) $r['channel_id'];
+        }
+        return $out;
+    }
+
+    /**
+     * Every period of the items among $skuIds, oldest first: sku => list of [channel id, from_at, to_at|null].
+     *
+     * @param list<int> $skuIds
+     * @return array<int, list<array{0: int, 1: string, 2: ?string}>>
+     */
+    public static function periods(Db $db, array $skuIds): array
+    {
+        $ids = array_values(array_unique(array_map('intval', array_filter($skuIds, static fn ($s): bool => $s !== null))));
+        $out = [];
+        foreach (array_chunk($ids, 1000) as $chunk) {
+            foreach ($db->all('SELECT sku_id, channel_id, from_at, to_at FROM item_owner WHERE sku_id IN (' . self::marks($chunk) . ') ORDER BY sku_id, from_at', $chunk) as $r) {
+                $out[(int) $r['sku_id']][] = [(int) $r['channel_id'], (string) $r['from_at'], $r['to_at'] === null ? null : (string) $r['to_at']];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The shop whose own goods $sku was at the moment $at (a UTC DATETIME(6) string), from periods(): its channel id, or null (ours).
+     *
+     * @param array<int, list<array{0: int, 1: string, 2: ?string}>> $periods
+     */
+    public static function ownerAt(array $periods, ?int $sku, ?string $at): ?int
+    {
+        if ($sku === null || $at === null) {
+            return null;
+        }
+        foreach ($periods[$sku] ?? [] as [$channel, $from, $to]) {
+            if ($at >= $from && ($to === null || $at < $to)) {
+                return $channel;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The items that are $channelId's own now, with what each holds in our warehouses (on hand, sold waiting to ship, reserved) and its
+     * buying price now (item_cost: 0 is a price, free; null: none known): code order.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function items(int $channelId): array
+    {
+        return array_map(static fn (array $r): array => ['id' => (int) $r['period_id'], 'sku_id' => (int) $r['sku_id'], 'code' => (string) $r['code'],
+            'name' => (string) $r['name'], 'from_at' => (string) $r['from_at'], 'on_hand' => (int) $r['on_hand'], 'allocated' => (int) $r['allocated'],
+            'held' => (int) $r['held'], 'unit_cost_e4' => $r['unit_cost_e4'] === null ? null : (int) $r['unit_cost_e4']],
+            $this->db->all('SELECT p.id AS period_id, p.sku_id, p.from_at, s.code, s.name, ic.unit_cost_e4, '
+                . 'COALESCE(SUM(b.on_hand), 0) AS on_hand, COALESCE(SUM(b.allocated), 0) AS allocated, COALESCE(SUM(b.held), 0) AS held '
+                . 'FROM item_owner p JOIN sku s ON s.id = p.sku_id LEFT JOIN item_cost ic ON ic.sku_id = p.sku_id LEFT JOIN stock_balance b ON b.sku_id = p.sku_id '
+                . 'WHERE p.channel_id = ? AND p.to_at IS NULL GROUP BY p.id, p.sku_id, p.from_at, s.code, s.name, ic.unit_cost_e4 ORDER BY s.code', [$channelId]));
+    }
+
+    /**
+     * The newest periods first (added and removed), with who and why: the screen's history.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function history(int $limit = self::HISTORY_LIMIT): array
+    {
+        return array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'code' => (string) $r['code'], 'name' => (string) $r['name'], 'shop' => (string) $r['shop'],
+            'from_at' => (string) $r['from_at'], 'to_at' => $r['to_at'] === null ? null : (string) $r['to_at'], 'add_reason' => (string) $r['add_reason'],
+            'added_by' => (string) ($r['added_name'] ?? $r['added_actor']), 'added_at' => (string) $r['added_at'],
+            'remove_reason' => $r['remove_reason'] === null ? null : (string) $r['remove_reason'],
+            'removed_by' => $r['to_at'] === null ? null : (string) ($r['removed_name'] ?? $r['removed_actor'])],
+            $this->db->all('SELECT p.*, s.code, s.name, c.name AS shop, a.display_name AS added_name, r.display_name AS removed_name FROM item_owner p '
+                . 'JOIN sku s ON s.id = p.sku_id JOIN channel c ON c.id = p.channel_id LEFT JOIN staff_user a ON a.id = p.added_by LEFT JOIN staff_user r ON r.id = p.removed_by '
+                . 'ORDER BY COALESCE(p.to_at, p.added_at) DESC, p.id DESC LIMIT ' . max(1, min(1000, $limit))));
+    }
+
+    // ---- changing ---------------------------------------------------------------------------------------------------------------
+
+    /**
+     * Marks the item $code as the setting's shop's own from now (a person), or from $fromAt (a system caller only: the go-live kit; a UTC
+     * moment not in the future and after the item's last period). With $reason (3-500 characters). Refused: 422 unknown_item, 409
+     * merged_item, 409 no_own_items_shop (the setting names no shop), 409 own_item_already (it is a shop's own now), 409
+     * own_item_other_shop (another shop's website sells it: detail.shops), 409 own_item_overlap, 403 backdate_system_only, 400 bad_from.
+     *
+     * @return array{period_id: int, sku_id: int, code: string, channel_id: int, from_at: string}
+     */
+    public function add(Caller $caller, string $code, string $reason, ?string $fromAt = null): array
+    {
+        $reason = ConfigHistory::reason($reason);
+        $code = strtoupper(trim($code));
+        if ($fromAt !== null && ($caller->staffUserId !== null || $caller->isChannel())) {
+            throw new CwException('backdate_system_only', 'a person marks an item from now; an earlier start is the go-live tool\'s', 403);
+        }
+        $now = Clock::db(($this->clock)());
+        if ($fromAt !== null) {
+            $d = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s.u', strlen($fromAt) === 19 ? $fromAt . '.000000' : $fromAt, Clock::utc());
+            if ($d === false || Clock::db($d) > $now) {
+                throw new CwException('bad_from', 'the start is a UTC moment like 2026-11-16 09:00:00, not in the future', 400, ['field' => 'from']);
+            }
+            $fromAt = Clock::db($d);
+        }
+        return $this->db->transaction(function (Db $db) use ($caller, $code, $reason, $fromAt, $now): array {
+            ConfigHistory::authorise($db, $caller);
+            $shop = self::shop($db) ?? throw new CwException('no_own_items_shop', 'the setting "' . self::SETTING . '" names no shop', 409);
+            $sku = $db->one('SELECT id, code, merged_into_sku_id FROM sku WHERE code = ? FOR UPDATE', [$code])
+                ?? throw new CwException('unknown_item', 'there is no item ' . mb_substr($code, 0, 16), 422, ['field' => 'code']);
+            $id = (int) $sku['id'];
+            if ($sku['merged_into_sku_id'] !== null) {
+                throw new CwException('merged_item', "{$sku['code']} was merged into another item: mark that one", 409, ['field' => 'code']);
+            }
+            $open = $db->one('SELECT id, channel_id FROM item_owner WHERE sku_id = ? AND to_at IS NULL', [$id]);
+            if ($open !== null) {
+                throw new CwException('own_item_already', "{$sku['code']} is already marked as a shop's own item", 409, ['field' => 'code']);
+            }
+            $shops = array_map('strval', $db->column("SELECT DISTINCT c.name FROM channel_listing l JOIN channel c ON c.id = l.channel_id WHERE l.sku_id = ? "
+                . "AND l.status IN ('mapped', 'quarantined') AND l.channel_id <> ? ORDER BY c.name", [$id, $shop['id']]));
+            if ($shops !== []) {
+                throw new CwException('own_item_other_shop', "{$sku['code']} is sold on " . implode(', ', $shops) . ': only an item sold on ' . $shop['name']
+                    . ' alone can be its own item', 409, ['field' => 'code', 'shops' => $shops]);
+            }
+            $from = $fromAt ?? $now;
+            $last = $db->value('SELECT MAX(to_at) FROM item_owner WHERE sku_id = ?', [$id]);
+            if ($last !== null && (string) $last > $from) {
+                throw new CwException('own_item_overlap', "{$sku['code']} was a shop's own item until " . substr((string) $last, 0, 19) . ': a new period starts after it', 409,
+                    ['field' => 'from']);
+            }
+            $pid = $db->insert('INSERT INTO item_owner (sku_id, channel_id, from_at, add_reason, added_by, added_actor, added_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [$id, $shop['id'], $from, $reason, $caller->staffUserId, $caller->actor, $now]);
+            Audit::write($db, $caller, 'item_owner.add', 'sku', (string) $id, null, ['code' => $sku['code'], 'shop' => $shop['code'], 'from_at' => $from,
+                'period' => $pid, 'reason' => $reason]);
+            return ['period_id' => $pid, 'sku_id' => $id, 'code' => (string) $sku['code'], 'channel_id' => $shop['id'], 'from_at' => $from];
+        });
+    }
+
+    /**
+     * Ends the item's period now (it is ours again from this moment: sales paid before stay the shop's own), with $reason. Refused: 422
+     * unknown_item, 409 not_own_item.
+     *
+     * @return array{period_id: int, sku_id: int, code: string, to_at: string}
+     */
+    public function remove(Caller $caller, string $code, string $reason): array
+    {
+        $reason = ConfigHistory::reason($reason);
+        $code = strtoupper(trim($code));
+        $now = Clock::db(($this->clock)());
+        return $this->db->transaction(function (Db $db) use ($caller, $code, $reason, $now): array {
+            ConfigHistory::authorise($db, $caller);
+            $sku = $db->one('SELECT id, code FROM sku WHERE code = ? FOR UPDATE', [$code])
+                ?? throw new CwException('unknown_item', 'there is no item ' . mb_substr($code, 0, 16), 422, ['field' => 'code']);
+            $id = (int) $sku['id'];
+            $open = $db->one('SELECT id, from_at FROM item_owner WHERE sku_id = ? AND to_at IS NULL', [$id])
+                ?? throw new CwException('not_own_item', "{$sku['code']} is not marked as a shop's own item", 409, ['field' => 'code']);
+            if ((string) $open['from_at'] >= $now) {
+                throw new CwException('own_item_too_new', "{$sku['code']} was marked a moment ago: try again in a second", 409);
+            }
+            $db->exec('UPDATE item_owner SET to_at = ?, remove_reason = ?, removed_by = ?, removed_actor = ? WHERE id = ? AND to_at IS NULL',
+                [$now, $reason, $caller->staffUserId, $caller->actor, (int) $open['id']]);
+            Audit::write($db, $caller, 'item_owner.remove', 'sku', (string) $id, null, ['code' => $sku['code'], 'period' => (int) $open['id'], 'to_at' => $now,
+                'reason' => $reason]);
+            return ['period_id' => (int) $open['id'], 'sku_id' => $id, 'code' => (string) $sku['code'], 'to_at' => $now];
+        });
+    }
+
+    /** @param array<mixed> $values */
+    private static function marks(array $values): string
+    {
+        return implode(',', array_fill(0, count($values), '?'));
+    }
+}

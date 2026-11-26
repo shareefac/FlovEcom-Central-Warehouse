@@ -87,6 +87,11 @@ final class PurchaseOrderHandler implements DocumentHandler
         if (count($lines) > self::MAX_LINES) {
             throw new CwException('too_many_lines', 'a purchase order has at most ' . self::MAX_LINES . ' lines', 422);
         }
+        // CW-1153 (docs/decisions.md VB8): a shop's own items (its own stock, bought with its own money) are never on our purchase order.
+        $own = self::ownItemLines($db, $doc->id);
+        if ($own !== []) {
+            throw new CwException('own_item_on_order', self::ownItemWords($own[0]['code'], $own[0]['shop']), 422, ['codes' => array_column($own, 'code')]);
+        }
         $poLines = self::poLines($db, $doc->id);
         $vat = [];
         foreach ($db->all('SELECT code, rate_percent, is_active FROM vat_code') as $v) {
@@ -309,5 +314,23 @@ final class PurchaseOrderHandler implements DocumentHandler
         if ($l['amount'] === null || PoMath::e6((string) $l['amount']) !== PoMath::lineAmountE2((int) $pl['packs'], $priceE4) * 10_000) {
             throw $bad('the amount is packs × the pack price');
         }
+    }
+
+    /**
+     * CW-1153 (VB8): the lines of order $documentId whose item is a shop's own item now: code and shop name, line order.
+     *
+     * @return list<array{line_no: int, code: string, shop: string}>
+     */
+    public static function ownItemLines(Db $db, int $documentId): array
+    {
+        return array_map(static fn (array $r): array => ['line_no' => (int) $r['line_no'], 'code' => (string) $r['code'], 'shop' => (string) $r['shop']],
+            $db->all('SELECT dl.line_no, s.code, c.name AS shop FROM document_line dl JOIN item_owner p ON p.sku_id = dl.sku_id AND p.to_at IS NULL '
+                . 'JOIN sku s ON s.id = dl.sku_id JOIN channel c ON c.id = p.channel_id WHERE dl.document_id = ? ORDER BY dl.line_no', [$documentId]));
+    }
+
+    /** The plain words of that refusal: what to do instead. */
+    public static function ownItemWords(string $code, string $shop): string
+    {
+        return "{$code} is {$shop}'s own item: {$shop}'s own purchases are entered as a bill, not a purchase order. Take it off this order.";
     }
 }

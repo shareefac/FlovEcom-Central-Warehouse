@@ -82,6 +82,7 @@ final class ReferenceController
         'sites' => ['/ui/system/sites', 'system.view'], 'apis' => ['/ui/system/apis', 'system.view'] /* 0063, AK9 */,
         'people' => ['/ui/people', 'staff.view'], 'approvals' => ['/ui/reference/approvals', 'reference.view'],
         'reasons' => ['/ui/reference/reasons', 'reference.view'], 'expense_types' => ['/ui/reference/expense-types', 'reference.view'] /* 0079, EX10 */,
+        'own_items' => ['/ui/reference/own-items', 'reference.view'] /* 0083, VB4 */,
         'settings' => ['/ui/reference/settings', 'reference.view'],
         'series' => ['/ui/reference/series', 'reference.view'], 'integrity' => ['/ui/system/checks', 'system.view'], 'audit' => ['/ui/system/audit', 'audit.view'],
     ];

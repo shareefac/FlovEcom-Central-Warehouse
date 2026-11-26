@@ -222,6 +222,8 @@ final class Invariants
         // PayPal's fees (0080, docs/decisions.md PPF18): every decided row counted once in its own place or nowhere, on its own shop's order of
         // its number, kind and cost as its rules say, nothing due or running for long
         array_push($v, ...Profit\PaypalInvariants::check($db));
+        // CW-1153 (docs/decisions.md VB6): a shop's own items: linked on no other shop, every sale line and bill marked as the periods say (O1-O6).
+        array_push($v, ...Items\ItemOwnerInvariants::check($db));
         return $v;
     }
 

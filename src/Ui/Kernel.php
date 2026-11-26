@@ -44,6 +44,7 @@ use CW\Ui\Controller\ProfitController;
 use CW\Ui\Controller\DeliveryBillsController;
 use CW\Ui\Controller\ExpensesController;
 use CW\Ui\Controller\ExpenseTypesController;
+use CW\Ui\Controller\OwnItemsController;
 use CW\Ui\Controller\RegularCostsController;
 use CW\Ui\Controller\ReportsController;
 use CW\Ui\Controller\ReservationsController;
@@ -689,6 +690,11 @@ final class Kernel
         $r->add('GET', ExpenseTypesController::PATH, 'reference.view', $types->index(...));
         $r->add('POST', ExpenseTypesController::PATH . '/add', 'settings.manage', $types->add(...));
         $r->add('POST', ExpenseTypesController::PATH . '/{id}/change', 'settings.manage', $types->change(...));
+        // Settings > Own items (CW-1153; docs/decisions.md VB4): everyone who reads the settings looks; an admin or a reviewer changes the list.
+        $own = new OwnItemsController();
+        $r->add('GET', OwnItemsController::PATH, 'reference.view', $own->index(...));
+        $r->add('POST', OwnItemsController::PATH . '/add', 'settings.manage', $own->add(...));
+        $r->add('POST', OwnItemsController::PATH . '/remove', 'settings.manage', $own->remove(...));
         $system = new SystemController();
         $r->add('GET', '/ui/system/sites', 'system.view', $system->sites(...));
         $r->add('GET', '/ui/system/checks', 'system.view', $system->checks(...));

@@ -87,6 +87,62 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
     {
         $h = self::header($db, $doc->id) ?? throw new CwException('invoice_header_missing', "{$doc->label()} has no supplier invoice header", 422);
         self::refuse(self::problems($db, $doc, $h, $lines, $this->today()));
+        if (($h['origin'] ?? 'cw') !== 'erpnext') {
+            self::ownerOf($db, $doc, $lines, false); // CW-1153 (VB7): the screen's early answer; post() decides again under the items' rows
+        }
+    }
+
+    /**
+     * CW-1153 (docs/decisions.md VB7): whose bill this is, from its goods lines when it is made final: a shop's own (every goods line is that
+     * shop's own item now: its channel id) or ours (none is: null). A bill that mixes them is refused (422 own_items_mixed), never split by
+     * a guess. A credit note with no goods line is the bill's it credits; one that credits a bill must be that bill's owner's (422
+     * own_items_credit_mismatch). With $lock the items' rows are read FOR SHARE first (in id order), the rows a mark is added or ended
+     * under (ItemOwners), so the mark cannot change between this answer and the posting's commit.
+     *
+     * @param list<array<string, mixed>> $lines the document's lines
+     */
+    public static function ownerOf(Db $db, Document $doc, array $lines, bool $lock): ?int
+    {
+        $skus = [];
+        foreach ($lines as $l) {
+            if (($l['sku_id'] ?? null) !== null) {
+                $skus[(int) $l['sku_id']] = true;
+            }
+        }
+        $skus = array_keys($skus);
+        sort($skus);
+        if ($lock) {
+            foreach (array_chunk($skus, 500) as $chunk) {
+                $db->all('SELECT id FROM sku WHERE id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ') ORDER BY id FOR SHARE', $chunk);
+            }
+        }
+        $open = \CW\Items\ItemOwners::open($db, $skus);
+        $owners = [];
+        foreach ($skus as $s) {
+            $owners[$open[$s] ?? 0] = true;
+        }
+        $name = static fn (int $ch): string => (string) $db->value('SELECT name FROM channel WHERE id = ?', [$ch]);
+        if (count($owners) > 1) {
+            $shop = $name((int) max(array_keys($owners)));
+            throw new CwException('own_items_mixed', "this bill has {$shop}'s own items and our items on it: a bill is either {$shop}'s own bill or ours. "
+                . 'Make two bills, one for each.', 422);
+        }
+        $owner = $owners === [] ? null : (array_key_first($owners) === 0 ? null : (int) array_key_first($owners));
+        $credited = $db->value('SELECT credits_document_id FROM supplier_invoice WHERE document_id = ?', [$doc->id]);
+        if ($credited !== null) {
+            $theirs = $db->value('SELECT item_owner FROM supplier_invoice WHERE document_id = ?', [(int) $credited]);
+            $theirs = $theirs === null ? null : (int) $theirs;
+            if ($skus === []) {
+                return $theirs;
+            }
+            if ($theirs !== $owner) {
+                $shop = $name((int) ($theirs ?? $owner));
+                throw new CwException('own_items_credit_mismatch', $theirs !== null
+                    ? "the bill this credits is {$shop}'s own bill: its credit note has only {$shop}'s own items on it"
+                    : "the bill this credits is ours: a credit note with {$shop}'s own items on it goes against {$shop}'s own bill", 422);
+            }
+        }
+        return $owner;
     }
 
     public function approvalUnits(Db $db, Document $doc, array $lines): int
@@ -154,6 +210,12 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
         // Again under the locks: a receipt reversed, or another credit note posted, since validate() read them.
         self::refuse(self::problems($db, $doc, $h, $lines, $this->today()));
         $copy = ($h['origin'] ?? 'cw') === 'erpnext';
+        // CW-1153 (VB7): whose bill it is, decided under the items' rows (before the stock: I21). A copy of an ERPNext invoice is none's: it
+        // never feeds a cost, a value or the stock (EC6), and ERPNext's own invoices came before any mark.
+        $owner = $copy ? null : self::ownerOf($db, $doc, $lines, true);
+        if (($h['item_owner'] === null ? null : (int) $h['item_owner']) !== $owner) {
+            $db->exec('UPDATE supplier_invoice SET item_owner = ? WHERE document_id = ?', [$owner, $doc->id]);
+        }
         if ($copy) {
             self::refuseStockOnCopy($db, $doc, $h, $caller, $this->docType); // CW-917 (EC5)
         }

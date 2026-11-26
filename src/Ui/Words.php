@@ -56,6 +56,8 @@ final class Words
         'STOCK_OPS', 'ADJ_GRID', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
         // The Items and Inventory pages on the approved redesign (docs/decisions.md RD-A)
         'INV_LIST', 'ITEM_PAGE', 'ITEM_NAME',
+        // CW-1153 (docs/decisions.md VB4): a shop's own items
+        'OWN_ITEMS',
         // "Final uses what is on the screen" (docs/decisions.md OV)
         'OP_FINAL',
         // The item page, stock first (docs/decisions.md IV)
@@ -331,6 +333,7 @@ final class Words
     /** A Show choice: Sections::MAP `key` of a page in an entry of two or more pages => its name in the page's Show (RD2). */
     public const SEGMENT = [
         'expense_types' => 'Expense types', // 0079 (docs/decisions.md EX10)
+        'own_items' => 'Own items', // CW-1153 (0083; docs/decisions.md VB4)
         'adjustments_all' => 'All kinds', // Adjustments' first Show choice (DG1)
         'review' => 'To review',
         'samples' => 'Spot check',
@@ -410,6 +413,7 @@ final class Words
         'profit_expenses' => 'Add expense',
         'profit_regular' => 'Add regular cost',
         'expense_types' => 'New expense type',
+        'own_items' => 'Add an own item', // CW-1153 (VB4)
         'orders' => 'New purchase order',
         'receiving' => 'New delivery',
         'suppliers' => 'New supplier',
@@ -551,6 +555,7 @@ final class Words
     /** Page key => title, where it is not the menu name. */
     public const PAGE_TITLE = [
         'expense_types' => 'Expense types', // 0079 (docs/decisions.md EX10)
+        'own_items' => 'Own items', // CW-1153 (0083; docs/decisions.md VB4)
         'count_differences' => 'Count differences to check',
         'count_before' => 'Before it is final',
         'login' => 'Sign in',
@@ -822,6 +827,7 @@ final class Words
         'profit_regular_one' => ['One regular cost: its share of each day, its history, and a new amount from a day.', ''],
         'profit_regular_new' => ['A cost with no invoice, for one shop, every week, month or year.', ''],
         'expense_types' => ['The types an expense is put under, and the groups of the regular costs.', ''],
+        'own_items' => ['Items that are a shop\'s own goods: its own stock, bought with its own money, not ours.', ''], // CW-1153 (VB4)
         'low_stock' => ['Products the stores can sell only a few of, or none.',
             'Order more, or check the shelf. A product\'s own "least stock to keep" is set on its reorder page.'],
         'stock_value' => ['What the stock is worth at its average cost, in pounds.', 'Look by product, by brand or by warehouse.'],
@@ -2822,6 +2828,8 @@ final class Words
         'stock.adjust_opens_on' => 'Reason a new adjustment opens on',
         // CW-1180 (0081; docs/decisions.md NR1).
         'stock.cancel_not_restockable' => 'A cancelled paid item the store marked "don\'t restock"',
+        // CW-1153 (0083; docs/decisions.md VB3).
+        'stock.own_items_shop' => 'The shop whose own items are listed',
         // Who is here on a draft order (0070; docs/decisions.md LV9).
         'live.mode' => 'Working together on a draft order',
         'live.poll_seconds' => 'Seconds between two checks while others have the draft open',
@@ -4331,6 +4339,9 @@ final class Words
             . 'item leaves stock straight away, as a write-off at its average cost, and nobody has to count it again. "Move it to Doubtful cancels": the '
             . 'way before: it waits in Doubtful cancels until someone counts it. Either way the shop\'s stock figure does not move. If the store takes '
             . 'the cancel back, CW puts the item back exactly as it took it out.',
+        'stock.own_items_shop' => 'The code of the shop whose own goods Settings > Own items lists (vapebig: Vape Big). Our profit, stock value, purchasing '
+            . 'and reorder figures leave those items out, and the shop\'s profit page shows them on their own line. It can name another shop only while '
+            . 'no item is the first shop\'s own.',
         'stock.adjust_opens_on' => 'A new adjustment (Stock > Adjustments) opens with this reason chosen for every line. The person can still choose another. '
             . 'Only a reason offered on stock corrections can be chosen here (Settings > Reasons). None: the person chooses each time. If the reason is '
             . 'switched off later, or is no longer offered on stock corrections, the page opens on Data correction again.',
@@ -11895,6 +11906,39 @@ final class Words
         'outcome_not_stock_by_person' => 'Not stock',
     ];
 
+    /** Settings > Own items (CW-1153; docs/decisions.md VB4): a shop's own goods, never "ours". */
+    public const OWN_ITEMS = [
+        'help' => 'These items are %s\'s own goods: its own stock, bought with its own money. They stay on our shelves and sell on %s as before, but '
+            . 'our profit, stock value, purchasing and reorder figures leave them out. A sale counts as the shop\'s own when the item was on this list '
+            . 'at the time the order was paid.',
+        'no_shop' => 'No shop is named for own items (Settings > Rules and numbers).',
+        'look_only' => 'an admin or a reviewer',
+        'title' => '%s\'s own items',
+        'totals' => '%s items, %s units on our shelves, worth £%s at their buying price.',
+        'unpriced' => '%s have no buying price yet.',
+        'none' => 'No item is on the list.',
+        'item' => 'Item',
+        'since' => 'On the list since',
+        'on_hand' => 'On the shelf',
+        'sold_waiting' => 'Sold or reserved, not sent',
+        'price' => 'Buying price',
+        'no_price' => 'none yet',
+        'free' => 'free (£0)',
+        'remove' => 'Take off the list',
+        'remove_button' => 'Take off',
+        'why' => 'Why?',
+        'add_title' => 'Add one of %s\'s own items',
+        'add_hint' => 'From now on: sales paid from this moment count as %s\'s own. An item sold on another shop\'s website cannot be added.',
+        'add_button' => 'Add to the list',
+        'code' => 'CW code of the item',
+        'history' => 'History of the list',
+        'no_history' => 'Nothing has been added yet.',
+        'period' => '%s, %s\'s own from %s (added by %s: %s).',
+        'period_end' => 'Taken off %s by %s: %s.',
+        'notice_added' => 'Added to the list.',
+        'notice_removed' => 'Taken off the list. Sales paid before now stay the shop\'s own.',
+    ];
+
     /** Settings' own section list (the approved Settings artboard of 30 Oct 2026, one settings shell; docs/decisions.md RD-C14), in its order. */
     public const RD_SETTINGS = [
         'sections' => 'Settings sections',
@@ -11906,6 +11950,7 @@ final class Words
         'approvals' => 'Approval rules',
         'reasons' => 'Reasons',
         'expense_types' => 'Expense types', // 0079 (docs/decisions.md EX10)
+        'own_items' => 'Own items', // CW-1153 (0083; docs/decisions.md VB4)
         'settings' => 'Rules and numbers',
         'series' => 'Numbering',
         'integrity' => 'System checks',
@@ -12747,6 +12792,9 @@ final class Words
         'group_draft_inv' => 'To match',
         'group_final_inv' => 'Matched',
         'owed_line' => '%s still owed', // under a total a credit note reduced (RD-B2)
+        // CW-1153 (docs/decisions.md VB7): a bill whose goods are all a shop's own items
+        'own_bill' => '%s\'s own bill: not ours to pay',
+        'own_bill_label' => 'Whose bill',
         'needs_look' => 'Needs a look',
         'tag_matches' => 'Matches',
         'tag_diff_one' => '%s difference',

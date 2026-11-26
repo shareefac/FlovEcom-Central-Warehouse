@@ -280,6 +280,9 @@ final class Settings
         // ---- CW-1180 (0081; docs/decisions.md NR1): a cancelled paid unit the store marked "don't restock": written off at once (the owner's rule)
         // or moved to VERIFY for a recount (the way before, D37); the screens show the two choices in words (Ui\Words::SETTING_CHOICE).
         'stock.cancel_not_restockable' => ['in' => Reservations::NOT_RESTOCKABLE_MODES, 'required' => true],
+        // ---- CW-1153 (0083; docs/decisions.md VB3): the shop whose own items Settings > Own items adds (a shop's code); another shop only while
+        // no item is the first one's own (ItemOwners).
+        'stock.own_items_shop' => ['own_items_shop' => true, 'required' => true],
         // ---- Who is here on a draft order (0070; docs/decisions.md LV9; Live\Presence): off, presence or on (on = presence until saving each box by
         // itself is built); the seconds between two polls while someone else is here and while alone; the seconds after which a person whose page
         // stopped polling is no longer shown (never fewer than the default: an active person is never called gone before their next poll).
@@ -584,6 +587,14 @@ final class Settings
             }
             if (!is_string($value) || $value < (string) $first || $value > '2099-12-31') {
                 throw $bad('must be on or after ' . $first . ', the first day CW holds this shop\'s sales (and at most 2099-12-31)');
+            }
+        }
+        if (($rule['own_items_shop'] ?? false) === true) {
+            // CW-1153 (VB3): a shop's code; never while items are another shop's own now (their periods name that shop).
+            $shop = $this->db->value('SELECT id FROM channel WHERE code = ?', [(string) $value]) ?? throw $bad('must be the code of a shop, like vapebig');
+            $other = (int) $this->db->value('SELECT COUNT(*) FROM item_owner WHERE to_at IS NULL AND channel_id <> ?', [(int) $shop]);
+            if ($other > 0) {
+                throw $bad("{$other} items are another shop's own items now: remove them on Settings > Own items first");
             }
         }
         if (isset($rule['pattern']) && preg_match($rule['pattern'], (string) $value) !== 1) {
