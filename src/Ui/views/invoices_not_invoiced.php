@@ -45,7 +45,7 @@
     <tbody>
 <?php foreach ($g['rows'] as $r): ?>
       <tr>
-        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/receiving/' . $r['id']) ?>"><?= $e($r['number']) ?></a><span class="o-sub"><?= $e($r['external_ref'] ?? '') ?></span></th>
+        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/receiving/' . $r['id']) ?>"><?= $e($r['number']) ?></a><span class="o-sub"><?= $e($r['external_ref'] ?? \CW\Ui\Words::INVOICES['invoice_to_come']) ?></span></th>
         <td data-label="<?= $word('INVOICES', 'supplier') ?>"><?= $e($r['supplier_name']) ?></td>
         <td class="c-status doc-st <?= $e($g['tone']) ?>"><span class="chip"><?= $word('INVOICES', 'not_invoiced_cell') ?></span></td>
         <td data-label="<?= $word('INVOICES', 'arrived') ?>"><?= $day($r['doc_date']) ?></td>

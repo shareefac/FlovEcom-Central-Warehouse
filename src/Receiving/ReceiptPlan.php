@@ -56,6 +56,12 @@ final class ReceiptPlan
         $settings ??= new Settings($db);
         $doc = $db->one('SELECT * FROM document WHERE id = ?', [$documentId]) ?? throw new \LogicException("no document {$documentId}");
         $gr = $db->one('SELECT * FROM goods_receipt WHERE document_id = ?', [$documentId]) ?? throw new \LogicException("document {$documentId} has no goods_receipt");
+        // CW-1152 (docs/decisions.md NI3): the supplier row, with its tick "Can book goods in without the invoice", is read FOR SHARE under the
+        // posting's locks (validate and post; after the document row, before the item cards: GoodsReceipts' lock order), so the tick cannot be
+        // taken off between this check and the booking. The screens ($lockCards false) read it plainly.
+        $supplier = $db->one('SELECT id, code, name, status, is_overseas, import_route_approved_at, goods_in_without_invoice FROM supplier WHERE id = ?'
+            . ($lockCards ? ' FOR SHARE' : ''), [(int) $gr['supplier_id']]) ?? [];
+        $withoutInvoice = (int) ($supplier['goods_in_without_invoice'] ?? 0) === 1;
         $lines = [];
         foreach ($db->all(
             'SELECT dl.line_no, dl.sku_id, dl.qty, dl.unit_cost, dl.amount, dl.description, g.*, s.code AS sku_code, s.name AS sku_name, s.merged_into_sku_id '
@@ -76,7 +82,6 @@ final class ReceiptPlan
         }
         $modes = $skus === [] ? [] : (new SellingModes($db))->current($skus, $lockModes);
         $relay = self::relayRoutes($db, $skus);
-        $supplier = $db->one('SELECT id, code, name, status, is_overseas, import_route_approved_at FROM supplier WHERE id = ?', [(int) $gr['supplier_id']]) ?? [];
         $po = null;
         $poLines = [];
         if ($gr['po_document_id'] !== null) {
@@ -114,8 +119,15 @@ final class ReceiptPlan
         if ($lines === []) {
             $add('no_lines', 'The receipt has no lines yet.');
         }
+        // CW-1152 (NI3): a supplier ticked "Can book goods in without the invoice": the missing number and copy are a note ("Invoice still to
+        // come"), never a refusal; every other check stays (a typed number booked once, the copy on another delivery, its type, the bench, the stamps).
+        $toCome = [];
         if (trim((string) ($doc['external_ref'] ?? '')) === '') {
-            $add('invoice_number_required', 'Type the supplier\'s invoice number: it is compulsory, and a supplier\'s invoice is booked once.');
+            if ($withoutInvoice) {
+                $toCome[] = 'number';
+            } else {
+                $add('invoice_number_required', 'Type the supplier\'s invoice number: it is compulsory, and a supplier\'s invoice is booked once.');
+            }
         }
         $hasInvoice = false;
         foreach ($files as $f) {
@@ -124,7 +136,18 @@ final class ReceiptPlan
             }
         }
         if (!$hasInvoice) {
-            $add('invoice_file_required', 'Attach the supplier\'s invoice (a PDF, or a photo of a paper invoice) before posting.');
+            if ($withoutInvoice) {
+                $toCome[] = 'copy';
+            } else {
+                $add('invoice_file_required', 'Attach the supplier\'s invoice (a PDF, or a photo of a paper invoice) before posting.');
+            }
+        }
+        if ($toCome !== []) {
+            $warnings[] = 'Invoice still to come: ' . match ($toCome) {
+                ['number'] => 'no supplier invoice number yet',
+                ['copy'] => 'the supplier\'s invoice is not attached yet',
+                default => 'no supplier invoice number or copy yet',
+            } . '. Supplier ' . ($supplier['code'] ?? '?') . ' books goods in without the invoice: book its invoice when it comes.';
         }
         // The same invoice copy on another live receipt of this supplier (its number typed differently): one invoice, booked once (I171).
         foreach (self::invoiceCopyElsewhere($db, $documentId, (int) $gr['supplier_id']) as $other) {
@@ -413,7 +436,8 @@ final class ReceiptPlan
             'doc' => $doc,
             'header' => $gr + ['received_uk' => $receivedUk, 'received_label' => self::time((string) $gr['received_at']), 'received_day' => self::day($receivedUk),
                 'keyed_uk' => $keyedUk, 'unchecked' => $unchecked, 'backdated' => $backdated, 'cutoff' => $cutoff, 'refusal_regime' => $refusalRegime,
-                'has_invoice_file' => $hasInvoice, 'supplier' => $supplier, 'tolerance_pct' => $tolerance, 'duty_pence_per_ml' => $rate],
+                'has_invoice_file' => $hasInvoice, 'invoice_to_come' => $toCome, 'without_invoice' => $withoutInvoice, 'supplier' => $supplier,
+                'tolerance_pct' => $tolerance, 'duty_pence_per_ml' => $rate],
             'lines' => $out,
             'problems' => $problems,
             'warnings' => array_values(array_unique($warnings)),

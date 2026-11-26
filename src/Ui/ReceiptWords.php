@@ -37,6 +37,13 @@ final class ReceiptWords
             $m === 'The receipt has no lines yet.' => $w('no_lines'),
             str_starts_with($m, 'Type the supplier\'s invoice number:') => $w('invoice_number_required'),
             str_starts_with($m, 'Attach the supplier\'s invoice (a PDF, or a photo of a paper invoice)') => $w('invoice_file_required'),
+            // CW-1152 (NI3): a supplier ticked "Can book goods in without the invoice"
+            preg_match('/^Invoice still to come: (no supplier invoice number or copy yet|no supplier invoice number yet|the supplier\'s invoice is not attached yet)\. '
+                . 'Supplier (\S+) books goods in without the invoice/', $m, $x) === 1 => $w(match ($x[1]) {
+                    'no supplier invoice number yet' => 'invoice_to_come_number',
+                    'no supplier invoice number or copy yet' => 'invoice_to_come_both',
+                    default => 'invoice_to_come_copy',
+                }, $s($x[2])),
             preg_match('/^The attached supplier invoice \((.+)\) is also the invoice of (.+?): a supplier\'s invoice is received once\./s', $m, $x) === 1
                 => $w('invoice_copy_elsewhere', $x[1], self::receiptLabel($x[2])),
             str_starts_with($m, 'This supplier invoice is also on a delivery of another order') => $w('invoice_shared'), // pack PO (PO10)

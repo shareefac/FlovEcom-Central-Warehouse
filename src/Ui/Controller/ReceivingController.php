@@ -1565,6 +1565,8 @@ final class ReceivingController
         $data['prices'] = $me->can('invoices.view');
         // --- Pack C: the invoices that bill this delivery, and "Book its invoice" (the quick way) while units are left to invoice.
         $data['invoiceBook'] = self::invoiceBook($ctx, $doc);
+        // CW-1152 (docs/decisions.md NI4): booked in without its supplier invoice and none bills it yet: "Invoice still to come".
+        $data['invoiceToCome'] = $doc->status === 'posted' && $ctx->goodsReceipts()->invoiceToCome($doc->id);
         // --- Pack J (docs/decisions.md PJ14): a receipt made from an invoice names it, says what it did not bring, and claims it.
         $data['arrivalBox'] = ArrivalsController::receiptBox($ctx, $doc->id, $doc->status);
         return $ctx->page('receipt', $data + $this->viewData($ctx, $doc), $status, ['title' => $data['title'], 'active' => 'receiving', 'notice' => $notice]);

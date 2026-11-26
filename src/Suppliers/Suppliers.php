@@ -71,6 +71,8 @@ final class Suppliers
         'review_days' => ['int', 1, 120],
         'min_order_value' => ['money'],
         'default_vat_code' => ['vat'],
+        // CW-1152 (docs/decisions.md NI2): "Can book goods in without the invoice" (0086); a terms field, changed and audited as payment terms.
+        'goods_in_without_invoice' => ['bool'],
         'is_overseas' => ['bool'],
         'import_route' => ['text', 1000],
         'dd_checked_on' => ['date'],
@@ -95,7 +97,7 @@ final class Suppliers
         'address_line1' => 'address line 1', 'address_line2' => 'address line 2', 'city' => 'town / city', 'postcode' => 'postcode',
         'country' => 'country', 'contact_name' => 'contact name', 'email' => 'e-mail', 'phone' => 'phone', 'contacts_note' => 'other contacts',
         'payment_terms' => 'payment terms', 'payment_terms_days' => 'payment days', 'default_lead_days' => 'lead days', 'review_days' => 'order cycle days',
-        'min_order_value' => 'minimum order value', 'default_vat_code' => 'VAT code', 'is_overseas' => 'overseas', 'import_route' => 'import route',
+        'min_order_value' => 'minimum order value', 'default_vat_code' => 'VAT code', 'goods_in_without_invoice' => 'goods in without the invoice', 'is_overseas' => 'overseas', 'import_route' => 'import route',
         'import_route_file_id' => 'import route evidence file', 'dd_checked_on' => 'due diligence checked on', 'dd_checked_by' => 'due diligence checked by',
         'dd_evidence' => 'due diligence evidence', 'dd_evidence_file_id' => 'due diligence evidence file', 'dd_next_review_on' => 'next due diligence review',
         'notes' => 'notes', 'erp_name' => 'ERPNext name', 'email_or_phone' => 'e-mail or phone',
@@ -1023,6 +1025,9 @@ final class Suppliers
         }
         if (array_key_exists('is_overseas', $v) && $v['is_overseas'] === null) {
             $v['is_overseas'] = 0;
+        }
+        if (array_key_exists('goods_in_without_invoice', $v) && $v['goods_in_without_invoice'] === null) {
+            $v['goods_in_without_invoice'] = 0;
         }
     }
 

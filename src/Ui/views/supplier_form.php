@@ -1,6 +1,6 @@
 <?php
 // A new supplier, or a supplier's details changed, on one page (the owner's approved one-page form, PI_New / PO_New; docs/decisions.md
-// W9.4): the 27 fields staged in three sections of two columns (Details with the country picker, Terms, Background check), a refused field
+// W9.4): the 28 fields staged in three sections of two columns (Details with the country picker, Terms, Background check), a refused field
 // marked under it, what someone else saved meanwhile listed at the top and marked at its field, then the bar at the bottom: "Leave without
 // saving" and the one Save. The form posts every field where it did; typed values are guarded (data-unsaved).
 $field = static fn (string $k, string $label, string $control, array $more = []): array => ['k' => $k, 'label' => $label, 'control' => $control] + $more;
@@ -19,6 +19,8 @@ $sections = [
         $field('payment_terms', 'payment_terms', 'text', ['max' => 100]), $field('payment_terms_days', 'payment_days', 'number', ['min' => 0, 'max' => 365]),
         $field('default_lead_days', 'lead', 'number', ['min' => 0, 'max' => 120]), $field('review_days', 'every', 'number', ['min' => 1, 'max' => 120]),
         $field('min_order_value', 'min_order', 'text', ['max' => 16, 'short' => true]), $field('default_vat_code', 'vat', 'vat'),
+        // CW-1152 (docs/decisions.md NI2): its deliveries may be booked in before the supplier invoice comes.
+        $field('goods_in_without_invoice', 'without_invoice_tick', 'tick', ['wide' => true]),
     ],
     'dd' => [
         $field('dd_checked_on', 'dd_on', 'date', ['max' => $today]), $field('dd_checked_by', 'dd_by', 'staff'),

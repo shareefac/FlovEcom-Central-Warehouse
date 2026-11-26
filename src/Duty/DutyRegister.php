@@ -102,7 +102,26 @@ final class DutyRegister
             . 'ORDER BY r.received_at DESC, r.document_id DESC, g.line_no',
             $pairs,
         );
-        return array_map(static function (array $r): array {
+        // CW-1152 (docs/decisions.md NI5): a delivery booked without the supplier invoice number (a supplier ticked "Can book goods in without
+        // the invoice") prints the number of the posted supplier invoice that billed it; blank until one does. One read for the page.
+        $blank = [];
+        foreach ($rows as $r) {
+            if (trim((string) ($r['supplier_invoice'] ?? '')) === '') {
+                $blank[(int) $r['document_id']] = (int) $r['document_id'];
+            }
+        }
+        $billed = [];
+        if ($blank !== []) {
+            foreach ($this->db->all('SELECT sl.grn_document_id, GROUP_CONCAT(DISTINCT x.external_ref ORDER BY x.external_ref SEPARATOR \', \') AS refs FROM sinv_line sl '
+                . self::BILLED_JOIN . ' WHERE sl.grn_document_id IN (' . implode(', ', array_fill(0, count($blank), '?')) . ') GROUP BY sl.grn_document_id',
+                array_values($blank)) as $b) {
+                $billed[(int) $b['grn_document_id']] = (string) $b['refs'];
+            }
+        }
+        return array_map(static function (array $r) use ($billed): array {
+            if (trim((string) ($r['supplier_invoice'] ?? '')) === '') {
+                $r['supplier_invoice'] = $billed[(int) $r['document_id']] ?? null;
+            }
             foreach (['document_id', 'line_no', 'packs', 'units_per_pack', 'units', 'unstamped_units', 'short_units', 'damaged_units', 'wrong_item_units', 'over_units',
                 'incidents', 'supplier_id'] as $k) {
                 $r[$k] = (int) $r[$k];
@@ -220,6 +239,10 @@ final class DutyRegister
             'warehouses' => $warehouses];
     }
 
+    /** CW-1152 (NI5): from a supplier invoice line (sl) to its posted invoice (x) of kind invoice: a credit note never bills a delivery. */
+    private const BILLED_JOIN = "JOIN supplier_invoice si ON si.document_id = sl.document_id AND si.kind = 'invoice' "
+        . "JOIN document x ON x.id = sl.document_id AND x.status = 'posted'";
+
     /** Which lines the register lists (duty.register_lines): `stamp` (needed the stamp check) or `all`. */
     public function lines(): string
     {
@@ -265,8 +288,11 @@ final class DutyRegister
         }
         if ($f['q'] !== '') {
             $like = '%' . addcslashes($f['q'], '\\%_') . '%';
-            $where[] = '(s.name LIKE ? OR s.code LIKE ? OR d.number LIKE ? OR d.external_ref LIKE ? OR r.delivery_note LIKE ?)';
-            array_push($params, $like, $like, $like, $like, $like);
+            // CW-1152 (NI5): a delivery with no number of its own is found by the number of the supplier invoice that billed it (the one printed).
+            $where[] = '(s.name LIKE ? OR s.code LIKE ? OR d.number LIKE ? OR d.external_ref LIKE ? OR r.delivery_note LIKE ? '
+                . "OR (COALESCE(d.external_ref, '') = '' AND EXISTS (SELECT 1 FROM sinv_line sl " . self::BILLED_JOIN . ' WHERE sl.grn_document_id = r.document_id '
+                . 'AND x.external_ref LIKE ?)))';
+            array_push($params, $like, $like, $like, $like, $like, $like);
         }
         return [$where, $params];
     }

@@ -890,6 +890,22 @@ final class GoodsReceipts
         return $out;
     }
 
+    /**
+     * CW-1152 (docs/decisions.md NI4): whether a posted delivery was booked in without its supplier invoice (no invoice number, or no copy
+     * of it attached: a supplier ticked "Can book goods in without the invoice") and no posted supplier invoice bills it yet: its page says
+     * "Invoice still to come". Read only.
+     */
+    public function invoiceToCome(int $id): bool
+    {
+        return $this->db->value("SELECT 1 FROM document d WHERE d.id = ? AND d.doc_type = 'GRN' AND d.status = 'posted' AND d.reverses_id IS NULL "
+            . "AND (COALESCE(TRIM(d.external_ref), '') = '' OR NOT EXISTS (SELECT 1 FROM document_file f JOIN stored_file sf ON sf.id = f.file_id "
+            . "WHERE f.document_id = d.id AND f.role = 'supplier_invoice' AND sf.mime IN (" . implode(', ', array_fill(0, count(ReceiptPlan::INVOICE_MIMES), '?')) . '))) '
+            . "AND NOT EXISTS (SELECT 1 FROM sinv_line sl JOIN supplier_invoice si ON si.document_id = sl.document_id AND si.kind = 'invoice' "
+            . "JOIN document x ON x.id = sl.document_id AND x.status = 'posted' WHERE sl.grn_document_id = d.id) "
+            . "AND NOT EXISTS (SELECT 1 FROM goods_receipt_invoice gi JOIN document x ON x.id = gi.sinv_document_id AND x.status = 'posted' WHERE gi.grn_document_id = d.id)",
+            [$id, ...ReceiptPlan::INVOICE_MIMES]) !== null;
+    }
+
     /** What posting would do and what stops it now (ReceiptPlan::build, no locks): the editor's and the bench view's checklist. */
     public function plan(int $id): array
     {

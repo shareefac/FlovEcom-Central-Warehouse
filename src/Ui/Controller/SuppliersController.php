@@ -487,6 +487,9 @@ final class SuppliersController
                 $facts[] = ['label' => Words::SUPPLIER[$k], 'value' => (string) $v];
             }
         }
+        if ((int) ($s['goods_in_without_invoice'] ?? 0) === 1) { // CW-1152 (docs/decisions.md NI2)
+            $facts[] = ['label' => Words::SUPPLIER['without_invoice'], 'value' => Words::SUPPLIER['without_invoice_yes']];
+        }
         return $ctx->page('supplier', [
             's' => $s,
             'party' => $party,
@@ -653,7 +656,7 @@ final class SuppliersController
     {
         $v = $v === null ? '' : trim((string) $v);
         return match (true) {
-            $field === 'is_overseas' => Words::SUPPLIER_FORM[$v === '1' ? 'ticked' : 'not_ticked'],
+            $field === 'is_overseas', $field === 'goods_in_without_invoice' => Words::SUPPLIER_FORM[$v === '1' ? 'ticked' : 'not_ticked'],
             $v === '' => Words::SUPPLIER_FORM['empty'],
             $field === 'dd_checked_by' => (string) ($ctx->db->value('SELECT display_name FROM staff_user WHERE id = ?', [(int) $v]) ?? $v),
             default => $v,
@@ -700,8 +703,8 @@ final class SuppliersController
     }
 
     /**
-     * The supplier fields of a posted form: every field of Suppliers::FIELDS the form carries (the overseas checkbox is
-     * absent when unticked: 0).
+     * The supplier fields of a posted form: every field of Suppliers::FIELDS the form carries (the overseas checkbox and, CW-1152, the
+     * "goods in without the invoice" tick are absent when unticked: 0).
      *
      * @return array<string, string>
      */
@@ -709,7 +712,7 @@ final class SuppliersController
     {
         $out = [];
         foreach (array_keys(Suppliers::FIELDS) as $k) {
-            if ($k === 'is_overseas') {
+            if ($k === 'is_overseas' || $k === 'goods_in_without_invoice') {
                 $out[$k] = $req->field($k) === '1' ? '1' : '0';
                 continue;
             }
