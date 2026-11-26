@@ -46,6 +46,9 @@ final class GpFeesFinalTest extends StockTestCase
     {
         $this->set('profit.gp_from_vpg_online', $from);
         $this->set('profit.gp_merchant_vpg_online', self::MERCHANT);
+        if ($from < '2026-11-01') {
+            $this->set('profit.gp_shop_from_vapeandgo', $from); // Vape and Go's own first day (seeded 1 Nov) as early as the account's
+        }
     }
 
     /** @return array<string, mixed> */
@@ -329,8 +332,8 @@ final class GpFeesFinalTest extends StockTestCase
         $this->store($vpg, '9100001', '2026-11-01T10:00:00Z', 5000);
         $this->store($vpg, '9100002', '2026-11-05T10:00:00Z', 5000);
         (new GpFees(self::$db))->run(self::sys());
-        // a setting that changes which orders count: every day from the first is gone over again
-        $this->set('profit.gp_shop_from_vapebig', '2026-11-01');
+        // a setting of the account changed (its last day): every day from its first is gone over again
+        $this->set('profit.gp_until_vpg_online', '2099-12-31');
         $other = TestDb::connect();
         $other->exec('START TRANSACTION');
         ProfitDays::guard($other, (int) $vpg->channelId, ['2026-11-02']);
