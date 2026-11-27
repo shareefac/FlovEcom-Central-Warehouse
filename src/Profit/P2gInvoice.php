@@ -23,12 +23,13 @@ use CW\CwException;
  * A row is a "surcharge" when its description is EXACTLY "Extra Payment" (the named label's, wherever that label was paid); any other "Extra ..."
  * text is a row CW does not know (the whole basket refused); else a "price" when it names a delivery (a courier or a service word): Parcel2Go::store
  * then accepts it only as the label's own service in the label's own basket (the final review, H3). The headings Details, Parcels, Net, VAT are
- * printed before the rows (again at the top of each page of a long basket, each page's rows after its own heading line). Each row's VAT is 0 (international: zero-rated) or its net at 20% (whole pence, within a penny:
- * P2G may work VAT out on the price with VAT); the rows add up to the printed Net and VAT and Net + VAT = Invoice Total, to the penny. A
+ * printed before the rows (again at the top of each page of a long basket, each page's rows after its own heading line). Each row's VAT is 0 (international: zero-rated), its net at 20% (whole pence, within a penny:
+ * P2G may work VAT out on the price with VAT) or, part of its price free of VAT (as cover is), less: never more; the rows add up to the printed Net and VAT and Net + VAT = Invoice Total, to the penny. A
  * PrePay top-up's invoice is never a delivery cost: refused. Kept: the number, the transaction id, the date, the rows (P2G number, kind,
  * service, parcels, net, VAT rate, VAT, total) and the totals; never the text (names and addresses are on it).
  * B0 (production, 27 Nov 2026, both accounts): GET /invoices by OrderId serves this same invoice, its headings "Net Amount" and "VAT Amount"
- * on one line (HEADINGS). STILL WAITS FOR THE FIRST WEEKS: any other row
+ * on one line (HEADINGS). The switch (production, 27 Nov 2026, Vape Big): a total may share its line with the last row ("1Net", "£0.62£40.69")
+ * or with text with no money (an address or cover line), and a row may carry less than 20% VAT. STILL WAITS FOR THE FIRST WEEKS: any other row
  * kinds (cover, SMS, a discount, a refund) the first weeks show: until they are known, such an invoice is REFUSED (said), never priced wrongly.
  */
 final class P2gInvoice
@@ -44,7 +45,7 @@ final class P2gInvoice
         'unknown_row' => 'a row whose description names no delivery and is no Extra Payment',
         'row_shape' => 'a row whose amounts are not parcels, net and VAT',
         'row_twice' => 'a label priced twice on it',
-        'vat_rate' => 'a row\'s VAT is neither 0 nor 20% of its net',
+        'vat_rate' => 'a row\'s VAT is more than 20% of its net',
         'below_zero' => 'a row below 0 (a credit CW does not read yet)',
         'no_heading' => 'its table\'s headings are not Details, Parcels, Net (Amount), VAT (Amount) before its rows',
         'service_differs' => 'a price row\'s service is not the label\'s own service on Parcel2Go\'s list or export',
@@ -130,18 +131,21 @@ final class P2gInvoice
             if (!str_contains($line, '£')) {
                 continue; // no money: the seller, the bill-to address, a recipient's name and address (never read into anything)
             }
-            if (count($cells) === 2 && preg_match('/^' . self::MONEY . '$/u', $cells[1]) === 1) {
-                $label = strtolower((string) preg_replace('/\s+/', ' ', $cells[0]));
-                $key = match ($label) {
-                    'net', 'net total', 'sub total', 'subtotal' => 'net',
-                    'vat', 'vat total', 'total vat' => 'vat',
-                    'invoice total', 'total' => 'total',
-                    default => null,
-                };
-                if ($key !== null) {
-                    $totals[$key][] = self::pence($cells[1]);
-                    continue;
-                }
+            // The last row and a total on ONE line (the switch on production, 27 Nov 2026: Vape Big): the row's parcels run into the total's
+            // label ("1Net") and its VAT into the total's amount ("£0.62£40.69"). Read as the row and the total; a split read the wrong way
+            // round cannot add up (its VAT above 20%, or the totals off): refused, never priced.
+            if (count($cells) === 4 && preg_match(self::ROW, $cells[0]) === 1 && preg_match('/^([1-9][0-9]?) ?([A-Za-z][A-Za-z ]{1,19})$/D', $cells[1], $pm) === 1
+                && ($key = self::totalKey($pm[2])) !== null && preg_match('/^(' . self::MONEY . ') ?(' . self::MONEY . ')$/Du', $cells[3], $vm) === 1) {
+                $totals[$key][] = self::pence($vm[2]);
+                $cells = [$cells[0], $pm[1], $cells[2], $vm[1]];
+            }
+            // A total: its label and its amount the line's last two cells. Left of them only text with no money, never read (27 Nov 2026,
+            // production: a recipient's address line or a cover line printed under the last row, on the Net total's line). A row is never one.
+            $last = count($cells) - 1;
+            if ($last >= 1 && preg_match('/^' . self::MONEY . '$/Du', $cells[$last]) === 1 && ($key = self::totalKey($cells[$last - 1])) !== null
+                && preg_match(self::ROW, $cells[0]) !== 1 && !str_contains(implode('  ', array_slice($cells, 0, $last - 1)), '£')) {
+                $totals[$key][] = self::pence($cells[$last]);
+                continue;
             }
             if (preg_match(self::ROW, $cells[0] ?? '', $m) !== 1) {
                 throw $no('unknown_line', $n);
@@ -166,7 +170,9 @@ final class P2gInvoice
             if ($net <= 0 || $vat < 0) {
                 throw $no('below_zero', $n);
             }
-            if ($vat !== 0 && abs($vat - self::vatOf($net, self::VAT_BP)) > 1) {
+            // VAT at most 20% of the net (a penny of rounding). Below it: part of the label's price free of VAT (as cover is; 27 Nov 2026,
+            // production: £3.20 with £0.55 VAT), read as printed (code S); the totals must still add up.
+            if ($vat > self::vatOf($net, self::VAT_BP) + 1) {
                 throw $no('vat_rate', $n);
             }
             $rows[] = ['order_line_id' => (int) $m[1], 'kind' => $kind, 'code' => self::KINDS[$kind], 'service' => $kind === 'price' ? P2gApi::slug($desc, 64) : null,
@@ -221,6 +227,17 @@ final class P2gInvoice
         [$p, $d] = explode('.', $t);
         $v = (int) $p * 100 + (int) $d;
         return $neg ? -$v : $v;
+    }
+
+    /** 'net', 'vat' or 'total': the total a label names (any case, its spaces any width), or null. */
+    private static function totalKey(string $label): ?string
+    {
+        return match (strtolower(trim((string) preg_replace('/\s+/', ' ', $label)))) {
+            'net', 'net total', 'sub total', 'subtotal' => 'net',
+            'vat', 'vat total', 'total vat' => 'vat',
+            'invoice total', 'total' => 'total',
+            default => null,
+        };
     }
 
     /** The VAT of $net at $rateBp, whole pence, half away from zero. */
