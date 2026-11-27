@@ -45,7 +45,7 @@ final class P2gInvoice
         'unknown_row' => 'a row whose description names no delivery and is no Extra Payment',
         'row_shape' => 'a row whose amounts are not parcels, net and VAT',
         'row_twice' => 'a label priced twice on it',
-        'vat_rate' => 'a row\'s VAT is more than 20% of its net',
+        'vat_rate' => 'a row\'s VAT is more than 20% of its net (until 27 Nov 2026 also: a VAT below 20% and not 0)',
         'below_zero' => 'a row below 0 (a credit CW does not read yet)',
         'no_heading' => 'its table\'s headings are not Details, Parcels, Net (Amount), VAT (Amount) before its rows',
         'service_differs' => 'a price row\'s service is not the label\'s own service on Parcel2Go\'s list or export',
@@ -71,6 +71,8 @@ final class P2gInvoice
     private const HEADINGS = [['Details', 'Parcels', 'Net', 'VAT'], ['Details', 'Parcels', 'Net Amount', 'VAT Amount']];
     private const DELIVERY = '/evri|hermes|royal\s+mail|parcelforce|\bdpd\b|\bups\b|\bdhl\b|fedex|yodel|inpost|parcel|delivery|collection|drop[\s-]*off|shop'
         . '|tracked|international|europe|express|economy|standard|next\s+day|\b24\b|\b48\b|letter|packet/i';
+    /** Words that make text beside a total more than an address or a cover line: such a line is one CW does not know (refused). */
+    private const NOT_BESIDE = '\\b(?:refund|credit|discount|rebate|return|cancel|adjust|voucher|promo|deduct|minus|less|saving|deposit|balance|paid|due|owed)';
     private const TOPUP = '/pre-?pay(?:ment)?\s+top[\s-]*up|top[\s-]*up\s+(?:of\s+)?(?:your\s+)?pre-?pay|prepayment\s+invoice/i';
 
     /**
@@ -139,11 +141,14 @@ final class P2gInvoice
                 $totals[$key][] = self::pence($vm[2]);
                 $cells = [$cells[0], $pm[1], $cells[2], $vm[1]];
             }
-            // A total: its label and its amount the line's last two cells. Left of them only text with no money, never read (27 Nov 2026,
-            // production: a recipient's address line or a cover line printed under the last row, on the Net total's line). A row is never one.
+            // A total: its label and its amount the line's last two cells. Beside the NET total only (27 Nov 2026, production: a recipient's
+            // address line or a cover line printed under the last row, on the Net total's line), text that is never read, with no money, no
+            // label's number and no word of a refund, credit or discount (the final review, astra: "Refund  Total  £6.00" is never a total).
             $last = count($cells) - 1;
+            $left = implode('  ', array_slice($cells, 0, max(0, $last - 1)));
             if ($last >= 1 && preg_match('/^' . self::MONEY . '$/Du', $cells[$last]) === 1 && ($key = self::totalKey($cells[$last - 1])) !== null
-                && preg_match(self::ROW, $cells[0]) !== 1 && !str_contains(implode('  ', array_slice($cells, 0, $last - 1)), '£')) {
+                && preg_match(self::ROW, $cells[0]) !== 1 && ($left === '' || ($key === 'net' && !str_contains($left, '£')
+                && preg_match('/P2G\s*[0-9]|' . self::NOT_BESIDE . '/i', $left) !== 1))) {
                 $totals[$key][] = self::pence($cells[$last]);
                 continue;
             }

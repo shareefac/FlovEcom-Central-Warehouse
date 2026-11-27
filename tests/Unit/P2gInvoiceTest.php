@@ -227,6 +227,17 @@ final class P2gInvoiceTest extends TestCase
         self::assertSame('unknown_line', self::refusal($beside('Admin fee £1.00')), 'money beside it: a line CW does not know');
         self::assertSame('unknown_line', self::refusal((string) preg_replace($netLine, str_pad(' Cover', 65) . str_pad('Admin', 38) . "£10.26\n", $text, 1)),
             'beside an unknown label');
+        // the final review (Codex astra, 27 Nov): text beside a total is never a refund, a credit or a discount, never a label's number, and
+        // only the Net total was met beside it (any other total beside text: refused)
+        foreach (['Refund', 'Credit note', 'Discount', 'Less voucher'] as $left) {
+            self::assertSame('unknown_line', self::refusal($beside($left)), $left);
+        }
+        self::assertSame('unknown_line', self::refusal((string) preg_replace('/^ {65}Invoice Total +£12\.30$/m', str_pad(' Refund', 65) . str_pad('Total', 38) . '£12.30', $text, 1)),
+            'Refund  Total: never the invoice total');
+        self::assertSame('unknown_line', self::refusal((string) preg_replace('/^ {65}VAT +£2\.04$/m', str_pad(' GB', 65) . str_pad('VAT', 40) . '£2.04', $text, 1)),
+            'only the Net total was met beside text');
+        self::assertSame('unknown_line', self::refusal($beside('P2G150000022  - Royal Mail 48 Tracked Small')), 'a label\'s number split from its description');
+        self::assertSame('unknown_line', self::refusal($beside('Ref P2G 150000022')), 'a label\'s number anywhere beside it');
         self::assertSame('row_shape', self::refusal((string) preg_replace('/^( P2G150000013 - Royal Mail 24 Tracked Small) +1 +£4\.00 +£0\.80$/m', '$1      Net      £10.26',
             $text, 1)), 'a row is never read as a total');
     }
