@@ -23,7 +23,7 @@ use CW\CwException;
  * A row is a "surcharge" when its description is EXACTLY "Extra Payment" (the named label's, wherever that label was paid); any other "Extra ..."
  * text is a row CW does not know (the whole basket refused); else a "price" when it names a delivery (a courier or a service word): Parcel2Go::store
  * then accepts it only as the label's own service in the label's own basket (the final review, H3). The headings Details, Parcels, Net, VAT are
- * printed before the rows (again at the top of each page of a long basket: each such line exactly these four). Each row's VAT is 0 (international: zero-rated) or its net at 20% (whole pence, within a penny:
+ * printed before the rows (again at the top of each page of a long basket, each page's rows after its own heading line). Each row's VAT is 0 (international: zero-rated) or its net at 20% (whole pence, within a penny:
  * P2G may work VAT out on the price with VAT); the rows add up to the printed Net and VAT and Net + VAT = Invoice Total, to the penny. A
  * PrePay top-up's invoice is never a delivery cost: refused. Kept: the number, the transaction id, the date, the rows (P2G number, kind,
  * service, parcels, net, VAT rate, VAT, total) and the totals; never the text (names and addresses are on it).
@@ -94,7 +94,15 @@ final class P2gInvoice
         $rows = [];
         $totals = ['net' => [], 'vat' => [], 'total' => []];
         $headings = 0;
-        foreach (preg_split('/\R/u', $text) ?: [] as $i => $raw) {
+        // the lines with their page (pdftotext ends each page with a form feed, which \R also splits on: the same line numbers as before)
+        $lines = [];
+        foreach (explode("\f", $text) as $p => $page) {
+            foreach (preg_split('/\R/u', $page) ?: [] as $raw) {
+                $lines[] = [$raw, $p];
+            }
+        }
+        $pageHeading = -1; // the page whose own heading line was read: a page's rows need it (a long basket prints it again on each page; final review 27 Nov)
+        foreach ($lines as $i => [$raw, $page]) {
             $n = $i + 1;
             // a tab or a no-break space is a column gap; cells are what the layout put two or more spaces apart
             $line = trim((string) preg_replace('/[\x{00A0}\t]+/u', '  ', $raw));
@@ -116,6 +124,7 @@ final class P2gInvoice
             }
             if (in_array($cells, self::HEADINGS, true)) {
                 $headings++;
+                $pageHeading = $page;
                 continue;
             }
             if (!str_contains($line, '£')) {
@@ -142,7 +151,7 @@ final class P2gInvoice
                 throw $no('row_shape', $n);
             }
             $desc = trim($m[2]);
-            if ($headings === 0) {
+            if ($pageHeading !== $page) {
                 throw $no('no_heading', $n);
             }
             $kind = match (true) {

@@ -170,6 +170,20 @@ final class P2gInvoiceTest extends TestCase
         self::assertSame([300, [100, 200]], [P2gInvoice::read($pages)['net'], array_column(P2gInvoice::read($pages)['rows'], 'net')]);
     }
 
+    public function testEachPagesRowsNeedThatPagesOwnHeading(): void
+    {
+        // the final review (Codex, 27 Nov): a known heading on page 1 must not let page 2's rows through under another heading, or none
+        $one = ' Details                                                                         Parcels    Net Amount    VAT Amount';
+        $text = (string) preg_replace('/^ Details .*\n\s+Amount\s+Amount\n/m', $one . "\n", P2gFixtures::invoiceText(1, '26/11/2026',
+            [[150000011, 'Evri Europe Standard Parcelshop', 1, 100, 20], [150000012, 'Evri Europe Standard Parcelshop', 1, 200, 40]]), 1);
+        $page2 = static fn (string $head): string => (string) preg_replace('/^( P2G150000012 .*)$/m',
+            "\fParcel2Go.com Ltd                Page 2 of 2\n Invoice No.   TX-1\n" . $head . "$1", $text, 1);
+        self::assertSame(360, P2gInvoice::read($page2($one . "\n"))['gross'], 'page 2 with its own known heading: read');
+        self::assertSame('no_heading', self::refusal($page2(str_replace('Net Amount', 'Price Amount', $one) . "\n")), 'page 2 under another heading');
+        self::assertSame('no_heading', self::refusal($page2('')), 'page 2 rows with no heading of their own');
+        self::assertSame(360, P2gInvoice::read($text)['gross'], 'one page: as before');
+    }
+
     public function testALongBasketOverTwoPagesReadsWithItsHeadingsOnEachPage(): void
     {
         // the fix round's own check (a basket of many labels spills onto a second page, whose table repeats its headings): read whole
