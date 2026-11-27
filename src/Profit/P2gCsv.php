@@ -77,11 +77,13 @@ final class P2gCsv
         return ['rows' => $rows, 'sha256' => (string) $sha, 'lines' => $lines];
     }
 
-    /** "24/11/2026 13:05", "24/11/2026 13:05:09", "2026-11-24 13:05:09", "2026-11-24T13:05:09" (UK time) in UTC, or null. */
+    /** "24/11/2026 13:05", "24/11/2026 13:05:09", "2026-11-24 13:05:09", "2026-11-24T13:05:09", or the export page's own month-first layout with
+     *  AM/PM, "11/26/2026 9:12:34 PM" (27 Nov 2026, every row of a real export: AM/PM marks it, so it is never read day first) (UK time) in UTC,
+     *  or null. Each must print back exactly as given (no overflow: a 13th month or a 25:00 is refused). */
     public static function created(string $s): ?string
     {
         $uk = new \DateTimeZone('Europe/London');
-        foreach (['!d/m/Y H:i', '!d/m/Y H:i:s', '!Y-m-d H:i:s', '!Y-m-d H:i', '!Y-m-d\TH:i:s'] as $f) {
+        foreach (['!d/m/Y H:i', '!d/m/Y H:i:s', '!Y-m-d H:i:s', '!Y-m-d H:i', '!Y-m-d\TH:i:s', '!n/j/Y g:i:s A'] as $f) {
             $d = \DateTimeImmutable::createFromFormat($f, $s, $uk);
             if ($d !== false && \DateTimeImmutable::getLastErrors() === false && $d->format(substr($f, 1)) === $s) {
                 return $d->setTimezone(Clock::utc())->format('Y-m-d H:i:s.u');

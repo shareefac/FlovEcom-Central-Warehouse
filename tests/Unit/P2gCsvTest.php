@@ -66,6 +66,25 @@ final class P2gCsvTest extends TestCase
         }
     }
 
+    public function testTheExportPagesUsLayoutWithAmPmIsRead(): void
+    {
+        // 27 Nov 2026 (the switch on production): My Orders > This Month > Export CSV writes Created month first with AM/PM ("11/26/2026 9:12:34 PM",
+        // every row of a real 374-row export). AM/PM marks this layout, so it is never taken for the day-first one; UK time, as before.
+        $r = P2gCsv::read($this->file([self::row('P2G150000001', '11/26/2026 9:12:34 PM', 'AA000000001GB'), self::row('P2G150000002', '11/5/2026 10:03:07 AM', 'AA000000002GB'),
+            self::row('P2G150000003', '11/26/2026 12:00:01 AM', 'AA000000003GB'), self::row('P2G150000004', '11/26/2026 12:30:00 PM', 'AA000000004GB'),
+            self::row('P2G150000005', '6/15/2026 1:00:00 PM', 'AA000000005GB')]));
+        self::assertSame(['2026-11-26 21:12:34.000000', '2026-11-05 10:03:07.000000', '2026-11-26 00:00:01.000000', '2026-11-26 12:30:00.000000', '2026-06-15 12:00:00.000000'],
+            array_column(array_values($r['lines']), 'paid_at'), 'month first; 12 AM is midnight; summer time is UTC+1');
+        foreach (['26/11/2026 9:12:34 PM', '11/26/2026 21:12:34 PM', '11/26/2026 09:12:34 PM', '11/26/2026 9:12 PM', '13/5/2026 9:12:34 AM'] as $bad) {
+            try {
+                P2gCsv::read($this->file([self::row('P2G150000001', $bad, 'AA000000001GB')]));
+                self::fail("{$bad}: refused");
+            } catch (CwException $e) {
+                self::assertSame('p2g_csv', $e->errorCode, $bad);
+            }
+        }
+    }
+
     public function testABadRowRefusesTheWholeFile(): void
     {
         foreach ([[self::row('150169740', '24/11/2026 13:05', 'H00TST0000000001')], [self::row('P2G150169740', 'yesterday', 'H00TST0000000001')]] as $i => $rows) {
