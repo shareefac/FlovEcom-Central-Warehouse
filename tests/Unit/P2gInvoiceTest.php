@@ -152,6 +152,24 @@ final class P2gInvoiceTest extends TestCase
         self::assertSame('no_heading', self::refusal((string) preg_replace('/^ Details .*$/m', '', $text)));
     }
 
+    public function testTheApiCopyWithItsHeadingsOnOneLineIsReadTheSame(): void
+    {
+        // B0 on production (27 Nov 2026, both accounts): GET /invoices serves the same invoice, but its table prints "Net Amount" and "VAT Amount"
+        // on ONE line (the website's copy wraps "Amount" to a second line). Read the same, to the penny; any other heading stays refused.
+        $web = P2gFixtures::invoiceText(95792472, '26/11/2026', self::ROWS);
+        $one = ' Details                                                                         Parcels    Net Amount    VAT Amount';
+        $api = (string) preg_replace('/^ Details .*\n\s+Amount\s+Amount\n/m', $one . "\n", $web, 1, $done);
+        self::assertSame(1, $done, 'the fixture has the two heading lines');
+        self::assertSame(P2gInvoice::read($web, 150278180, 95792472), P2gInvoice::read($api, 150278180, 95792472), 'the API copy reads as the website copy');
+        self::assertSame('no_heading', self::refusal(str_replace('VAT Amount', 'VAT', $api)), 'Net Amount beside a bare VAT: not the table CW knows');
+        self::assertSame('no_heading', self::refusal(str_replace('Net Amount', 'Price Amount', $api)));
+        // a long basket: the API heading again on page 2
+        $text = (string) preg_replace('/^ Details .*\n\s+Amount\s+Amount\n/m', $one . "\n", P2gFixtures::invoiceText(1, '26/11/2026',
+            [[150000011, 'Evri Europe Standard Parcelshop', 1, 100, 0], [150000012, 'Evri Europe Standard Parcelshop', 1, 200, 0]]), 1);
+        $pages = (string) preg_replace('/^( P2G150000012 .*)$/m', "\fParcel2Go.com Ltd                Page 2 of 2\n Invoice No.   TX-1\n{$one}\n$1", $text, 1);
+        self::assertSame([300, [100, 200]], [P2gInvoice::read($pages)['net'], array_column(P2gInvoice::read($pages)['rows'], 'net')]);
+    }
+
     public function testALongBasketOverTwoPagesReadsWithItsHeadingsOnEachPage(): void
     {
         // the fix round's own check (a basket of many labels spills onto a second page, whose table repeats its headings): read whole

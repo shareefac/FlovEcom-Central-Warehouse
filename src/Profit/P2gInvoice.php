@@ -27,7 +27,8 @@ use CW\CwException;
  * P2G may work VAT out on the price with VAT); the rows add up to the printed Net and VAT and Net + VAT = Invoice Total, to the penny. A
  * PrePay top-up's invoice is never a delivery cost: refused. Kept: the number, the transaction id, the date, the rows (P2G number, kind,
  * service, parcels, net, VAT rate, VAT, total) and the totals; never the text (names and addresses are on it).
- * WAITS FOR THE PROBE (B0): only that the API's GET /invoices serves this same PDF (by OrderId and/or OrderLineId), and any other row
+ * B0 (production, 27 Nov 2026, both accounts): GET /invoices by OrderId serves this same invoice, its headings "Net Amount" and "VAT Amount"
+ * on one line (HEADINGS). STILL WAITS FOR THE FIRST WEEKS: any other row
  * kinds (cover, SMS, a discount, a refund) the first weeks show: until they are known, such an invoice is REFUSED (said), never priced wrongly.
  */
 final class P2gInvoice
@@ -45,7 +46,7 @@ final class P2gInvoice
         'row_twice' => 'a label priced twice on it',
         'vat_rate' => 'a row\'s VAT is neither 0 nor 20% of its net',
         'below_zero' => 'a row below 0 (a credit CW does not read yet)',
-        'no_heading' => 'its table\'s headings are not Details, Parcels, Net, VAT before its rows',
+        'no_heading' => 'its table\'s headings are not Details, Parcels, Net (Amount), VAT (Amount) before its rows',
         'service_differs' => 'a price row\'s service is not the label\'s own service on Parcel2Go\'s list or export',
         'other_basket' => 'a price row\'s label was paid in another basket',
         'parcels_differ' => 'it prints fewer parcels for a label than CW holds for it',
@@ -64,7 +65,9 @@ final class P2gInvoice
     private const ROW = '/^P2G([0-9]{6,12})\s+-\s+(.{2,120})$/D';
     /** The ONE surcharge row the real invoice shows (exactly this text: any other "Extra ..." is a row CW does not know). */
     private const EXTRA = 'Extra Payment';
-    private const HEADINGS = ['Details', 'Parcels', 'Net', 'VAT'];
+    /** The table's headings, as a line of `pdftotext -layout`: the website's copy wraps "Amount" under Net and VAT (a line with no money: skipped);
+     *  the API's copy (GET /invoices, B0 on production 27 Nov 2026) prints "Net Amount" and "VAT Amount" on the one line. Nothing else. */
+    private const HEADINGS = [['Details', 'Parcels', 'Net', 'VAT'], ['Details', 'Parcels', 'Net Amount', 'VAT Amount']];
     private const DELIVERY = '/evri|hermes|royal\s+mail|parcelforce|\bdpd\b|\bups\b|\bdhl\b|fedex|yodel|inpost|parcel|delivery|collection|drop[\s-]*off|shop'
         . '|tracked|international|europe|express|economy|standard|next\s+day|\b24\b|\b48\b|letter|packet/i';
     private const TOPUP = '/pre-?pay(?:ment)?\s+top[\s-]*up|top[\s-]*up\s+(?:of\s+)?(?:your\s+)?pre-?pay|prepayment\s+invoice/i';
@@ -111,7 +114,7 @@ final class P2gInvoice
                     }
                 }
             }
-            if ($cells === self::HEADINGS) {
+            if (in_array($cells, self::HEADINGS, true)) {
                 $headings++;
                 continue;
             }
